@@ -1,6 +1,3 @@
-### 📘 README.md
-
-```markdown
 # MegaZ80Editor
 
 🚧 **Experimental Z80 Assembly Editor Project** 🚧  
@@ -30,7 +27,6 @@
 ## Directory Structure
 
 ```
-
 mega-z80-editor/
 ├── docs/               # Documentation (includes P0 summary)
 ├── packages/
@@ -41,8 +37,7 @@ mega-z80-editor/
 │   └── vscode-ext/     # VSCode Extension
 └── examples/
 └── hello-msx/      # Example project with mz80.yaml + main.asm
-
-````
+```
 
 ---
 
@@ -63,7 +58,7 @@ mega-z80-editor/
 cd examples/hello-msx
 node ../../packages/cli/dist/index.js check-config
 node ../../packages/cli/dist/index.js --json check-config
-````
+```
 
 ### LSP (via VSCode Extension)
 
@@ -83,4 +78,3 @@ node ../../packages/cli/dist/index.js --json check-config
 * Extend DAP with openMSX integration
 * Add testing & CI workflows
 
-```
