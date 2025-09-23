@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MZ80 Debugger",
+      "type": "mz80-dap",
+      "request": "launch"
+    }
+  ]
+}

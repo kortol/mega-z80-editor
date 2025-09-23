@@ -1,0 +1,52 @@
+{
+  "name": "mz80-vscode-ext",
+  "displayName": "MegaZ80Editor",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "mz80",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:z80-asm",
+    "onCommand:mz80.runMake",
+    "onDebugInitialConfigurations",
+    "onDebugResolve:mz80-dap"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "z80-asm",
+        "aliases": ["Z80 Assembly", "z80-asm", "asm"],
+        "extensions": [".asm"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mz80.runMake",
+        "title": "mz80: Run Make"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "mz80-dap",
+        "label": "MZ80 Debugger",
+        "program": "./dist/index.js",
+        "languages": ["asm"]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^20.14.11",
+    "@types/vscode": "^1.90.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

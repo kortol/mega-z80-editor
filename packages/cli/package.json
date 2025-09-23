@@ -1,0 +1,22 @@
+{
+  "name": "@mz80/cli",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "mz80": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js --help"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}
