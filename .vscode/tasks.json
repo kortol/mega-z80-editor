@@ -50,6 +50,25 @@
         "kind": "build",
         "isDefault": true
       }
+    },
+    {
+      "label": "Run CP/M Emulator",
+      "type": "shell",
+      "command": "${workspaceFolder}/tools/emulator/cpm.exe",
+      "args": [
+        "${workspaceFolder}/examples/hello-cpm/hello.com"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "Run MSX Emulator",
+      "type": "shell",
+      "command": "${workspaceFolder}/tools/emulator/msx.exe",
+      "args": [
+        "-cart",
+        "${workspaceFolder}/examples/hello-msx/dist/hello-msx.rom"
+      ],
+      "group": "build"
     }
   ]
 }

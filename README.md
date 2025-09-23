@@ -41,6 +41,14 @@ mega-z80-editor/
 
 ---
 
+## Emulator setup
+- CP/M emulator (takeda-toshiya): http://takeda-toshiya.my.coocan.jp/cpm/
+- Place binary here: `tools/emulator/cpmemu.exe`
+- openMSX: https://openmsx.org/
+- Place binary here: `tools/emulator/openmsx/`
+
+---
+
 ## P0 Achievements (2025-09-23)
 
 - ✅ CLI works (`check-config`, `--json`, `--verbose`, `--quiet`)
