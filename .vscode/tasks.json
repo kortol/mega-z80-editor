@@ -1,0 +1,55 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Assemble (all .asm in src/)",
+      "type": "shell",
+      "command": "node mz80-as",
+      "args": [
+        "src/**/*.asm",
+        "-o",
+        "build/"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Link (all .rel in build/)",
+      "type": "shell",
+      "command": "node mz80-link",
+      "args": [
+        "build/*.rel",
+        "-o",
+        "dist/output.bin"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Run (openMSX with output.bin)",
+      "type": "shell",
+      "command": "openmsx",
+      "args": [
+        "-machine",
+        "C-BIOS_MSX2+",
+        "-script",
+        "scripts/loadbin.tcl"
+      ],
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Build & Run",
+      "dependsOn": [
+        "Assemble (all .asm in src/)",
+        "Link (all .rel in build/)",
+        "Run (openMSX with output.bin)"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

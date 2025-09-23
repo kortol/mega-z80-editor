@@ -1,0 +1,56 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Assemble hello-msx",
+      "type": "shell",
+      "command": "node ../../mz80-as",
+      "args": [
+        "src/main.asm",
+        "-o",
+        "build/main.rel"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Link hello-msx",
+      "type": "shell",
+      "command": "node ../../mz80-link",
+      "args": [
+        "build/main.rel",
+        "../../bios.rel",
+        "-o",
+        "dist/hello-msx.bin"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Run hello-msx (openMSX)",
+      "type": "shell",
+      "command": "openmsx",
+      "args": [
+        "-machine",
+        "C-BIOS_MSX2+",
+        "-script",
+        "scripts/loadbin.tcl"
+      ],
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Build & Run hello-msx",
+      "dependsOn": [
+        "Assemble hello-msx",
+        "Link hello-msx",
+        "Run hello-msx (openMSX)"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
