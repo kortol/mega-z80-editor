@@ -1,4 +1,4 @@
-const fs = require("fs");
+import * as fs from "fs";
 
 // ========== データ型 ==========
 interface RelSymbol { name: string; addr: number; }
@@ -50,8 +50,8 @@ function parseRelFile(filename: string): RelModule {
   return mod;
 }
 
-// ========== リンク処理 ==========
-function linkRelFiles(inputs: string[], output: string) {
+// ========== リンク処理（外部公開用） ==========
+export function link(inputs: string[], output: string) {
   const symbols = new Map<string, number>();
   const texts: RelText[] = [];
   const refs: RelRef[] = [];
@@ -130,7 +130,7 @@ if (require.main === module) {
   const inputs = args.slice(0, outIndex);
 
   try {
-    linkRelFiles(inputs, output);
+    link(inputs, output);
   } catch (err: any) {
     console.error("Link error:", err.message);
     process.exit(1);

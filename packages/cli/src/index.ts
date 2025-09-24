@@ -3,7 +3,11 @@ import { Command } from "commander";
 import fs from "fs";
 import path from "path";
 import yaml from "yaml";
-import { Logger } from "./logger.js";
+import { Logger } from "./logger";
+
+// P1 assembler / linker を import
+import { assemble } from "./cli/mz80-as";
+import { link } from "./cli/mz80-link";
 
 const program = new Command();
 
@@ -48,6 +52,44 @@ program
       console.log(parsed);
     }
   });
+
+// === サブコマンド: as (アセンブラ) ===
+program
+  .command("as <input> <output>")
+  .description("Assemble .asm into .rel")
+  .action((input, output) => {
+    const opts = program.opts();
+    const logLevel: "quiet" | "normal" | "verbose" =
+      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
+    const logger = new Logger(logLevel);
+
+    try {
+      assemble(input, output);
+      logger.info(`✅ Assembled: ${input} → ${output}`);
+    } catch (err: any) {
+      logger.error(`❌ Assembly failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+// === サブコマンド: link (リンカ) ===
+program
+  .command("link <output> <inputs...>")
+  .description("Link .rel files into .bin")
+  .action((output, inputs: string[]) => {
+    const opts = program.opts();
+    const logLevel: "quiet" | "normal" | "verbose" =
+      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
+    const logger = new Logger(logLevel);
+
+    try {
+      link(inputs, output);
+      logger.info(`✅ Linked: ${inputs.join(", ")} → ${output}`);
+    } catch (err: any) {
+      logger.error(`❌ Link failed: ${err.message}`);
+      process.exit(1);
+    }
+  });  
 
 // === サブコマンド: build ===
 program
