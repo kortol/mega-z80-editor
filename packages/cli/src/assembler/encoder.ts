@@ -1,6 +1,16 @@
 import { AsmContext } from "./context";
 import { NodeInstr } from "./parser";
 import { parseNumber } from "./tokenizer";
+import {
+  resolveValue,
+  regCode,
+  reg16Code,
+  isReg8,
+  isReg16,
+  isImm8,
+  isImm16,
+} from "./encoder/utils";
+import { encodeLD } from "./encoder/ld";
 
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   switch (node.op) {
@@ -119,198 +129,6 @@ export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   }
 }
 
-// --- 共通値解決 ---
-function resolveValue(ctx: AsmContext, expr: string): number | null {
-  if (expr === "$") return ctx.loc;
-  try {
-    return parseNumber(expr);
-  } catch {
-    return null; // 数値にできなければ unresolved
-  }
-}
-
-function encodeLD(ctx: AsmContext, node: NodeInstr) {
-  const [dst, src] = node.args;
-
-  // --- I/R レジスタ転送 ---
-  if (
-    (dst === "A" && (src === "I" || src === "R")) ||
-    ((dst === "I" || dst === "R") && src === "A")
-  ) {
-    const table: Record<string, number> = {
-      "A,I": 0x57,
-      "A,R": 0x5f,
-      "I,A": 0x47,
-      "R,A": 0x4f,
-    };
-    const key = `${dst},${src}`;
-    const code = table[key];
-    ctx.texts.push({ addr: ctx.loc, data: [0xed, code] });
-    ctx.loc += 2;
-    return;
-  }
-
-  // LD r,imm8
-  if (isReg(dst) && (/^\d+$/.test(src) || /^'.'$/.test(src))) {
-    let val: number;
-    if (/^'.'$/.test(src)) {
-      val = src.charCodeAt(1); // 文字リテラル '#'
-    } else {
-      val = parseInt(src, 10);
-    }
-    const opcode = 0x06 | (regCode(dst) << 3); // LD r,n の基本形
-    ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xff] });
-    ctx.loc += 2;
-    return;
-  }
-
-  // LD r,r2
-  if (isReg(dst) && isReg(src)) {
-    const opcode = 0x40 | (regCode(dst) << 3) | regCode(src);
-    ctx.texts.push({ addr: ctx.loc, data: [opcode] });
-    ctx.loc += 1;
-    return;
-  }
-
-  // 新規: LD r,(HL)
-  if (isReg(dst) && src === "(HL)") {
-    return encodeLD_rHL(ctx, dst);
-  }
-
-  // 新規: LD (HL),r
-  if (dst === "(HL)" && isReg(src)) {
-    return encodeLD_HLr(ctx, src);
-  }
-
-  // 新規: LD A,(nn)
-  if (dst === "A" && isAddress(src)) {
-    return encodeLD_Ann(ctx, src);
-  }
-
-  // 新規: LD (nn),A
-  if (src === "A" && isAddress(dst)) {
-    return encodeLD_nnA(ctx, dst);
-  }
-
-  // --- 16bit LD ---
-  if (isRegPair(dst) && isImmediate(src)) {
-    // LD rr,nn
-    return encodeLD_rrnn(ctx, dst, src);
-  }
-  if (dst === "HL" && isMemAddress(src)) {
-    // LD HL,(nn)
-    return encodeLD_HLnn(ctx, src.slice(1, -1)); // ()を外す
-  }
-  if (isMemAddress(dst) && src === "HL") {
-    // LD (nn),HL
-    return encodeLD_nnHL(ctx, dst.slice(1, -1)); // ()を外す
-  }
-  if (dst === "SP" && src === "HL") {
-    return encodeLD_SP_HL(ctx);
-  }
-
-  throw new Error(`Unsupported LD form at line ${node.line}`);
-}
-
-// --- 8bit LD: r,(HL) ---
-function encodeLD_rHL(ctx: AsmContext, dst: string) {
-  const opcode = 0x46 | (regCode(dst) << 3); // base=0x46
-  ctx.texts.push({ addr: ctx.loc, data: [opcode] });
-  ctx.loc += 1;
-}
-
-// --- 8bit LD: (HL),r ---
-function encodeLD_HLr(ctx: AsmContext, src: string) {
-  const opcode = 0x70 | regCode(src); // base=0x70
-  ctx.texts.push({ addr: ctx.loc, data: [opcode] });
-  ctx.loc += 1;
-}
-
-// --- 8bit LD: A,(nn) ---
-function encodeLD_Ann(ctx: AsmContext, src: string) {
-  const val = resolveValue(ctx, src);
-  if (val === null) {
-    // 未解決シンボル
-    ctx.texts.push({ addr: ctx.loc, data: [0x3a, 0x00, 0x00] });
-    ctx.unresolved.push({ addr: ctx.loc + 1, symbol: src, size: 2 });
-    ctx.loc += 3;
-    return;
-  }
-  ctx.texts.push({
-    addr: ctx.loc,
-    data: [0x3a, val & 0xff, (val >> 8) & 0xff],
-  });
-  ctx.loc += 3;
-}
-
-// --- 8bit LD: (nn),A ---
-function encodeLD_nnA(ctx: AsmContext, addrExpr: string) {
-  const val = resolveValue(ctx, addrExpr);
-  if (val === null) {
-    ctx.texts.push({ addr: ctx.loc, data: [0x32, 0x00, 0x00] });
-    ctx.unresolved.push({ addr: ctx.loc + 1, symbol: addrExpr, size: 2 });
-    ctx.loc += 3;
-    return;
-  }
-  ctx.texts.push({
-    addr: ctx.loc,
-    data: [0x32, val & 0xff, (val >> 8) & 0xff],
-  });
-  ctx.loc += 3;
-}
-
-function encodeLD_rrnn(ctx: AsmContext, dst: string, src: string) {
-  const val = resolveValue(ctx, src);
-  if (val === null) {
-    ctx.texts.push({ addr: ctx.loc, data: [0x01, 0x00, 0x00] });
-    ctx.unresolved.push({ addr: ctx.loc + 1, symbol: src, size: 2 });
-    ctx.loc += 3;
-    return;
-  }
-
-  const regPairTable: Record<string, number> = { BC: 0, DE: 1, HL: 2, SP: 3 };
-  if (!(dst in regPairTable)) throw new Error(`Invalid 16bit reg: ${dst}`);
-  const opcode = 0x01 | (regPairTable[dst] << 4); // 01/11/21/31
-  ctx.texts.push({
-    addr: ctx.loc,
-    data: [opcode, val & 0xff, (val >> 8) & 0xff],
-  });
-  ctx.loc += 3;
-}
-
-function encodeLD_nnHL(ctx: AsmContext, addrExpr: string) {
-  const val = resolveValue(ctx, addrExpr);
-  if (val === null) {
-    ctx.texts.push({ addr: ctx.loc, data: [0x22, 0x00, 0x00] });
-    ctx.unresolved.push({ addr: ctx.loc + 1, symbol: addrExpr, size: 2 });
-  } else {
-    ctx.texts.push({
-      addr: ctx.loc,
-      data: [0x22, val & 0xff, (val >> 8) & 0xff],
-    });
-  }
-  ctx.loc += 3;
-}
-
-function encodeLD_HLnn(ctx: AsmContext, addrExpr: string) {
-  const val = resolveValue(ctx, addrExpr);
-  if (val === null) {
-    ctx.texts.push({ addr: ctx.loc, data: [0x2a, 0x00, 0x00] });
-    ctx.unresolved.push({ addr: ctx.loc + 1, symbol: addrExpr, size: 2 });
-  } else {
-    ctx.texts.push({
-      addr: ctx.loc,
-      data: [0x2a, val & 0xff, (val >> 8) & 0xff],
-    });
-  }
-  ctx.loc += 3;
-}
-
-function encodeLD_SP_HL(ctx: AsmContext) {
-  ctx.texts.push({ addr: ctx.loc, data: [0xf9] });
-  ctx.loc += 1;
-}
-
 // --- 共通: 8bit ALU演算 ---
 function encodeALU(
   ctx: AsmContext,
@@ -335,7 +153,7 @@ function encodeALU(
   }
 
   // --- レジスタ版
-  if (isReg(src)) {
+  if (isReg8(src)) {
     const opcode = base | regCode(src);
     ctx.texts.push({ addr: ctx.loc, data: [opcode] });
     ctx.loc += 1;
@@ -348,7 +166,7 @@ function encodeALU(
     return;
   }
   // --- 即値版
-  if (isImmediate(src)) {
+  if (isImm8(ctx, src)) {
     const val = resolveValue(ctx, src);
     if (val === null) {
       // 未解決シンボル
@@ -364,17 +182,34 @@ function encodeALU(
 }
 
 function encodeADD(ctx: AsmContext, node: NodeInstr) {
-  if (node.args[0] === "A") {
+  const [dst, src] = node.args;
+  if (dst === "A") {
     return encodeALU(ctx, node, 0x80, 0xc6, 0x86);
   }
   // 既存の16bit ADD HL,ss はここで処理済み
   if (
-    node.args[0] === "HL" &&
-    ["BC", "DE", "HL", "SP"].includes(node.args[1])
+    dst === "HL" &&
+    ["BC", "DE", "HL", "SP"].includes(src)
   ) {
-    const opcode = 0x09 | (reg16Code(node.args[1]) << 4);
+    const opcode = 0x09 | (reg16Code(src) << 4);
     ctx.texts.push({ addr: ctx.loc, data: [opcode] });
     ctx.loc += 1;
+    return;
+  }
+// --- ADD IX,rr ---
+  if (dst === "IX" && ["BC","DE","IX","SP"].includes(src)) {
+    const table: Record<string, number> = { BC: 0x09, DE: 0x19, IX: 0x29, SP: 0x39 };
+    const opcode = table[src];
+    ctx.texts.push({ addr: ctx.loc, data: [0xdd, opcode] });
+    ctx.loc += 2;
+    return;
+  }
+  // --- ADD IY,rr ---
+  if (dst === "IY" && ["BC","DE","IY","SP"].includes(src)) {
+    const table: Record<string, number> = { BC: 0x09, DE: 0x19, IY: 0x29, SP: 0x39 };
+    const opcode = table[src];
+    ctx.texts.push({ addr: ctx.loc, data: [0xfd, opcode] });
+    ctx.loc += 2;
     return;
   }
   throw new Error(`Unsupported ADD form at line ${node.line}`);
@@ -390,7 +225,7 @@ function encodeADC(ctx: AsmContext, node: NodeInstr) {
 function encodeSUB(ctx: AsmContext, node: NodeInstr) {
   // SUB は dst なし → SUB r / SUB n / SUB (HL)
   const src = node.args[0];
-  if (isReg(src)) {
+  if (isReg8(src)) {
     const opcode = 0x90 | regCode(src);
     ctx.texts.push({ addr: ctx.loc, data: [opcode] });
     ctx.loc += 1;
@@ -401,7 +236,7 @@ function encodeSUB(ctx: AsmContext, node: NodeInstr) {
     ctx.loc += 1;
     return;
   }
-  if (isImmediate(src)) {
+  if (isImm16(ctx, src)) {
     const val = resolveValue(ctx, src);
     if (val === null) {
       // 未解決シンボル
@@ -441,7 +276,7 @@ function encodeCP(ctx: AsmContext, node: NodeInstr) {
 
 function encodeINC(ctx: AsmContext, node: NodeInstr) {
   const r = node.args[0];
-  if (isReg(r)) {
+  if (isReg8(r)) {
     const opcode = 0x04 | (regCode(r) << 3);
     ctx.texts.push({ addr: ctx.loc, data: [opcode] });
     ctx.loc += 1;
@@ -458,7 +293,7 @@ function encodeINC(ctx: AsmContext, node: NodeInstr) {
 
 function encodeDEC(ctx: AsmContext, node: NodeInstr) {
   const r = node.args[0];
-  if (isReg(r)) {
+  if (isReg8(r)) {
     const opcode = 0x05 | (regCode(r) << 3);
     ctx.texts.push({ addr: ctx.loc, data: [opcode] });
     ctx.loc += 1;
@@ -845,7 +680,7 @@ function encodeIO(ctx: AsmContext, node: NodeInstr) {
   }
 
   // --- IN r,(C) ---
-  if (op === "IN" && args.length === 2 && args[1] === "(C)" && isReg(args[0])) {
+  if (op === "IN" && args.length === 2 && args[1] === "(C)" && isReg8(args[0])) {
     const code = 0x40 | (regCode(args[0]) << 3);
     ctx.texts.push({ addr: ctx.loc, data: [0xed, code] });
     ctx.loc += 2;
@@ -857,7 +692,7 @@ function encodeIO(ctx: AsmContext, node: NodeInstr) {
     op === "OUT" &&
     args.length === 2 &&
     args[0] === "(C)" &&
-    isReg(args[1])
+    isReg8(args[1])
   ) {
     const code = 0x41 | (regCode(args[1]) << 3);
     ctx.texts.push({ addr: ctx.loc, data: [0xed, code] });
@@ -925,55 +760,3 @@ function encodeED(ctx: AsmContext, node: NodeInstr) {
   throw new Error(`Unsupported ED instruction ${op} ${args.join(",")}`);
 }
 
-function isReg(r: string): boolean {
-  return ["A", "B", "C", "D", "E", "H", "L"].includes(r);
-}
-
-function regCode(r: string): number {
-  const table: Record<string, number> = {
-    B: 0,
-    C: 1,
-    D: 2,
-    E: 3,
-    H: 4,
-    L: 5,
-    "(HL)": 6,
-    A: 7,
-  };
-  return table[r];
-}
-
-function reg16Code(r: string): number {
-  const table: Record<string, number> = { BC: 0, DE: 1, HL: 2, SP: 3 };
-  if (table[r] === undefined) throw new Error(`Invalid 16bit register: ${r}`);
-  return table[r];
-}
-
-function isImmediate(v: string): boolean {
-  return (
-    /^\d+$/.test(v) || // 10進
-    /^[0-9A-F]+H$/i.test(v) || // 16進 (末尾H)
-    /^0x[0-9A-F]+$/i.test(v) || // 16進 (0x)
-    /^%[01]+$/.test(v) || // 2進
-    /^'.'$/.test(v) // 文字リテラル
-  );
-}
-
-function isAddress(v: string): boolean {
-  // 即値16bitアドレスか判定
-  // 1234 / 1234H / 0x1234 / %1010 など
-  return (
-    /^\d+$/.test(v) || // 10進数
-    /^[0-9A-F]+H$/i.test(v) || // 16進 (末尾H)
-    /^0x[0-9A-F]+$/i.test(v) || // 16進 (0xプレフィクス)
-    /^%[01]+$/.test(v) // 2進
-  );
-}
-
-function isMemAddress(v: string): boolean {
-  return /^\(.*\)$/.test(v); // 括弧で囲まれている
-}
-
-function isRegPair(r: string): boolean {
-  return ["BC", "DE", "HL", "SP"].includes(r);
-}
