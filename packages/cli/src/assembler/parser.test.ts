@@ -11,7 +11,7 @@ describe("parser", () => {
   test("LD A,1", () => {
     const nodes = parseLines("LD A,1");
     expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A","1"], line: 1 }
+      { kind: "instr", op: "LD", args: ["A", "1"], line: 1 }
     ]);
   });
 
@@ -19,8 +19,8 @@ describe("parser", () => {
   test("comment line is ignored", () => {
     const nodes = parseLines("LD A,1\n; comment\nLD B,2");
     expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A","1"], line: 1 },
-      { kind: "instr", op: "LD", args: ["B","2"], line: 3 }
+      { kind: "instr", op: "LD", args: ["A", "1"], line: 1 },
+      { kind: "instr", op: "LD", args: ["B", "2"], line: 3 }
     ]);
   });
 
@@ -37,7 +37,7 @@ describe("parser", () => {
     const nodes = parseLines("START: LD A,1");
     expect(nodes).toEqual([
       { kind: "label", name: "START", line: 1 },
-      { kind: "instr", op: "LD", args: ["A","1"], line: 1 }
+      { kind: "instr", op: "LD", args: ["A", "1"], line: 1 }
     ]);
   });
 
@@ -62,7 +62,7 @@ describe("parser", () => {
   test("DB and DW pseudo", () => {
     const nodes = parseLines("DB 1,2,3\nDW 100H");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "DB", args: ["1","2","3"], line: 1 },
+      { kind: "pseudo", op: "DB", args: ["1", "2", "3"], line: 1 },
       { kind: "pseudo", op: "DW", args: ["100H"], line: 2 }
     ]);
   });
@@ -71,7 +71,7 @@ describe("parser", () => {
   test("multi-line instructions", () => {
     const nodes = parseLines("LD A,1\nCALL START");
     expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A","1"], line: 1 },
+      { kind: "instr", op: "LD", args: ["A", "1"], line: 1 },
       { kind: "instr", op: "CALL", args: ["START"], line: 2 }
     ]);
   });

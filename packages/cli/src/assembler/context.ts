@@ -20,4 +20,6 @@ export interface AsmContext {
   caseInsensitive: boolean;
   texts: AsmText[];
   endReached?: boolean; // ← END 疑似命令に到達したか
+  warnings?: string[];
+  maxSymbolLen?: number;
 }

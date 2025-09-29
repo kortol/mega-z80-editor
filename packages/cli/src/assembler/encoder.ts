@@ -1,11 +1,5 @@
 import { AsmContext } from "./context";
 import { NodeInstr } from "./parser";
-import { parseNumber } from "./tokenizer";
-import {
-  resolveValue,
-  regCode,
-  isReg8,
-} from "./encoder/utils";
 import { encodeLD } from "./encoder/ld";
 import {
   encodeADD,
@@ -141,42 +135,3 @@ export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
       );
   }
 }
-
-// function encodeED(ctx: AsmContext, node: NodeInstr) {
-//   const op = node.op.toUpperCase();
-//   const args = node.args.map((a) => a.toUpperCase());
-
-//   // 単純マップ
-//   const table: Record<string, number> = {
-//     LDI: 0xa0,
-//     LDIR: 0xb0,
-//     LDD: 0xa8,
-//     LDDR: 0xb8,
-//     NEG: 0x44,
-//     RETN: 0x45,
-//     RETI: 0x4d,
-//     RRD: 0x67,
-//     RLD: 0x6f,
-//   };
-
-//   // 単純に決まるやつ
-//   const key = [op, ...args].join(" ");
-//   if (table[key]) {
-//     ctx.texts.push({ addr: ctx.loc, data: [0xed, table[key]] });
-//     return;
-//   }
-
-//   // IM n
-//   if (op === "IM") {
-//     const mode = parseInt(args[0], 10);
-//     const codes = [0x46, 0x56, 0x5e];
-//     if (isNaN(mode) || mode < 0 || mode > 2) {
-//       throw new Error(`Invalid IM mode: ${args[0]}`);
-//     }
-//     ctx.texts.push({ addr: ctx.loc, data: [0xed, codes[mode]] });
-//     return;
-//   }
-
-//   throw new Error(`Unsupported ED instruction ${op} ${args.join(",")}`);
-// }
-
