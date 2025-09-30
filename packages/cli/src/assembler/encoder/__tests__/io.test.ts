@@ -1,6 +1,6 @@
-import { AsmContext } from "../context";
-import { NodeInstr } from "../parser";
-import { encodeInstr } from "../encoder";
+import { AsmContext } from "../../context";
+import { NodeInstr } from "../../parser";
+import { encodeInstr } from "../../encoder";
 
 function makeCtx(): AsmContext {
   return {

@@ -1,6 +1,6 @@
-import { AsmContext } from "../context";
-import { NodePseudo } from "../parser";
-import { handlePseudo } from "../pseudo";
+import { AsmContext } from "../../context";
+import { NodePseudo } from "../../parser";
+import { handlePseudo } from "../../pseudo";
 
 function makeCtx(): AsmContext {
   return {

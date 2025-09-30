@@ -1,5 +1,5 @@
-import { AsmContext } from "./context";
-import { emitRel } from "./rel";
+import { AsmContext } from "../context";
+import { emitRel } from "../rel";
 
 function makeCtx(): AsmContext {
   return {

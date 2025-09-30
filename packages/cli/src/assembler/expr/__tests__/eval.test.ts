@@ -1,0 +1,151 @@
+import { evalExpr, EvalContext } from "../eval";
+import { Expr } from "../types";
+import { AssemblerErrorCode } from "../../errors";
+
+function makeCtx(): EvalContext {
+  return {
+    symbols: new Map([["FOO", 100]]),
+    externs: new Set(["EXT"]),
+    pass: 2,
+    errors: [],
+  };
+}
+
+describe("evalExpr", () => {
+  test("const expression 1+2*3", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "+",
+      left: { kind: "Const", value: 1 },
+      right: {
+        kind: "Binary",
+        op: "*",
+        left: { kind: "Const", value: 2 },
+        right: { kind: "Const", value: 3 },
+      },
+    };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Const", value: 7 });
+    expect(ctx.errors).toHaveLength(0);
+  });
+
+  test("unary -5", () => {
+    const expr: Expr = {
+      kind: "Unary",
+      op: "-",
+      expr: { kind: "Const", value: 5 },
+    };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Const", value: -5 });
+  });
+
+  test("symbol reference (defined)", () => {
+    const expr: Expr = { kind: "Symbol", name: "FOO" };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Const", value: 100 });
+  });
+
+  test("symbol reference (extern)", () => {
+    const expr: Expr = { kind: "Symbol", name: "EXT" };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Reloc", sym: "EXT", addend: 0 });
+  });
+
+  test("symbol reference (undefined)", () => {
+    const expr: Expr = { kind: "Symbol", name: "UNDEF" };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Const", value: 0 });
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprUndefinedSymbol);
+  });
+
+  test("extern + const", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "+",
+      left: { kind: "Symbol", name: "EXT" },
+      right: { kind: "Const", value: 5 },
+    };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Reloc", sym: "EXT", addend: 5 });
+  });
+
+  test("const - extern (invalid)", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "-",
+      left: { kind: "Const", value: 1 },
+      right: { kind: "Symbol", name: "EXT" },
+    };
+    const ctx = makeCtx();
+    evalExpr(expr, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprConstMinusExtern);
+  });
+
+  test("extern - extern (invalid)", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "-",
+      left: { kind: "Symbol", name: "EXT" },
+      right: { kind: "Symbol", name: "EXT" },
+    };
+    const ctx = makeCtx();
+    evalExpr(expr, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprExternArithmetic);
+  });
+
+  test("division by zero", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "/",
+      left: { kind: "Const", value: 1 },
+      right: { kind: "Const", value: 0 },
+    };
+    const ctx = makeCtx();
+    evalExpr(expr, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprDivideByZero);
+  });
+
+  test("modulo by zero", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "%",
+      left: { kind: "Const", value: 1 },
+      right: { kind: "Const", value: 0 },
+    };
+    const ctx = makeCtx();
+    evalExpr(expr, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprDivideByZero);
+  });
+
+  test("Infinity in multiplication", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "*",
+      left: { kind: "Const", value: Number.MAX_VALUE },
+      right: { kind: "Const", value: 2 },
+    };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Const", value: 0 });
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprNaN);
+  });
+
+  test("NaN in multiplication", () => {
+    const expr: Expr = {
+      kind: "Binary",
+      op: "*",
+      left: { kind: "Const", value: NaN },
+      right: { kind: "Const", value: 2 },
+    };
+    const ctx = makeCtx();
+    const res = evalExpr(expr, ctx);
+    expect(res).toEqual({ kind: "Const", value: 0 });
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprNaN);
+  });
+});

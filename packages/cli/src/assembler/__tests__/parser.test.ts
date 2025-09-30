@@ -1,5 +1,5 @@
-import { tokenize } from "./tokenizer";
-import { parse, Node } from "./parser";
+import { tokenize } from "../tokenizer";
+import { parse, Node } from "../parser";
 
 function parseLines(src: string): Node[] {
   return parse(tokenize(src));
@@ -91,4 +91,7 @@ describe("parser", () => {
     expect(() => parseLines(":")).toThrow(/Syntax error/);
   });
 
+  test("label + EQU is invalid", () => {
+    expect(() => parseLines("FOO: EQU 10")).toThrow(/EQU cannot be used/);
+  });  
 });

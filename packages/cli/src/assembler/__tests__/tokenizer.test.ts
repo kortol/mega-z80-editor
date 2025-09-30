@@ -1,4 +1,4 @@
-import { tokenize, Token, parseNumber } from "./tokenizer";
+import { tokenize, Token, parseNumber } from "../tokenizer";
 
 function kinds(tokens: Token[]): string[] {
   return tokens.map(t => t.kind + ":" + t.text);
