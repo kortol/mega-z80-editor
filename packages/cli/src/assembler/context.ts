@@ -1,3 +1,5 @@
+import { AssemblerError } from "./errors";
+
 export interface UnresolvedEntry {
   addr: number;        // アドレス
   symbol: string;      // 未解決シンボル名
@@ -22,4 +24,6 @@ export interface AsmContext {
   endReached?: boolean; // ← END 疑似命令に到達したか
   warnings?: string[];
   maxSymbolLen?: number;
+  entry?: number;   // ★ END で設定されるエントリポイント
+  errors: AssemblerError[];
 }

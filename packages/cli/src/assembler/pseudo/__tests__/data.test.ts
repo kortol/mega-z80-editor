@@ -12,7 +12,8 @@ function makeCtx(): AsmContext {
     modeSymLen: 6,
     caseInsensitive: true,
     texts: [],
-    endReached: false
+    endReached: false,
+    errors: [],
   };
 }
 

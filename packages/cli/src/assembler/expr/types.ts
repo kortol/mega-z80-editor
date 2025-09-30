@@ -12,4 +12,4 @@ export type Expr =
 // 評価結果
 export type EvalResult =
   | { kind: "Const"; value: number }
-  | { kind: "Reloc"; sym: string; addend: number };
+  | { kind: "Reloc"; sym: string; addend: Expr | number };

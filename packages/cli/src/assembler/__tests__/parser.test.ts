@@ -58,6 +58,13 @@ describe("parser", () => {
     ]);
   });
 
+  test("EQU with expression", () => {
+    const nodes = parseLines("BAR EQU 0x100+10");
+    expect(nodes).toEqual([
+      { kind: "pseudo", op: "EQU", args: ["BAR", "0x100", "+", "10"], line: 1 }
+    ]); 
+  });
+
   // 7. 疑似命令 DB, DW
   test("DB and DW pseudo", () => {
     const nodes = parseLines("DB 1,2,3\nDW 100H");

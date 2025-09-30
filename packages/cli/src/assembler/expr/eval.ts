@@ -1,12 +1,24 @@
 import { EvalResult, Expr } from "./types";
 import { AssemblerErrorCode, makeError } from "../errors";
+import { AsmContext } from "../context";
 
 export interface EvalContext {
-  symbols: Map<string, number>; // 定義済みシンボル
+  symbols: Map<string, Expr | number>; // 定義済みシンボル
   externs: Set<string>; // EXTERN 宣言済みシンボル
   pass: 1 | 2; // 現在のパス番号
   errors: any[]; // 発生したエラーを蓄積
+  visiting: Set<string>; // 現在評価中のシンボル
 }
+
+export function makeEvalCtx(ac: AsmContext): EvalContext {
+  return {
+    symbols: ac.symbols,
+    externs: new Set(ac.unresolved.map((e) => e.symbol)),
+    pass: 1,
+    errors: ac.errors,
+    visiting: new Set<string>(),
+  };
+} 
 
 // evalExpr: 式を評価し Const か Reloc を返す
 export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
@@ -16,7 +28,25 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
 
     case "Symbol":
       if (ctx.symbols.has(expr.name)) {
-        return { kind: "Const", value: ctx.symbols.get(expr.name)! };
+        const val = ctx.symbols.get(expr.name)!;
+        if (typeof val === "number") {
+          return { kind: "Const", value: val };
+        } else {
+          // Expr の場合は再帰的に評価
+          if (ctx.visiting.has(expr.name)) {
+            ctx.errors.push(
+              makeError(
+                AssemblerErrorCode.ExprCircularRef,
+                `Circular reference detected: ${expr.name}`
+              )
+            );
+            return { kind: "Const", value: 0 };
+          }
+          ctx.visiting.add(expr.name);
+          const res = evalExpr(val, ctx);
+          ctx.visiting.delete(expr.name);
+          return res;
+        }
       }
       if (ctx.externs.has(expr.name)) {
         return { kind: "Reloc", sym: expr.name, addend: 0 };
@@ -27,7 +57,7 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
           `Undefined symbol: ${expr.name}`
         )
       );
-      return { kind: "Const", value: 0 };
+      return { kind: "Reloc", sym: expr.name, addend: 0 };
 
     case "Unary":
       const valU = evalExpr(expr.expr, ctx);

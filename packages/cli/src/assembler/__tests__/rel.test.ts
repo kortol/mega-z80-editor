@@ -12,6 +12,7 @@ function makeCtx(): AsmContext {
     caseInsensitive: true,
     texts: [],
     endReached: false,
+    errors: [],
   };
 }
 
@@ -46,7 +47,7 @@ describe("rel emitter", () => {
 
   test("E record entry", () => {
     const ctx = makeCtx();
-    (ctx as any).entry = 0x0100;
+    ctx.entry = 0x0100;
     const rel = emitRel(ctx).split("\n");
     expect(rel).toContain("E 0100");
   });
@@ -56,7 +57,7 @@ describe("rel emitter", () => {
     ctx.texts.push({ addr: 0x0000, data: [0xCD, 0x05, 0x00] }); // CALL 0005h
     ctx.symbols.set("START", 0x0000);
     ctx.unresolved.push({ addr: 0x0001, symbol: "BDOS", size: 2 });
-    (ctx as any).entry = 0x0000;
+    ctx.entry = 0x0000;
 
     const rel = emitRel(ctx).split("\n");
     expect(rel).toContain("H HELLO");

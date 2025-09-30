@@ -13,6 +13,7 @@ function makeCtx(): AsmContext {
     caseInsensitive: true,
     texts: [],
     endReached: false,
+    errors: [],
   };
 }
 

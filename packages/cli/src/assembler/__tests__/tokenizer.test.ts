@@ -1,16 +1,19 @@
 import { tokenize, Token, parseNumber } from "../tokenizer";
 
 function kinds(tokens: Token[]): string[] {
-  return tokens.map(t => t.kind + ":" + t.text);
+  return tokens.map((t) => t.kind + ":" + t.text);
 }
 
 describe("tokenizer", () => {
-
   // 1. 基本命令
   test("LD A,1", () => {
     const toks = tokenize("LD A,1");
     expect(kinds(toks)).toEqual([
-      "ident:LD", "ident:A", "comma:,", "num:1", "eol:\n"
+      "ident:LD",
+      "ident:A",
+      "comma:,",
+      "num:1",
+      "eol:\n",
     ]);
     expect(toks[3].value).toBe(1);
   });
@@ -19,7 +22,11 @@ describe("tokenizer", () => {
   test("LD A,1 ; comment", () => {
     const toks = tokenize("LD A,1 ; comment");
     expect(kinds(toks)).toEqual([
-      "ident:LD", "ident:A", "comma:,", "num:1", "eol:\n"
+      "ident:LD",
+      "ident:A",
+      "comma:,",
+      "num:1",
+      "eol:\n",
     ]);
   });
 
@@ -27,7 +34,13 @@ describe("tokenizer", () => {
   test("START: LD A,2", () => {
     const toks = tokenize("START:  LD A,2");
     expect(kinds(toks)).toEqual([
-      "ident:START", "colon::", "ident:LD", "ident:A", "comma:,", "num:2", "eol:\n"
+      "ident:START",
+      "colon::",
+      "ident:LD",
+      "ident:A",
+      "comma:,",
+      "num:2",
+      "eol:\n",
     ]);
   });
 
@@ -35,8 +48,16 @@ describe("tokenizer", () => {
   test("two lines", () => {
     const toks = tokenize("LD A,1\nLD B,2");
     expect(kinds(toks)).toEqual([
-      "ident:LD", "ident:A", "comma:,", "num:1", "eol:\n",
-      "ident:LD", "ident:B", "comma:,", "num:2", "eol:\n"
+      "ident:LD",
+      "ident:A",
+      "comma:,",
+      "num:1",
+      "eol:\n",
+      "ident:LD",
+      "ident:B",
+      "comma:,",
+      "num:2",
+      "eol:\n",
     ]);
   });
 
@@ -73,16 +94,20 @@ describe("tokenizer", () => {
   });
   test("EQU", () => {
     const toks = tokenize("FOO EQU 10");
-    expect(kinds(toks)).toEqual([
-      "ident:FOO", "ident:EQU", "num:10", "eol:\n"
-    ]);
+    expect(kinds(toks)).toEqual(["ident:FOO", "ident:EQU", "num:10", "eol:\n"]);
   });
 
   // 7. 記号（括弧）
   test("paren", () => {
     const toks = tokenize("LD A,(1234H)");
     expect(kinds(toks)).toEqual([
-      "ident:LD", "ident:A", "comma:,", "lparen:(", "num:1234H", "rparen:)", "eol:\n"
+      "ident:LD",
+      "ident:A",
+      "comma:,",
+      "lparen:(",
+      "num:1234H",
+      "rparen:)",
+      "eol:\n",
     ]);
     expect(toks[4].value).toBe(0x1234);
   });
@@ -109,15 +134,25 @@ describe("tokenizer", () => {
     const src = "START:  LD A,0x10\n  LD B,%1010 ; comment";
     const toks = tokenize(src);
     expect(kinds(toks)).toEqual([
-      "ident:START", "colon::", "ident:LD", "ident:A", "comma:,", "num:0x10", "eol:\n",
-      "ident:LD", "ident:B", "comma:,", "num:%1010", "eol:\n"
+      "ident:START",
+      "colon::",
+      "ident:LD",
+      "ident:A",
+      "comma:,",
+      "num:0x10",
+      "eol:\n",
+      "ident:LD",
+      "ident:B",
+      "comma:,",
+      "num:%1010",
+      "eol:\n",
     ]);
   });
 
   // 11. 文字リテラル
   test("char literal simple", () => {
     const toks = tokenize("LD A,'A'");
-    expect(toks.some(t => t.text === "'A'")).toBe(true);
+    expect(toks.some((t) => t.text === "'A'")).toBe(true);
     // parseNumber で確認
     expect(parseNumber("'A'")).toBe(0x41);
   });
@@ -137,14 +172,13 @@ describe("tokenizer", () => {
     expect(() => parseNumber("'AB'")).toThrow();
   });
 
-
   test("char literal simple", () => {
     const toks = tokenize("LD A,'A'");
-    expect(toks.find(t => t.kind === "num")!.value).toBe(65); // 'A' = 0x41
+    expect(toks.find((t) => t.kind === "num")!.value).toBe(65); // 'A' = 0x41
   });
   test("char literal symbol", () => {
     const toks = tokenize("LD A,'#'");
-    expect(toks.find(t => t.kind === "num")!.value).toBe(35); // '#' = 0x23
+    expect(toks.find((t) => t.kind === "num")!.value).toBe(35); // '#' = 0x23
   });
   test("empty char literal error", () => {
     expect(() => tokenize("LD A,''")).toThrow();
@@ -153,4 +187,19 @@ describe("tokenizer", () => {
     expect(() => tokenize("LD A,'AB'")).toThrow();
   });
 
+  test("whitespace tokens are skipped", () => {
+    const toks = tokenize("LD\tA ,\v1\f");
+    expect(toks.map((t) => t.text)).toEqual(["LD", "A", ",", "1", "\n"]); // whitespace tokens are skipped
+  });
+
+  test("CRLF and LF newlines", () => {
+    const toks = tokenize("LD A,1\r\nLD B,2\n");
+    expect(toks.filter((t) => t.kind === "eol")).toHaveLength(2);
+  });
+
+  test("EOF mark 0x1A stops tokenization", () => {
+    const toks = tokenize("LD A,1\x1ALD B,2");
+    expect(toks.map((t) => t.text)).toContain("LD");
+    expect(toks.map((t) => t.text)).not.toContain("B"); // 打ち切られる
+  });
 });

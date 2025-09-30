@@ -21,6 +21,7 @@ export function assemble(inputFile: string, outputFile: string) {
     modeSymLen: 6,
     caseInsensitive: true,
     texts: [],
+    errors: [],
   };
 
   for (const node of nodes) {

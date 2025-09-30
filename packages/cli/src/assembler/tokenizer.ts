@@ -5,6 +5,7 @@ export type TokenKind =
   | "colon"
   | "lparen"
   | "rparen"
+  | "op"
   | "eol";
 
 export interface Token {
@@ -18,6 +19,12 @@ export interface Token {
 export function tokenize(src: string): Token[] {
   if (!src || src.trim() === "") return [];
 
+  // --- CP/M EOF (0x1A) で打ち切り ---
+  const eofIdx = src.indexOf("\x1A");
+  if (eofIdx >= 0) {
+    src = src.slice(0, eofIdx);
+  }
+
   const tokens: Token[] = [];
   const lines = src.split(/\r?\n/);
 
@@ -28,6 +35,13 @@ export function tokenize(src: string): Token[] {
 
   for (let lineNo = 0; lineNo < lines.length; lineNo++) {
     let line = lines[lineNo];
+
+    // --- 最終行が空文字なら無視 ---
+    if (lineNo === lines.length - 1 && line === "") {
+      break;
+    }
+
+    // --- コメント削除 ---
     const commentIdx = line.indexOf(";");
     if (commentIdx >= 0) line = line.substring(0, commentIdx);
 
@@ -41,14 +55,33 @@ export function tokenize(src: string): Token[] {
         continue;
       }
 
-      // 記号
-      if (/^[,:()]/.test(rest[0])) {
+      // --- 記号 ---
+      if (/^[,:()+\-*/]/.test(rest[0])) {
         const ch = rest[0];
-        const kind =
-          ch === "," ? "comma" :
-          ch === ":" ? "colon" :
-          ch === "(" ? "lparen" : "rparen";
-        tokens.push({ kind, text: ch, line: lineNo+1, col });
+        let kind: TokenKind;
+        switch (ch) {
+          case ",":
+            kind = "comma";
+            break;
+          case ":":
+            kind = "colon";
+            break;
+          case "(":
+            kind = "lparen";
+            break;
+          case ")":
+            kind = "rparen";
+            break;
+          case "+":
+          case "-":
+          case "*":
+          case "/":
+            kind = "op"; // ← 新しく追加
+            break;
+          default:
+            throw new Error(`Unhandled symbol ${ch}`);
+        }
+        tokens.push({ kind, text: ch, line: lineNo + 1, col });
         col += 1;
         continue;
       }
@@ -58,42 +91,75 @@ export function tokenize(src: string): Token[] {
         if (/^'.'/.test(rest) && rest.length >= 3 && rest[2] === "'") {
           const text = rest.slice(0, 3); // 'A'
           const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, line: lineNo+1, col });
+          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
           col += 3;
           continue;
         } else if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
           const text = rest.slice(0, 4); // '\n' とか '\''
           const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, line: lineNo+1, col });
+          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
           col += 4;
           continue;
         } else {
-          throw new Error(`Tokenizer error at line ${lineNo+1}, col ${col}: '${rest[0]}'`);
+          throw new Error(
+            `Tokenizer error at line ${lineNo + 1}, col ${col}: '${rest[0]}'`
+          );
         }
-      }      
+      }
+
+      // %の場合、%(0|1)+は数値でそれ以外はoperator
+      if (rest[0] === "%") {
+        const m = /^(%[01]+)/.exec(rest);
+        if (m) {
+          const text = m[1];
+          const value = parseNumber(text); // parseNumber が throw する場合は即エラー
+          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
+          col += text.length;
+          continue;
+        } else {
+          tokens.push({ kind: "op", text: "%", line: lineNo + 1, col });
+          col += 1;
+          continue;
+        }
+      }
 
       // --- 数値または識別子（$,%含む） ---
-      const m = /^([A-Za-z0-9\$\%][A-Za-z0-9A-Fa-fHhBbXx]*)/.exec(rest);
+      const m = /^([A-Za-z0-9\$][A-Za-z0-9A-Fa-fHhBbXx]*)/.exec(rest);
       if (m) {
         const text = m[1];
         if (text === "$") {
           // 現在アドレス → 特殊記号なので ident 扱い
-          tokens.push({ kind: "ident", text, line: lineNo+1, col });
-        } else if (/^(0X|[0-9]|[$%])/.test(text)) {
+          tokens.push({ kind: "ident", text, line: lineNo + 1, col });
+        } else if (/^(0X|[0-9]|[$])/.test(text)) {
           // 数値リテラルの可能性がある場合は厳格チェック
           const value = parseNumber(text); // parseNumber が throw する場合は即エラー
-          tokens.push({ kind: "num", text, value, line: lineNo+1, col });
+          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
         } else {
-          tokens.push({ kind: "ident", text, line: lineNo+1, col });
+          tokens.push({ kind: "ident", text, line: lineNo + 1, col });
         }
         col += text.length;
         continue;
       }
 
-      throw new Error(`Tokenizer error at line ${lineNo+1}, col ${col}: '${rest[0]}'`);
+      throw new Error(
+        `Tokenizer error at line ${lineNo + 1}, col ${col}: '${rest[0]}'`
+      );
     }
-
-    tokens.push({ kind:"eol", text:"\n", line: lineNo+1, col: line.length });
+    tokens.push({
+      kind: "eol",
+      text: "\n",
+      line: lineNo + 1,
+      col: line.length,
+    });
+  }
+  // 🔽 最終行が改行で終わらなかった場合も eol を保証
+  if (tokens.length === 0 || tokens[tokens.length - 1].kind !== "eol") {
+    tokens.push({
+      kind: "eol",
+      text: "\n",
+      line: lines.length,
+      col: lines[lines.length - 1].length,
+    });
   }
 
   return tokens;

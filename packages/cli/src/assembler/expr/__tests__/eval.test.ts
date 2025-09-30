@@ -8,6 +8,7 @@ function makeCtx(): EvalContext {
     externs: new Set(["EXT"]),
     pass: 2,
     errors: [],
+    visiting: new Set(),
   };
 }
 
@@ -59,7 +60,7 @@ describe("evalExpr", () => {
     const expr: Expr = { kind: "Symbol", name: "UNDEF" };
     const ctx = makeCtx();
     const res = evalExpr(expr, ctx);
-    expect(res).toEqual({ kind: "Const", value: 0 });
+    expect(res).toEqual({ kind: "Reloc", sym: "UNDEF", addend: 0 });
     expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprUndefinedSymbol);
   });
 
@@ -147,5 +148,44 @@ describe("evalExpr", () => {
     const res = evalExpr(expr, ctx);
     expect(res).toEqual({ kind: "Const", value: 0 });
     expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprNaN);
+  });
+
+  test("direct circular EQU", () => {
+    const ctx = makeCtx();
+    // FOO EQU FOO+1
+    ctx.symbols.set("FOO", {
+      kind: "Binary",
+      op: "+",
+      left: { kind: "Symbol", name: "FOO" },
+      right: { kind: "Const", value: 1 },
+    });
+    evalExpr({ kind: "Symbol", name: "FOO" }, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprCircularRef);
+  });
+
+  test("indirect circular EQU", () => {
+    const ctx = makeCtx();
+    ctx.symbols.set("A", {
+      kind: "Binary",
+      op: "+",
+      left: { kind: "Symbol", name: "B" },
+      right: { kind: "Const", value: 1 },
+    });
+    ctx.symbols.set("B", {
+      kind: "Binary",
+      op: "+",
+      left: { kind: "Symbol", name: "A" },
+      right: { kind: "Const", value: 1 },
+    });
+    evalExpr({ kind: "Symbol", name: "A" }, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprCircularRef);
+  });
+
+  test("ORG self reference", () => {
+    const ctx = makeCtx();
+    // ORG START ; START: ...
+    ctx.symbols.set("START", { kind: "Symbol", name: "START" });
+    evalExpr({ kind: "Symbol", name: "START" }, ctx);
+    expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprCircularRef);
   });
 });
