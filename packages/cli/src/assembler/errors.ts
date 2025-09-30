@@ -9,6 +9,7 @@ export enum AssemblerErrorCode {
   ExprExternArithmetic = "A2101", // EXT ± EXT
   ExprConstMinusExtern = "A2102", // const - EXT
   ExprCircularRef = "A2103", // シンボルの循環参照
+  ExprNotConstant = "A2104", // 定数ではない
   ExprDivideByZero = "A2200", // ゼロ除算/剰余ゼロ
   ExprNaN = "A2201", // 演算結果がNaN/Infinity
 
@@ -21,6 +22,7 @@ export enum AssemblerErrorCode {
   // Encoder 系
   InvalidOperand = "A4000",
   RangeError = "A4001",
+  ExternMissingSymbol = "A4002",   // ★ 新規
 
   // Linker 系
   UnresolvedExtern = "A5000",

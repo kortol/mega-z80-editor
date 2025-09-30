@@ -108,10 +108,21 @@ export function parse(tokens: Token[]): Node[] {
   return nodes;
 }
 
-function isInstr(op: string): boolean {
-  return ["LD", "CALL", "JR"].includes(op);
+export function isInstr(op: string): boolean {
+  const instrs = [
+    "LD", "CALL", "JP", "JR", "RET", "RETI", "RETN",
+    "ADD", "ADC", "SUB", "SBC",
+    "AND", "OR", "XOR", "CP",
+    "INC", "DEC",
+    "PUSH", "POP",
+    "EX", "EXX",
+    "NOP", "HALT", "RST", "DI", "EI",
+    "OUT", "IN",
+    // まだ足りないけど、P1-C フィクスチャで必要そうな命令はここに追加
+  ];
+  return instrs.includes(op.toUpperCase());
 }
 
 function isPseudo(op: string): boolean {
-  return ["ORG", "END", "DB", "DW", "EQU", ".WORD32", ".SYMLEN"].includes(op);
+  return ["ORG", "END", "DB", "DW", "EQU", ".WORD32", ".SYMLEN", "END", "EXTERN"].includes(op);
 }

@@ -66,13 +66,13 @@ describe("LD instructions", () => {
 
   test("LD A,(1234H) → 3A 34 12", () => {
     const ctx = makeCtx();
-    encodeInstr(ctx, makeNode("LD", ["A", "1234H"]));
+    encodeInstr(ctx, makeNode("LD", ["A", "(1234H)"]));
     expect(ctx.texts[0].data).toEqual([0x3a, 0x34, 0x12]);
   });
 
   test("LD (1234H),A → 32 34 12", () => {
     const ctx = makeCtx();
-    encodeInstr(ctx, makeNode("LD", ["1234H", "A"]));
+    encodeInstr(ctx, makeNode("LD", ["(1234H)", "A"]));
     expect(ctx.texts[0].data).toEqual([0x32, 0x34, 0x12]);
   });
 });
@@ -92,13 +92,13 @@ describe("LD 8bit (basic)", () => {
 
   test("LD A,(1234H) → 3A 34 12", () => {
     const ctx = makeCtx();
-    encodeInstr(ctx, makeNode("LD", ["A", "1234H"]));
+    encodeInstr(ctx, makeNode("LD", ["A", "(1234H)"]));
     expect(ctx.texts[0].data).toEqual([0x3a, 0x34, 0x12]);
   });
 
   test("LD (1234H),A → 32 34 12", () => {
     const ctx = makeCtx();
-    encodeInstr(ctx, makeNode("LD", ["1234H", "A"]));
+    encodeInstr(ctx, makeNode("LD", ["(1234H)", "A"]));
     expect(ctx.texts[0].data).toEqual([0x32, 0x34, 0x12]);
   });
 });

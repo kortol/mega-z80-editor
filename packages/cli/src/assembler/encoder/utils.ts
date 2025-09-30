@@ -11,7 +11,10 @@
  */
 
 import { AsmContext } from "../context";
-import { parseNumber } from "../tokenizer";
+import { AssemblerErrorCode } from "../errors";
+import { evalExpr } from "../expr/eval";
+import { parseExpr } from "../expr/parserExpr";
+import { parseNumber, tokenize } from "../tokenizer";
 
 /* -------------------- 値解決 -------------------- */
 
@@ -87,8 +90,13 @@ export function isAbs16(v: string): boolean {
 }
 
 /** 括弧付きアドレス (例: (1234H), (LABEL)) */
-export function isMemAddress(v: string): boolean {
-  return /^\(.*\)$/.test(v);
+export function isMemAddress(s: string): boolean {
+  return /^\(.+\)$/.test(s.trim()); // ()で囲まれていればメモリ参照
+}
+
+export function isIdxReg(s: string): boolean {
+  const upperCase = s.toUpperCase();
+  return upperCase.includes("IX") || upperCase.includes("IY");
 }
 
 /**
@@ -107,4 +115,35 @@ export function parseIndexAddr(
   if (val < -128 || val > 127)
     throw new Error(`Index displacement out of range: ${val}`);
   return { prefix, disp: val & 0xff };
+}
+
+
+export function resolveExpr8(ctx: AsmContext, expr: string, line: number): number {
+  const tokens = tokenize(expr).filter(t => t.kind !== "eol");
+  const e = parseExpr(tokens);
+  const res = evalExpr(e, { ...ctx, pass: 1, visiting: new Set(), externs: new Set() });
+  if (res.kind !== "Const") {
+    ctx.errors.push({
+      code: AssemblerErrorCode.ExprNotConstant,
+      message: `Non-constant expression at line ${line}`,
+      line,
+    });
+    return 0;
+  }
+  return res.value & 0xff;
+}
+
+export function resolveExpr16(ctx: AsmContext, expr: string, line: number): number {
+  const tokens = tokenize(expr).filter(t => t.kind !== "eol");
+  const e = parseExpr(tokens);
+  const res = evalExpr(e, { ...ctx, pass: 1, visiting: new Set(), externs: new Set() });
+  if (res.kind !== "Const") {
+    ctx.errors.push({
+      code: AssemblerErrorCode.ExprNotConstant,
+      message: `Non-constant expression at line ${line}`,
+      line,
+    });
+    return 0;
+  }
+  return res.value & 0xffff;
 }

@@ -12,14 +12,30 @@ import {
   encodeCP,
 } from "./encoder/alu";
 import { encodeINC, encodeDEC } from "./encoder/incdec";
-import { encodeJP, encodeJR, encodeCALL, encodeRET, encodeRST, encodeDJNZ,  } from "./encoder/jump";
+import { encodeJP, encodeJR, encodeCALL, encodeRET, encodeRST, encodeDJNZ, } from "./encoder/jump";
 import { encodeEX } from "./encoder/ex";
 import { encodeMisc } from "./encoder/misc";
 import { encodeCB } from "./encoder/cb";
 import { encodeIO } from "./encoder/io";
 import { encodeED } from "./encoder/ed";
 
+
+import { instrTable } from "./encoder/instrTable";
+
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
+  const defs = instrTable[node.op];
+  if (defs) {
+    for (const def of defs) {
+      if (def.match(ctx, node.args)) {
+        return def.encode(ctx, node.args, node);
+      }
+    }
+  }
+  // fallback
+  return encodeLegacyInstr(ctx, node);
+}
+
+export function encodeLegacyInstr(ctx: AsmContext, node: NodeInstr) {
   switch (node.op) {
     case "LD":
       encodeLD(ctx, node);
