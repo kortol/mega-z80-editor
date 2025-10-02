@@ -15,13 +15,16 @@ import {
 } from "./utils";
 
 import { InstrDef } from "./types";
+import { OperandKind } from "../operand/operandKind";
 
 export const ldInstr: InstrDef[] = [
   // --- LD r,r2 ---
   {
-    match: (ctx, [dst, src]) => isReg8(dst) && isReg8(src),
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 &&
+      src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
-      const opcode = 0x40 | (regCode(dst) << 3) | regCode(src);
+      const opcode = 0x40 | (regCode(dst.raw) << 3) | regCode(src.raw);
       ctx.texts.push({ addr: ctx.loc, data: [opcode] });
       ctx.loc += 1;
     },
@@ -29,9 +32,12 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD r,(HL) ---
   {
-    match: (ctx, [dst, src]) => isReg8(dst) && src === "(HL)",
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 &&
+      src.kind === OperandKind.REG_IND &&
+      src.raw == "(HL)",
     encode(ctx, [dst], node) {
-      const opcode = 0x46 | (regCode(dst) << 3);
+      const opcode = 0x46 | (regCode(dst.raw) << 3);
       ctx.texts.push({ addr: ctx.loc, data: [opcode] });
       ctx.loc += 1;
     },
@@ -39,9 +45,12 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD (HL),r ---
   {
-    match: (ctx, [dst, src]) => dst === "(HL)" && isReg8(src),
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG_IND &&
+      dst.raw === "(HL)" &&
+      src.kind === OperandKind.REG8,
     encode(ctx, [, src], node) {
-      const opcode = 0x70 | regCode(src);
+      const opcode = 0x70 | regCode(src.raw);
       ctx.texts.push({ addr: ctx.loc, data: [opcode] });
       ctx.loc += 1;
     },
@@ -50,21 +59,28 @@ export const ldInstr: InstrDef[] = [
   // --- LD A,I / LD A,R / LD I,A / LD R,A ---
   {
     match: (ctx, [dst, src]) =>
-      (dst === "A" && (src === "I" || src === "R")) ||
-      ((dst === "I" || dst === "R") && src === "A"),
+      (
+        dst.kind === OperandKind.REG8 &&
+        dst.raw === 'A' &&
+        src.kind === OperandKind.REG_IR
+      ) || (
+        dst.kind === OperandKind.REG_IR &&
+        src.kind === OperandKind.REG8 &&
+        src.raw === 'A'
+      ),
     encode(ctx, [dst, src], node) {
       const table: Record<string, number> = {
         "A,I": 0x57, "A,R": 0x5f,
         "I,A": 0x47, "R,A": 0x4f,
       };
-      ctx.texts.push({ addr: ctx.loc, data: [0xed, table[`${dst},${src}`]] });
+      ctx.texts.push({ addr: ctx.loc, data: [0xed, table[`${dst.raw},${src.raw}`]] });
       ctx.loc += 2;
     },
   },
 
   // --- LD SP,HL ---
   {
-    match: (ctx, [dst, src]) => dst === "SP" && src === "HL",
+    match: (ctx, [dst, src]) => dst.raw === "SP" && src.raw === "HL",
     encode(ctx) {
       ctx.texts.push({ addr: ctx.loc, data: [0xf9] });
       ctx.loc += 1;
@@ -73,12 +89,14 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD r,n ---
   {
-    match: (ctx, [dst, src]) => isReg8(dst) && !isReg8(src) && !isMemAddress(src) && !isReg16(src),
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 &&
+      (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
-      const val = resolveExpr8(ctx, src, node.line);
+      const val = resolveExpr8(ctx, src.raw, node.line);
       ctx.texts.push({
         addr: ctx.loc,
-        data: [0x06 | (regCode(dst) << 3), val & 0xff],
+        data: [0x06 | (regCode(dst.raw) << 3), val & 0xff],
       });
       ctx.loc += 2;
     },
@@ -86,12 +104,14 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD rr,nn ---
   {
-    match: (ctx, [dst, src]) => isReg16(dst) && !isMemAddress(src) && !isReg8(src),
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG16 &&
+      (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
-      const val = resolveExpr16(ctx, src, node.line);
+      const val = resolveExpr16(ctx, src.raw, node.line);
       ctx.texts.push({
         addr: ctx.loc,
-        data: [0x01 | (reg16Code(dst) << 4), val & 0xff, (val >> 8) & 0xff],
+        data: [0x01 | (reg16Code(dst.raw) << 4), val & 0xff, (val >> 8) & 0xff],
       });
       ctx.loc += 3;
     },
@@ -99,11 +119,14 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD HL,(nn) ---
   {
-    match: (ctx, [dst, src]) => dst === "HL" && isMemAddress(src) && !isIdxReg(src),
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG16 &&
+      dst.raw === "HL" &&
+      src.kind === OperandKind.MEM,
     encode(ctx, [, src], node) {
       // ()を除去
-      src = src.slice(1, -1);
-      const val = resolveExpr16(ctx, src, node.line);
+      const _src = src.raw.slice(1, -1);
+      const val = resolveExpr16(ctx, _src, node.line);
       ctx.texts.push({ addr: ctx.loc, data: [0x2a, val & 0xff, val >> 8] });
       ctx.loc += 3;
     },
@@ -111,11 +134,14 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD (nn),HL ---
   {
-    match: (ctx, [dst, src]) => isMemAddress(dst) && !isIdxReg(dst) && src === "HL",
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.MEM &&
+      src.kind === OperandKind.REG16 &&
+      src.raw === "HL",
     encode(ctx, [dst], node) {
       // ()を除去
-      dst = dst.slice(1, -1);
-      const val = resolveExpr16(ctx, dst, node.line);
+      const _dst = dst.raw.slice(1, -1);
+      const val = resolveExpr16(ctx, _dst, node.line);
       ctx.texts.push({ addr: ctx.loc, data: [0x22, val & 0xff, val >> 8] });
       ctx.loc += 3;
     },
@@ -123,11 +149,14 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD A,(nn) ---
   {
-    match: (ctx, [dst, src]) => dst === "A" && isMemAddress(src) && !isIdxReg(src),
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 &&
+      dst.raw === "A" &&
+      src.kind === OperandKind.MEM,
     encode(ctx, [, src], node) {
       // ()を除去
-      src = src.slice(1, -1);
-      const val = resolveExpr16(ctx, src, node.line);
+      const _src = src.raw.slice(1, -1);
+      const val = resolveExpr16(ctx, _src, node.line);
       ctx.texts.push({ addr: ctx.loc, data: [0x3a, val & 0xff, val >> 8] });
       ctx.loc += 3;
     },
@@ -135,11 +164,14 @@ export const ldInstr: InstrDef[] = [
 
   // --- LD (nn),A ---
   {
-    match: (ctx, [dst, src]) => isMemAddress(dst) && !isIdxReg(dst) && src === "A",
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.MEM &&
+      src.kind === OperandKind.REG8 &&
+      src.raw === "A",
     encode(ctx, [dst], node) {
       // ()を除去
-      dst = dst.slice(1, -1);
-      const val = resolveExpr16(ctx, dst, node.line);
+      const _dst = dst.raw.slice(1, -1);
+      const val = resolveExpr16(ctx, _dst, node.line);
       ctx.texts.push({ addr: ctx.loc, data: [0x32, val & 0xff, val >> 8] });
       ctx.loc += 3;
     },

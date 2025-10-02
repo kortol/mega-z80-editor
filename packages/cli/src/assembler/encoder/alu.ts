@@ -1,11 +1,111 @@
 import { AsmContext } from "../context";
+import { OperandInfo } from "../operand/classifyOperand";
+import { OperandKind } from "../operand/operandKind";
 import { NodeInstr } from "../parser";
-import {
-  resolveValue,
-  regCode,
-  isReg8,
-  isImm8,
-} from "./utils";
+import { InstrDef } from "./types";
+import { regCode, reg16Code, resolveExpr8, isReg8, resolveValue, isImm8 } from "./utils";
+
+// 各 ALU 命令の基本オペコード
+function baseOpcode(op: string): number {
+  switch (op) {
+    case "ADD": return 0x80;
+    case "ADC": return 0x88;
+    case "SUB": return 0x90;
+    case "SBC": return 0x98;
+    case "AND": return 0xA0;
+    case "XOR": return 0xA8;
+    case "OR": return 0xB0;
+    case "CP": return 0xB8;
+    default: throw new Error(`Unknown ALU op ${op}`);
+  }
+}
+
+// 即値オペコード
+function immOpcode(op: string): number {
+  switch (op) {
+    case "ADD": return 0xC6;
+    case "ADC": return 0xCE;
+    case "SUB": return 0xD6;
+    case "SBC": return 0xDE;
+    case "AND": return 0xE6;
+    case "XOR": return 0xEE;
+    case "OR": return 0xF6;
+    case "CP": return 0xFE;
+    default: throw new Error(`Unknown ALU op ${op}`);
+  }
+}
+
+export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplicitA?: boolean }): InstrDef[] {
+  const defs: InstrDef[] = [];
+  const base = baseOpcode(op);
+  const imm = immOpcode(op);
+
+  // --- A, n ---
+  defs.push({
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 && dst.raw === "A" &&
+      (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
+    encode(ctx, [dst, src], node) {
+      const val = resolveExpr8(ctx, src.raw, node.line);
+      ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff] });
+      ctx.loc += 2;
+    },
+  });
+
+  // --- n (暗黙A) ---
+  if (opts?.allowImplicitA) {
+    defs.push({
+      match: (ctx, [src]) =>
+        src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR,
+      encode(ctx, [src], node) {
+        const val = resolveExpr8(ctx, src.raw, node.line);
+        ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff] });
+        ctx.loc += 2;
+      },
+    });
+  }
+
+  // --- A,r ---
+  defs.push({
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 && dst.raw === "A" &&
+      src.kind === OperandKind.REG8,
+    encode(ctx, [dst, src], node) {
+      const opcode = base | regCode(src.raw);
+      ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+      ctx.loc += 1;
+    },
+  });
+
+  // --- r (暗黙A) ---
+  if (opts?.allowImplicitA) {
+    defs.push({
+      match: (ctx, [src]) =>
+        src.kind === OperandKind.REG8,
+      encode(ctx, [src], node) {
+        const opcode = base | regCode(src.raw);
+        ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+        ctx.loc += 1;
+      },
+    });
+  }
+
+  // --- 16bit版 ---
+  if (opts?.has16bit) {
+    defs.push({
+      match: (ctx, [dst, src]) =>
+        dst.kind === OperandKind.REG16 && dst.raw === "HL" &&
+        src.kind === OperandKind.REG16,
+      encode(ctx, [dst, src]) {
+        const code = reg16Code(src.raw);
+        ctx.texts.push({ addr: ctx.loc, data: [0x09 | (code << 4)] });
+        ctx.loc += 1;
+      },
+    });
+  }
+
+  return defs;
+}
 
 /**
  * 共通: 8bit ALU演算

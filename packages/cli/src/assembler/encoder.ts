@@ -21,13 +21,15 @@ import { encodeED } from "./encoder/ed";
 
 
 import { instrTable } from "./encoder/instrTable";
+import { classifyOperand } from "./operand/classifyOperand";
 
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   const defs = instrTable[node.op];
   if (defs) {
     for (const def of defs) {
-      if (def.match(ctx, node.args)) {
-        return def.encode(ctx, node.args, node);
+      const operand = node.args.map(classifyOperand)
+      if (def.match(ctx, operand)) {
+        return def.encode(ctx, operand, node);
       }
     }
   }

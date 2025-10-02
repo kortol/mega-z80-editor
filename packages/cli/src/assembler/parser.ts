@@ -82,10 +82,23 @@ export function parse(tokens: Token[]): Node[] {
 
     // 通常の命令 or 疑似命令
     const op = line[0].text.toUpperCase();
-    const args = line
-      .slice(1)
-      .filter((t) => t.kind !== "comma")
-      .map((t) => t.text);
+
+    // カンマで区切られた引数リストを作る
+    const args: string[] = [];
+    let current: string[] = [];
+    for (const t of line.slice(1)) {
+      if (t.kind === "comma") {
+        if (current.length > 0) {
+          args.push(current.join("")); // 連結して1つの式に
+          current = [];
+        }
+      } else {
+        current.push(t.text);
+      }
+    }
+    if (current.length > 0) {
+      args.push(current.join(""));
+    }
 
     if (isPseudo(op)) {
       nodes.push({ kind: "pseudo", op, args, line: line[0].line });

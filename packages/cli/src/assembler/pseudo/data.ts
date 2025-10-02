@@ -1,6 +1,6 @@
 import { AsmContext } from "../context";
 import { NodePseudo } from "../parser";
-import { parseNumber } from "../tokenizer";
+import { resolveExpr8, resolveExpr16 } from "../encoder/utils";
 
 function bytesFromLiteral(arg: string): number[] {
   if (arg.startsWith('"') && arg.endsWith('"')) {
@@ -14,13 +14,15 @@ function bytesFromLiteral(arg: string): number[] {
 
 export function handleDB(ctx: AsmContext, node: NodePseudo) {
   const bytes: number[] = [];
-  for (const a of node.args) {
+  for (const raw of node.args) {
+    const a = raw.trim();   // ← ここで必ずトリム
+    console.log(`a:${a}`);
     const lit = bytesFromLiteral(a);
     if (lit.length > 0) {
       bytes.push(...lit);
       continue;
     }
-    const val = parseNumber(a);
+    const val = resolveExpr8(ctx, a, node.line);
     if (val < 0 || val > 0xFF) {
       ctx.warnings?.push?.(`DB value ${val} truncated at line ${node.line}`);
     }
@@ -31,13 +33,13 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
 }
 
 export function handleDW(ctx: AsmContext, node: NodePseudo) {
-  for (const a of node.args) {
-    // 文字列リテラルは非対応
+  for (const raw of node.args) {
+    const a = raw.trim();   // ← 同じくトリム
+    console.log(`a:${a}`);
     if (a.startsWith('"') && a.endsWith('"')) {
       throw new Error(`DW does not support string literal`);
     }
-
-    const val = parseNumber(a);
+    const val = resolveExpr16(ctx, a, node.line);
     if (val < -0x8000 || val > 0xFFFF) {
       ctx.warnings?.push?.(`DW value ${val} truncated at line ${node.line}`);
     }
