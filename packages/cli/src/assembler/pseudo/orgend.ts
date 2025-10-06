@@ -1,13 +1,21 @@
 import { AsmContext } from "../context";
 import { NodePseudo } from "../parser";
-import { parseNumber } from "../tokenizer";
+import { resolveExpr16 } from "../encoder/utils";
 
 export function handleORG(ctx: AsmContext, node: NodePseudo) {
-  const val = parseNumber(node.args[0]);
-  if (val < 0 || val > 0xFFFF) throw new Error(`ORG out of range: ${val}`);
+  if (node.args.length !== 1) {
+    throw new Error(`ORG requires exactly one argument at line ${node.line}`);
+  }
+  const val = resolveExpr16(ctx, node.args[0], node.line, true);
+
+  // 未定義シンボルはエラーにする（ORGは relocatable じゃないので）
+  if (val === null) {
+    throw new Error(`ORG with unresolved symbol '${node.args[0]}' at line ${node.line}`);
+  }
+
   ctx.loc = val;
 }
 
-export function handleEND(ctx: AsmContext) {
+export function handleEND(ctx: AsmContext, node: NodePseudo) {
   ctx.endReached = true;
 }

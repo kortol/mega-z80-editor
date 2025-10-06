@@ -1,4 +1,5 @@
 // src/assembler/rel/adapter.ts
+import * as path from "path";
 import { RelAdapter } from "./types";
 import { RelFile } from "./types";
 
@@ -8,15 +9,27 @@ function hex4(n: number) {
 function hex2(n: number) {
   return n.toString(16).padStart(2, "0").toUpperCase();
 }
+function makeHeader(filename: string) {
+  const base = path.basename(filename, path.extname(filename));
+  return base.toUpperCase();
+}
+
 
 export class TextRelAdapter implements RelAdapter {
   write(file: RelFile): string {
     return file.records.map(r => {
       switch (r.kind) {
-        case "H": return `H ${r.name}`;
+        case "H": return `H ${makeHeader(r.name)}`;
         case "T": return `T ${hex4(r.addr)} ${r.bytes.map(hex2).join(" ")}`;
         case "S": return `S ${r.name} ${hex4(r.addr)}`;
-        case "R": return `R ${hex4(r.addr)} ${r.sym}${r.addend ? ` ${r.addend}` : ""}`;
+        case "R": {
+          let addendStr = "";
+          if (typeof r.addend === "number" && r.addend !== 0) {
+            addendStr = r.addend > 0 ? `+${r.addend}` : `${r.addend}`;
+          }
+          return `R ${hex4(r.addr)} ${r.sym}${addendStr}`;
+        }
+        case "X": return `X ${r.name}`;
         case "E": return `E ${hex4(r.addr)}`;
       }
     }).join("\n");

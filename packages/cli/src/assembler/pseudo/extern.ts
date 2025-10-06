@@ -1,11 +1,10 @@
+// src/assembler/pseudo/extern.ts
 import { AsmContext } from "../context";
 import { AssemblerErrorCode } from "../errors";
 import { NodePseudo } from "../parser";
 
 export function handleEXTERN(ctx: AsmContext, node: NodePseudo) {
-  // 形式: EXTERN <symbol> [FROM "libfile"]
   const [sym, fromKw, file] = node.args;
-
   if (!sym) {
     ctx.errors.push({
       code: AssemblerErrorCode.ExternMissingSymbol,
@@ -14,13 +13,8 @@ export function handleEXTERN(ctx: AsmContext, node: NodePseudo) {
     });
     return;
   }
-
-  // シンボルは未解決リストに登録（アドレス不定）
-  ctx.unresolved.push({
-    addr: ctx.loc,
-    symbol: sym,
-    size: 2, // デフォルト16bit参照扱い
-  });
+  // 参照は作らない。宣言だけ
+  ctx.externs.add(sym.toUpperCase());
 
   // FROM "libfile" は今は無視
   if (fromKw?.toUpperCase() === "FROM") {

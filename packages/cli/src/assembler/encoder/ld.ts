@@ -214,4 +214,5 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   }
 
   throw new Error(`Unsupported LD form at line ${node.line}`);
+  // throw new Error(`Unsupported LD form at line ${node.line}: ${JSON.stringify(node)}`);
 }

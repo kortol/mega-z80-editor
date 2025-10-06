@@ -22,6 +22,7 @@ export function assemble(inputFile: string, outputFile: string) {
     caseInsensitive: true,
     texts: [],
     errors: [],
+    externs: new Set(),
   };
 
   for (const node of nodes) {

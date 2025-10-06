@@ -1,19 +1,9 @@
-import { AsmContext } from "../../context";
+import { AsmContext, createContext } from "../../context";
 import { handlePseudo } from "../../pseudo";
 import { NodePseudo } from "../../parser";
 
 function makeCtx(): AsmContext {
-    return {
-        loc: 0,
-        moduleName: "TEST",
-        symbols: new Map(),
-        unresolved: [],
-        modeWord32: false,
-        modeSymLen: 6,
-        caseInsensitive: true,
-        texts: [],
-        errors: [],
-    };
+    return createContext({ moduleName: "TEST" });
 }
 
 function makeNode(op: string, args: string[], line = 1): NodePseudo {

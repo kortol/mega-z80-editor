@@ -18,7 +18,7 @@ export function makeEvalCtx(ac: AsmContext): EvalContext {
     errors: ac.errors,
     visiting: new Set<string>(),
   };
-} 
+}
 
 // evalExpr: 式を評価し Const か Reloc を返す
 export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
@@ -113,6 +113,9 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
         )
       );
       return { kind: "Const", value: 0 };
+
+    default:
+      throw new Error(`Unknown Expr kind: ${(expr as any).kind}`);
   }
 }
 

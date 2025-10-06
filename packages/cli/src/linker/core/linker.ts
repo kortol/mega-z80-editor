@@ -2,6 +2,14 @@
 import { parseRelFile } from "./parser";
 import { RelModule, LinkResult } from "./types";
 
+function splitSymAddend(s: string): { name: string; addend: number } {
+  const m = s.match(/^([A-Z_][A-Z0-9_]*)([+\-]\d+)?$/i);
+  if (!m) return { name: s, addend: 0 };
+  const name = m[1];
+  const addend = m[2] ? parseInt(m[2], 10) : 0; // P1-C では ±1 / ±-1 程度でOK
+  return { name, addend };
+}
+
 export function linkModules(mods: RelModule[]): LinkResult {
   const symbols = new Map<string, { bank: number; addr: number }>();
   const texts: { addr: number; bytes: number[] }[] = [];
@@ -24,7 +32,15 @@ export function linkModules(mods: RelModule[]): LinkResult {
     if (mod.entry !== undefined && entry === undefined) {
       entry = mod.entry;
     }
+
+    // パス1のシンボル収集直後に追加
+    for (const x of mod.externs) {
+      if (!symbols.has(x)) {
+        symbols.set(x, { bank: 0, addr: 0 }); // 仮の0埋め
+      }
+    }
   }
+
 
   // パス2: メモリ配置
   const mem = new Uint8Array(0x10000);
@@ -43,10 +59,14 @@ export function linkModules(mods: RelModule[]): LinkResult {
 
   // R レコード適用
   for (const r of refs) {
-    if (!symbols.has(r.sym)) throw new Error(`Undefined symbol '${r.sym}'`);
-    const val = symbols.get(r.sym)!;
-    mem[r.addr] = val.addr & 0xff;
-    mem[r.addr + 1] = (val.addr >> 8) & 0xff;
+    const { name, addend } = splitSymAddend(r.sym);
+    if (!symbols.has(name)) throw new Error(`Undefined symbol '${name}'`);
+    const val = symbols.get(name)!; // {addr: number}
+    const v = (val.addr + addend) & 0xFFFF;
+
+    // 既存仕様に合わせて常に16bit書き込み（DBでも2B書く簡易仕様）
+    mem[r.addr] = v & 0xFF;
+    mem[r.addr + 1] = (v >> 8) & 0xFF;
   }
 
   return {

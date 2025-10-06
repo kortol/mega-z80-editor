@@ -1,27 +1,15 @@
 import { tokenize } from "../../tokenizer";
 import { parse } from "../../parser";
-import { AsmContext } from "../../context";
+import { AsmContext, createContext } from "../../context";
 import { handleEND } from "../end";
 import { buildRelFile } from "../../rel/builder";
 import { TextRelAdapter } from "../../rel/adapter";
 import { AssemblerErrorCode } from "../../errors";
 
-
-
 function makeCtx(): AsmContext {
-  return {
-    moduleName: "TEST",
-    texts: [],
-    symbols: new Map(),
-    unresolved: [],
-    loc: 0,
-    modeWord32: false,
-    modeSymLen: 0,
-    caseInsensitive: false,
-    entry: undefined,
-    errors: [],
-  };
+  return createContext({ moduleName: "TEST" });
 }
+
 
 function assemble(src: string) {
   const tokens = tokenize(src);

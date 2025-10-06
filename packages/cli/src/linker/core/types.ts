@@ -8,6 +8,7 @@ export interface RelModule {
   symbols: RelSymbol[];
   texts: RelText[];
   refs: RelRef[];
+  externs: string[];
   entry?: number;
 }
 

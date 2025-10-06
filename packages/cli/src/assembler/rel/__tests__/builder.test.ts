@@ -1,19 +1,19 @@
 // src/assembler/rel/__tests__/builder.test.ts
 import { buildRelFile, RelBuilder } from "../builder";
 import { TextRelAdapter } from "../adapter";
-import { AsmContext } from "../../context";
+import { AsmContext, createContext } from "../../context";
 
 function makeCtx(): AsmContext {
-  return {
+  return createContext({
     moduleName: "TESTMOD",
     texts: [
       { addr: 0x1000, data: [0x3E, 0x01] },   // LD A,1
       { addr: 0x1002, data: [0xC3, 0x00, 0x10] } // JP 1000H
     ],
     symbols: new Map([["START", 0x1000]]),
-    unresolved: [{ addr: 0x1002, symbol: "START" }],
+    unresolved: [{ addr: 0x1002, symbol: "START", size: 2 }],
     entry: 0x1000
-  } as any;
+  });
 }
 
 describe("rel builder", () => {
@@ -61,7 +61,7 @@ describe("rel builder", () => {
       "H EMPTY",
       "E 0000",
     ]);
-  });  
+  });
 
   test("R record with addend", () => {
     const b = new RelBuilder("MOD1");
@@ -74,7 +74,7 @@ describe("rel builder", () => {
     // H + T + R + E の最低限が出ているか
     expect(out).toContain("H MOD1");
     expect(out).toContain("T 1000 3E 00");
-    expect(out).toContain("R 1001 FOO 5");
+    expect(out).toContain("R 1001 FOO+5");
     expect(out).toContain("E 1000");
   });
 
@@ -88,5 +88,5 @@ describe("rel builder", () => {
     expect(out).toContain("R 2001 BAR");
     // addendなしなので末尾に数値は付かない
     expect(out).not.toMatch(/BAR \d+/);
-  });  
+  });
 });

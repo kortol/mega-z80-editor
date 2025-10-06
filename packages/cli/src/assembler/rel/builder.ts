@@ -19,7 +19,7 @@ export class RelBuilder {
   }
 
   addReloc(addr: number, sym: string, addend: number = 0) {
-    this.file.records.push({ kind: "R", addr, sym, addend });
+    this.file.records.push({ kind: "R", size: 2, addr, sym, addend });
   }
 
   setEntry(addr: number) {
@@ -29,7 +29,7 @@ export class RelBuilder {
   // ★ 未解決シンボルを追加する
   addUnresolved(addr: number, symbol: string) {
     this.file.unresolved.push({ addr, symbol });
-    this.file.records.push({ kind: "R", addr, sym: symbol, addend: 0 }); // ← 追加
+    this.file.records.push({ kind: "R", addr, size: 2, sym: symbol, addend: 0 }); // ← 追加
   }
 
   build(): RelFile {
@@ -55,13 +55,30 @@ export function buildRelFile(ctx: AsmContext): RelFile {
 
   // R
   for (const r of ctx.unresolved) {
-    records.push({ kind: "R", addr: r.addr, sym: r.symbol });
+    records.push({ kind: "R", addr: r.addr, sym: r.symbol, size: r.size, addend: r.addend });
+  }
+
+  // X
+  for (const ext of ctx.externs) {
+    records.push({ kind: "X", name: ext });
   }
 
   // E
   if (ctx.entry !== undefined) {
     records.push({ kind: "E", addr: ctx.entry });
+  } else if (ctx.texts.length > 0) {
+    // END未指定なら補完する
+    if (ctx.symbols.has("START")) {
+      ctx.entry = ctx.symbols.get("START") as number;
+    } else if (ctx.loc !== undefined) {
+      ctx.entry = ctx.loc;
+    }
   }
+
+  if (ctx.entry !== undefined) {
+    records.push({ kind: "E", addr: ctx.entry });
+  }
+
 
   return {
     module: ctx.moduleName,

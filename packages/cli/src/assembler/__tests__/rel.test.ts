@@ -1,19 +1,8 @@
-import { AsmContext } from "../context";
+import { AsmContext, createContext } from "../context";
 import { emitRel } from "../rel";
 
 function makeCtx(): AsmContext {
-  return {
-    loc: 0,
-    moduleName: "HELLO",
-    symbols: new Map(),
-    unresolved: [],
-    modeWord32: false,
-    modeSymLen: 6,
-    caseInsensitive: true,
-    texts: [],
-    endReached: false,
-    errors: [],
-  };
+  return createContext({ moduleName: "HELLO" });
 }
 
 describe("rel emitter", () => {

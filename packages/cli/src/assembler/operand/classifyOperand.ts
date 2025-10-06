@@ -1,3 +1,5 @@
+import { parseExpr } from '../expr/parserExpr';
+import { tokenize } from '../tokenizer';
 import { OperandKind } from './operandKind';
 
 export interface OperandInfo {
@@ -81,6 +83,17 @@ export function classifyOperand(s: string): OperandInfo {
   // EXPR
   if (isLabelLike(t)) {
     return { kind: OperandKind.EXPR, raw: t };
+  }
+  // --- EXPR ---
+  try {
+    const tokens = tokenize(t).filter(t => t.kind !== "eol");
+    const expr = parseExpr(tokens);
+    // AST が生成できれば式として有効
+    if (expr) {
+      return { kind: OperandKind.EXPR, raw: t };
+    }
+  } catch {
+    // 式として解釈できない場合は無視
   }
 
   return { kind: OperandKind.UNKNOWN, raw: t };

@@ -25,9 +25,10 @@ import { classifyOperand } from "./operand/classifyOperand";
 
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   const defs = instrTable[node.op];
+  const operand = node.args.map(classifyOperand)
+  // console.log(`node:${JSON.stringify(node)},operand:${JSON.stringify(operand)}`);
   if (defs) {
     for (const def of defs) {
-      const operand = node.args.map(classifyOperand)
       if (def.match(ctx, operand)) {
         return def.encode(ctx, operand, node);
       }
