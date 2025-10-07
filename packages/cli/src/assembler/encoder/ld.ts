@@ -16,6 +16,7 @@ import {
 
 import { InstrDef } from "./types";
 import { OperandKind } from "../operand/operandKind";
+import { AssemblerErrorCode } from "../errors";
 
 export const ldInstr: InstrDef[] = [
   // --- LD r,r2 ---
@@ -132,6 +133,44 @@ export const ldInstr: InstrDef[] = [
     },
   },
 
+  // --- LD rr,(nn) --- (extended form, for linker relocation)
+  {
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG16 &&
+      src.kind === OperandKind.MEM &&
+      !["HL", "IX", "IY"].includes(dst.raw),
+    encode(ctx, [dst, src], node) {
+      // ()を除去
+      const _src = src.raw.slice(1, -1);
+
+      // 外部シンボル or 定数式 → 未解決扱いで16bit読み出し命令を擬似生成
+      const val = resolveExpr16(ctx, _src, node.line);
+
+      // Z80には存在しないが、拡張REL生成用としてHL版に合わせる
+      // 形式: LD rr,(nn) ≒ prefix(0xED) + code_table[rr] + nn nn
+      const regCodeMap: Record<string, number> = {
+        BC: 0x4b,
+        DE: 0x5b,
+        SP: 0x7b,
+      };
+      const opcode = regCodeMap[dst.raw];
+      if (opcode === undefined) {
+        ctx.errors.push({
+          code: AssemblerErrorCode.InvalidOperand,
+          message: `Unsupported LD form: ${dst.raw},(nn)`,
+          line: node.line,
+        });
+        return;
+      }
+
+      ctx.texts.push({
+        addr: ctx.loc,
+        data: [0xed, opcode, val & 0xff, val >> 8],
+      });
+      ctx.loc += 4;
+    },
+  },
+
   // --- LD (nn),HL ---
   {
     match: (ctx, [dst, src]) =>
@@ -173,6 +212,34 @@ export const ldInstr: InstrDef[] = [
       const _dst = dst.raw.slice(1, -1);
       const val = resolveExpr16(ctx, _dst, node.line);
       ctx.texts.push({ addr: ctx.loc, data: [0x32, val & 0xff, val >> 8] });
+      ctx.loc += 3;
+    },
+  },
+
+  // --- LD r,(IX+d) / LD r,(IY+d) ---
+  {
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.REG8 &&
+      src.kind === OperandKind.IDX,
+    encode(ctx, [dst, src], node) {
+      const prefix = src.raw.startsWith("(IX") ? 0xdd : 0xfd;
+      const disp = (src.disp ?? 0) & 0xff;
+      const opcode = 0x46 | (regCode(dst.raw) << 3);
+      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp] });
+      ctx.loc += 3;
+    },
+  },
+
+  // --- LD (IX+d),r / LD (IY+d),r ---
+  {
+    match: (ctx, [dst, src]) =>
+      dst.kind === OperandKind.IDX &&
+      src.kind === OperandKind.REG8,
+    encode(ctx, [dst, src], node) {
+      const prefix = dst.raw.startsWith("(IX") ? 0xdd : 0xfd;
+      const disp = (dst.disp ?? 0) & 0xff;
+      const opcode = 0x70 | regCode(src.raw);
+      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp] });
       ctx.loc += 3;
     },
   },

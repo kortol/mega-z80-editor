@@ -15,6 +15,7 @@ function makeCtx(): EvalContext {
     pass: 2,
     errors: [],
     visiting: new Set(),
+    loc: 0,
   };
 }
 

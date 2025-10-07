@@ -1,4 +1,3 @@
-// src/cli/mz80-as.ts
 import { tokenize } from "../assembler/tokenizer";
 import { parse } from "../assembler/parser";
 import { encodeInstr } from "../assembler/encoder";
@@ -7,7 +6,12 @@ import { emitRel } from "../assembler/rel";
 import { AsmContext } from "../assembler/context";
 import * as fs from "fs";
 
-export function assemble(inputFile: string, outputFile: string) {
+export function assemble(
+  inputFile: string,
+  outputFile: string,
+  options?: { verbose?: boolean }
+): AsmContext {
+  const verbose = options?.verbose ?? false;
   const source = fs.readFileSync(inputFile, "utf-8");
   const tokens = tokenize(source);
   const nodes = parse(tokens);
@@ -23,6 +27,7 @@ export function assemble(inputFile: string, outputFile: string) {
     texts: [],
     errors: [],
     externs: new Set(),
+    options,
   };
 
   for (const node of nodes) {
@@ -37,4 +42,23 @@ export function assemble(inputFile: string, outputFile: string) {
 
   const rel = emitRel(ctx);
   fs.writeFileSync(outputFile, rel, "utf-8");
+
+  if (verbose) {
+    console.log("────────── Assembler Verbose Report ──────────");
+    console.log(`Input : ${inputFile}`);
+    console.log(`Output: ${outputFile}`);
+    console.log(`Symbols: ${[...ctx.symbols.keys()].join(", ")}`);
+    console.log(`Externs: ${[...ctx.externs.values()].join(", ") || "(none)"}`);
+    console.log(`Errors : ${ctx.errors.length}`);
+    console.log(`Texts  : ${ctx.texts.length} records`);
+    console.log(`Output size: ${rel.length} bytes`);
+    console.log("───────────────────────────────────────────────");
+
+    if (ctx.options?.verbose) {
+      for (const e of ctx.errors) {
+        console.log(`E${e.code}: ${e.message} (line ${e.line})`);
+      }
+    }
+  }
+  return ctx;
 }

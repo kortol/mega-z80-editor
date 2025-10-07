@@ -23,9 +23,14 @@ export enum AssemblerErrorCode {
   InvalidOperand = "A4000",
   RangeError = "A4001",
   ExternMissingSymbol = "A4002",   // ★ 新規
+  MissingOperand = "A4003",
 
   // Linker 系
   UnresolvedExtern = "A5000",
+
+  // Branch 系
+  OutOfRange8 = "A8000",
+  OutOfRangeRel = "A8001",
 }
 
 // エラー情報の型

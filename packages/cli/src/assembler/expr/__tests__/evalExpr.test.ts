@@ -1,6 +1,6 @@
 import { tokenize } from "../../tokenizer";
 import { EvalContext } from "../eval";
-import { evalExpr } from "../evalExpr";
+import { evalExpr } from "../eval";
 import { parseExpr } from "../parserExpr";
 import { Expr } from "../types";
 
@@ -21,6 +21,7 @@ describe("evalExpr", () => {
       pass: 1,
       errors: [],
       visiting: new Set(),
+      loc: 0,
     };
     ctx.symbols.set("FOO", 10);
     ctx.symbols.set("BAR", 20);

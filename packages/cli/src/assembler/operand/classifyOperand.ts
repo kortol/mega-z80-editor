@@ -1,10 +1,13 @@
 import { parseExpr } from '../expr/parserExpr';
-import { tokenize } from '../tokenizer';
+import { parseNumber, tokenize } from '../tokenizer';
 import { OperandKind } from './operandKind';
 
 export interface OperandInfo {
   kind: OperandKind;
   raw: string;
+  text?: string;
+  // IX/IY 変位値を保持する（IDXの場合のみ有効）
+  disp?: number;
 }
 
 // 補助関数
@@ -32,9 +35,19 @@ export function classifyOperand(s: string): OperandInfo {
   // 特例: [HL]
   if (t === '[HL]') return { kind: OperandKind.EXPR, raw: t };
 
-  // IDX: (IX), (IX+disp), (IY±disp)
-  if (/^\(\s*(IX|IY)(\s*[+-]\s*[A-Z0-9\$\@]+)?\s*\)$/i.test(t)) {
-    return { kind: OperandKind.IDX, raw: t };
+  // --- (IX+nn) / (IY+nn) / (IX-nn) / (IY) ---
+  const m = /^\(\s*(IX|IY)(?:\s*([+-])\s*([A-Z0-9\$@]+))?\s*\)$/i.exec(t);
+  if (m) {
+    let disp = 0;
+    if (m[2] && m[3]) {
+      try {
+        const val = parseNumber(m[3]);
+        disp = m[2] === "-" ? -val : val;
+      } catch {
+        disp = 0;
+      }
+    }
+    return { kind: OperandKind.IDX, raw: t, disp };
   }
 
   // MEM: (expr) ただし無効・入れ子は除外

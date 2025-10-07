@@ -28,6 +28,7 @@ export interface AsmContext {
   entry?: number;              // エントリポイント (END 疑似命令で指定された場合に設定)
   errors: AssemblerError[];    // エラーメッセージのリスト (コンパイル中に収集)
   externs: Set<string>;        // EXTERN 宣言された外部シンボル一覧 (リンカで解決する対象)
+  options?: { verbose?: boolean } // アセンブル時オプション
 }
 
 /**

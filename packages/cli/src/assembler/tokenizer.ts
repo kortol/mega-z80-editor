@@ -124,7 +124,7 @@ export function tokenize(src: string): Token[] {
       }
 
       // --- 数値または識別子（$,%含む） ---
-      const m = /^([A-Za-z0-9\$][A-Za-z0-9A-Fa-fHhBbXx]*)/.exec(rest);
+      const m = /^([A-Za-z0-9_\$][A-Za-z0-9_.]*)/.exec(rest);
       if (m) {
         const text = m[1];
         if (text === "$") {

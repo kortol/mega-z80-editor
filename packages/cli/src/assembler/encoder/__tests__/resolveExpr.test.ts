@@ -1,6 +1,6 @@
 import { AsmContext, createContext } from "../../context";
 import { EvalContext } from "../../expr/eval";
-import { evalExpr } from "../../expr/evalExpr";
+import { evalExpr } from "../../expr/eval";
 import { parseExpr } from "../../expr/parserExpr";
 import { tokenize } from "../../tokenizer";
 import { resolveExpr16, resolveExpr8 } from "../utils";

@@ -1,4 +1,8 @@
+import { AsmContext } from "../context";
+import { OperandInfo } from "../operand/classifyOperand";
+import { NodeInstr } from "../parser";
 import { makeALUDefs, } from "./alu";
+import { djnzInstr, jrInstr } from "./branch";
 import { ldInstr } from "./ld";
 import { InstrDef } from "./types";
 
@@ -14,4 +18,8 @@ export const instrTable: Record<string, InstrDef[]> = {
   OR: makeALUDefs("OR", { allowImplicitA: true }),
   XOR: makeALUDefs("XOR", { allowImplicitA: true }),
   CP: makeALUDefs("CP", { allowImplicitA: true }),
+
+  // 分岐命令
+  JR: jrInstr,
+  DJNZ: djnzInstr,
 };

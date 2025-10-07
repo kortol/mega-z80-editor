@@ -1,6 +1,6 @@
 import { tokenize } from "../tokenizer";
 import { parseExpr } from "./parserExpr";
-import { evalExpr } from "./evalExpr";
+import { evalExpr } from "./eval";
 import { AsmContext } from "../context";
 import { EvalContext } from "./eval";
 
@@ -19,6 +19,7 @@ export function parseExternExpr(ctx: AsmContext, expr: string) {
     pass: 1,
     errors: ctx.errors,
     visiting: new Set(),
+    loc: ctx.loc,
   };
 
   const res = evalExpr(e, evalCtx);

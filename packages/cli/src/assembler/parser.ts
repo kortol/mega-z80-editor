@@ -123,7 +123,7 @@ export function parse(tokens: Token[]): Node[] {
 
 export function isInstr(op: string): boolean {
   const instrs = [
-    "LD", "CALL", "JP", "JR", "RET", "RETI", "RETN",
+    "LD", "CALL", "JP", "JR", "DJNZ", "RET", "RETI", "RETN",
     "ADD", "ADC", "SUB", "SBC",
     "AND", "OR", "XOR", "CP",
     "INC", "DEC",

@@ -91,13 +91,13 @@ describe('classifyOperand - EXPR (labels / $ / @n / 式文字列)', () => {
     ['$+1'], ['LABEL+3'], ['@2-4'],            // 式（詳解は別スレ、ここでは EXPR 扱い）
     ['  label  '],                             // spaces trimmed
     ['[HL]'],                                  // [HL]だけ特例
+    ['FOO.BAR'],                               // '.' をラベルに許可
   ])('EXPR: %s', (s) => {
     expect(classifyOperand(s).kind).toBe(OperandKind.EXPR);
   });
 
   test.each([
     ['1LABEL'],        // invalid label head
-    ['FOO.BAR'],       // '.' をラベルに許可しない方針
     ['@'],             // 不完全
   ])('NOT EXPR (invalid label-like): %s', (s) => {
     const kind = classifyOperand(s).kind;
@@ -162,8 +162,27 @@ describe('classifyOperand - UNKNOWN (everything else)', () => {
     [''], ['   '],
     ['IX+'],        // 補助記号のみ
     ['(IX+)'],      // 既出だが UNKNOWN 扱いを確認
-    ['FOO.BAR'],    // ドットをラベルに許可しない方針
   ])('UNKNOWN: %s', (s) => {
     expect(classifyOperand(s).kind).toBe(OperandKind.UNKNOWN);
+  });
+});
+
+describe('IDX operand parsing', () => {
+  test('(IX+01H) should set disp=1', () => {
+    const op = classifyOperand('(IX+01H)');
+    expect(op.kind).toBe(OperandKind.IDX);
+    expect(op.disp).toBe(1);
+  });
+
+  test('(IY-02H) should set disp=-2', () => {
+    const op = classifyOperand('(IY-02H)');
+    expect(op.kind).toBe(OperandKind.IDX);
+    expect(op.disp).toBe(-2);
+  });
+
+  test('(IX) should set disp=0', () => {
+    const op = classifyOperand('(IX)');
+    expect(op.kind).toBe(OperandKind.IDX);
+    expect(op.disp).toBe(0);
   });
 });
