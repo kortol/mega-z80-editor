@@ -137,17 +137,20 @@ export function resolveExpr8(
       throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
     }
 
-    const relocEntry: any = {
-      addr: ctx.loc + 1,
-      symbol: res.sym,
-      size: 1,
-    };
-    if (res.addend && res.addend !== 0) relocEntry.addend = res.addend;
-    if (relative) relocEntry.relative = true;
+    // --- pass2 のときだけ記録 ---
+    if (ctx.pass === 2) {
+      const relocEntry: any = {
+        addr: ctx.loc + 1,
+        symbol: res.sym,
+        size: 1,
+      };
+      if (res.addend && res.addend !== 0) relocEntry.addend = res.addend;
+      if (relative) relocEntry.relative = true;
 
-    if (!(ctx as any).relocs) (ctx as any).relocs = [];
-    (ctx as any).relocs.push(relocEntry);
-    ctx.unresolved.push(relocEntry);
+      if (!(ctx as any).relocs) (ctx as any).relocs = [];
+      (ctx as any).relocs.push(relocEntry);
+      ctx.unresolved.push(relocEntry);
+    }
     return 0;
   }
 
@@ -199,20 +202,23 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
     if (rejectReloc) {
       throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
     }
-    const relocEntry = {
-      addr: ctx.loc + 1,
-      symbol: res.sym,
-      addend: Number(res.addend ?? 0),
-      size: 2,
-    };
+    // --- pass2 のときだけ記録 ---
+    if (ctx.pass === 2) {
+      const relocEntry = {
+        addr: ctx.loc + 1,
+        symbol: res.sym,
+        addend: Number(res.addend ?? 0),
+        size: 2,
+      };
 
-    // 🔸 新: Rレコード用に ctx.relocs にも記録
-    if (!(ctx as any).relocs) (ctx as any).relocs = [];
-    (ctx as any).relocs.push(relocEntry);
+      // 🔸 新: Rレコード用に ctx.relocs にも記録
+      if (!(ctx as any).relocs) (ctx as any).relocs = [];
+      (ctx as any).relocs.push(relocEntry);
 
-    // 従来の未解決リスト（後方互換）
-    ctx.unresolved.push(relocEntry);
-    // console.log("Reloc");
+      // 従来の未解決リスト（後方互換）
+      ctx.unresolved.push(relocEntry);
+      // console.log("Reloc");
+    }
     return 0;
   }
 

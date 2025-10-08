@@ -11,7 +11,7 @@ describe("P1-E Fixture Integration", () => {
       DEFW EXT_E
       END
     `;
-    const ctx = assembleSource(src);
+    const ctx = assembleSource(src, 2);
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
 

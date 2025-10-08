@@ -10,7 +10,7 @@ import type { AsmContext } from "./context";
  *
  * デフォルト ("TEST") の場合は出力先も一時ディレクトリにリダイレクトする。
  */
-export function assembleSource(source: string, outfile: string = "TEST"): AsmContext {
+export function assembleSource(source: string, pass: number, outfile: string = "TEST"): AsmContext {
   // 一時ディレクトリを確保
   const tmpDir = path.join(process.cwd(), ".tmp_tests");
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
@@ -27,7 +27,7 @@ export function assembleSource(source: string, outfile: string = "TEST"): AsmCon
       : outfile;
 
   // CLI版 assemble 実行
-  const ctx = assemble(tmpAsm, actualOutfile, { verbose: true });
+  const ctx = assemble(tmpAsm, actualOutfile, pass, { verbose: true });
 
   // Cleanup: テストの邪魔にならないように削除
   try {
@@ -57,7 +57,7 @@ export function assembleFile(src: string, outfile: string = "TEST"): AsmContext 
       ? path.join(tmpDir, `${outfile}.rel`)
       : outfile;
 
-  const ctx = assemble(src, actualOutfile);
+  const ctx = assemble(src, actualOutfile, 2);
   try {
     if (outfile === "TEST" && fs.existsSync(actualOutfile)) {
       fs.unlinkSync(actualOutfile);

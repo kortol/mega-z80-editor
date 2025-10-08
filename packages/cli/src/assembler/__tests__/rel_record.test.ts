@@ -10,7 +10,7 @@ describe("P1-E: Relocation Record Generation", () => {
       EXT_C: NOP
       END
     `;
-    const ctx = assembleSource(src);
+    const ctx = assembleSource(src, 2);
 
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
@@ -29,7 +29,7 @@ describe("P1-E: Relocation Record Generation", () => {
       JP 1234H
       END
     `;
-    const ctx = assembleSource(src);
+    const ctx = assembleSource(src, 1);
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
 

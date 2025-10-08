@@ -26,7 +26,7 @@ export const ldInstr: InstrDef[] = [
       src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
       const opcode = 0x40 | (regCode(dst.raw) << 3) | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
       ctx.loc += 1;
     },
   },
@@ -39,7 +39,7 @@ export const ldInstr: InstrDef[] = [
       src.raw == "(HL)",
     encode(ctx, [dst], node) {
       const opcode = 0x46 | (regCode(dst.raw) << 3);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
       ctx.loc += 1;
     },
   },
@@ -52,7 +52,7 @@ export const ldInstr: InstrDef[] = [
       src.kind === OperandKind.REG8,
     encode(ctx, [, src], node) {
       const opcode = 0x70 | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
       ctx.loc += 1;
     },
   },
@@ -74,7 +74,7 @@ export const ldInstr: InstrDef[] = [
         "A,I": 0x57, "A,R": 0x5f,
         "I,A": 0x47, "R,A": 0x4f,
       };
-      ctx.texts.push({ addr: ctx.loc, data: [0xed, table[`${dst.raw},${src.raw}`]] });
+      ctx.texts.push({ addr: ctx.loc, data: [0xed, table[`${dst.raw},${src.raw}`]], line: node.line });
       ctx.loc += 2;
     },
   },
@@ -82,8 +82,8 @@ export const ldInstr: InstrDef[] = [
   // --- LD SP,HL ---
   {
     match: (ctx, [dst, src]) => dst.raw === "SP" && src.raw === "HL",
-    encode(ctx) {
-      ctx.texts.push({ addr: ctx.loc, data: [0xf9] });
+    encode(ctx, args, node) {
+      ctx.texts.push({ addr: ctx.loc, data: [0xf9], line: node.line });
       ctx.loc += 1;
     },
   },
@@ -98,6 +98,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({
         addr: ctx.loc,
         data: [0x06 | (regCode(dst.raw) << 3), val & 0xff],
+        line: node.line,
       });
       ctx.loc += 2;
     },
@@ -113,6 +114,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({
         addr: ctx.loc,
         data: [0x01 | (reg16Code(dst.raw) << 4), val & 0xff, (val >> 8) & 0xff],
+        line: node.line,
       });
       ctx.loc += 3;
     },
@@ -128,7 +130,7 @@ export const ldInstr: InstrDef[] = [
       // ()を除去
       const _src = src.raw.slice(1, -1);
       const val = resolveExpr16(ctx, _src, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [0x2a, val & 0xff, val >> 8] });
+      ctx.texts.push({ addr: ctx.loc, data: [0x2a, val & 0xff, val >> 8], line: node.line });
       ctx.loc += 3;
     },
   },
@@ -166,6 +168,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({
         addr: ctx.loc,
         data: [0xed, opcode, val & 0xff, val >> 8],
+        line: node.line,
       });
       ctx.loc += 4;
     },
@@ -181,7 +184,7 @@ export const ldInstr: InstrDef[] = [
       // ()を除去
       const _dst = dst.raw.slice(1, -1);
       const val = resolveExpr16(ctx, _dst, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [0x22, val & 0xff, val >> 8] });
+      ctx.texts.push({ addr: ctx.loc, data: [0x22, val & 0xff, val >> 8], line: node.line });
       ctx.loc += 3;
     },
   },
@@ -196,7 +199,7 @@ export const ldInstr: InstrDef[] = [
       const addr = ctx.loc; // ★ 現在位置を固定
       const _src = src.raw.slice(1, -1);
       const val = resolveExpr16({ ...ctx, loc: addr }, _src, node.line);
-      ctx.texts.push({ addr, data: [0x3a, val & 0xff, val >> 8] });
+      ctx.texts.push({ addr, data: [0x3a, val & 0xff, val >> 8], line: node.line });
       ctx.loc = addr + 3;
     },
   },
@@ -211,7 +214,7 @@ export const ldInstr: InstrDef[] = [
       const addr = ctx.loc; // ★ 現在位置を固定
       const _dst = dst.raw.slice(1, -1);
       const val = resolveExpr16({ ...ctx, loc: addr }, _dst, node.line);
-      ctx.texts.push({ addr, data: [0x32, val & 0xff, val >> 8] });
+      ctx.texts.push({ addr, data: [0x32, val & 0xff, val >> 8], line: node.line });
       ctx.loc = addr + 3;
     },
   },
@@ -225,7 +228,7 @@ export const ldInstr: InstrDef[] = [
       const prefix = src.raw.startsWith("(IX") ? 0xdd : 0xfd;
       const disp = (src.disp ?? 0) & 0xff;
       const opcode = 0x46 | (regCode(dst.raw) << 3);
-      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp] });
+      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp], line: node.line });
       ctx.loc += 3;
     },
   },
@@ -239,7 +242,7 @@ export const ldInstr: InstrDef[] = [
       const prefix = dst.raw.startsWith("(IX") ? 0xdd : 0xfd;
       const disp = (dst.disp ?? 0) & 0xff;
       const opcode = 0x70 | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp] });
+      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp], line: node.line });
       ctx.loc += 3;
     },
   },
@@ -252,7 +255,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   if (isReg8(dst)) {
     const idx = parseIndexAddr(ctx, src);
     if (idx) {
-      ctx.texts.push({ addr: ctx.loc, data: [idx.prefix, 0x46 | (regCode(dst) << 3), idx.disp] });
+      ctx.texts.push({ addr: ctx.loc, data: [idx.prefix, 0x46 | (regCode(dst) << 3), idx.disp], line: node.line });
       ctx.loc += 3;
       return;
     }
@@ -262,7 +265,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   {
     const idx = parseIndexAddr(ctx, dst);
     if (idx && isReg8(src)) {
-      ctx.texts.push({ addr: ctx.loc, data: [idx.prefix, 0x70 | regCode(src), idx.disp] });
+      ctx.texts.push({ addr: ctx.loc, data: [idx.prefix, 0x70 | regCode(src), idx.disp], line: node.line });
       ctx.loc += 3;
       return;
     }
@@ -275,6 +278,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
     ctx.texts.push({
       addr: ctx.loc,
       data: [prefix, 0x21, val & 0xff, (val >> 8) & 0xff],
+      line: node.line,
     });
     ctx.loc += 4;
     return;

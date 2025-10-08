@@ -20,7 +20,7 @@ describe("P1-C integration fixture", () => {
   });
 
   test("assemble fixture to .rel", () => {
-    assemble(asmFile, relFile);
+    assemble(asmFile, relFile, 1);
     const relText = readFileText(relFile);
 
     // JSONアダプタで読み取り

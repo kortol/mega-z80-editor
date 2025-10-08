@@ -13,8 +13,8 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
   const rotMap: Record<string, number> = {
     RLC: 0x00,
     RRC: 0x08,
-    RL:  0x10,
-    RR:  0x18,
+    RL: 0x10,
+    RR: 0x18,
     SLA: 0x20,
     SRA: 0x28,
     SLL: 0x30, // undocumented
@@ -25,7 +25,7 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
     if (args.length !== 1) throw new Error(`${op} requires 1 operand`);
     const r = args[0];
     const reg = regCode(r);
-    ctx.texts.push({ addr: ctx.loc, data: [0xCB, rotMap[op] | reg] });
+    ctx.texts.push({ addr: ctx.loc, data: [0xCB, rotMap[op] | reg], line: node.line });
     ctx.loc += 2;
     return;
   }
@@ -40,7 +40,7 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
     const r = args[1];
     const reg = regCode(r);
     const base = op === "BIT" ? 0x40 : op === "RES" ? 0x80 : 0xC0; // SET
-    ctx.texts.push({ addr: ctx.loc, data: [0xCB, base | (bit << 3) | reg] });
+    ctx.texts.push({ addr: ctx.loc, data: [0xCB, base | (bit << 3) | reg], line: node.line });
     ctx.loc += 2;
     return;
   }

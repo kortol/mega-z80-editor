@@ -39,7 +39,7 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
     }
     bytes.push(val & 0xFF);
   }
-  ctx.texts.push({ addr: ctx.loc, data: bytes });
+  ctx.texts.push({ addr: ctx.loc, data: bytes, line: node.line });
   ctx.loc += bytes.length;
 }
 
@@ -53,7 +53,7 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
     const ext = parseExternExpr(ctx, a);
     if (ext) {
       const addr = ctx.loc;
-      ctx.texts.push({ addr, data: [0x00, 0x00] });
+      ctx.texts.push({ addr, data: [0x00, 0x00], line: node.line });
       ctx.unresolved.push({ addr, symbol: ext.symbol, size: 2, addend: ext.addend });
       ctx.loc += 2;
       continue;
@@ -67,6 +67,7 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
     ctx.texts.push({
       addr: ctx.loc,
       data: [val & 0xFF, (val >> 8) & 0xFF],
+      line: node.line,
     });
     ctx.loc += 2;
   }

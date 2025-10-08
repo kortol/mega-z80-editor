@@ -17,11 +17,16 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
         sym = truncated;
     }
 
+    const val = parseNumber(valStr);
     if (ctx.symbols.has(sym)) {
+        const prev = ctx.symbols.get(sym);
+        // ✅ pass2 かつ 同じ値なら再定義を許可
+        if (ctx.pass === 2 && prev === val) {
+            return;
+        }
+        // 🚫 pass1 または値が異なる場合はエラー        
         throw new Error(`Symbol ${sym} redefined`);
     }
-
-    const val = parseNumber(valStr);
     ctx.symbols.set(sym, val);
 }
 

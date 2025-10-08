@@ -47,7 +47,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
       const val = resolveExpr8(ctx, src.raw, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff] });
+      ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line });
       ctx.loc += 2;
     },
   });
@@ -59,7 +59,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR,
       encode(ctx, [src], node) {
         const val = resolveExpr8(ctx, src.raw, node.line);
-        ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff] });
+        ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line });
         ctx.loc += 2;
       },
     });
@@ -72,7 +72,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
       const opcode = base | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
       ctx.loc += 1;
     },
   });
@@ -84,7 +84,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.REG8,
       encode(ctx, [src], node) {
         const opcode = base | regCode(src.raw);
-        ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+        ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
         ctx.loc += 1;
       },
     });
@@ -96,9 +96,9 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       match: (ctx, [dst, src]) =>
         dst.kind === OperandKind.REG16 && dst.raw === "HL" &&
         src.kind === OperandKind.REG16,
-      encode(ctx, [dst, src]) {
+      encode(ctx, [dst, src], node) {
         const code = reg16Code(src.raw);
-        ctx.texts.push({ addr: ctx.loc, data: [0x09 | (code << 4)] });
+        ctx.texts.push({ addr: ctx.loc, data: [0x09 | (code << 4)], line: node.line });
         ctx.loc += 1;
       },
     });
@@ -135,13 +135,13 @@ function encodeALU(
   // --- レジスタ版
   if (isReg8(src)) {
     const opcode = base | regCode(src);
-    ctx.texts.push({ addr: ctx.loc, data: [opcode] });
+    ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
     ctx.loc += 1;
     return;
   }
   // --- (HL)版
   if (src === "(HL)") {
-    ctx.texts.push({ addr: ctx.loc, data: [hlOpcode] });
+    ctx.texts.push({ addr: ctx.loc, data: [hlOpcode], line: node.line });
     ctx.loc += 1;
     return;
   }
@@ -150,10 +150,10 @@ function encodeALU(
     const val = resolveValue(ctx, src);
     if (val === null) {
       // 未解決シンボル
-      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, 0x00] });
+      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, 0x00], line: node.line });
       ctx.unresolved.push({ addr: ctx.loc + 1, symbol: src, size: 1 });
     } else {
-      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, val & 0xff] });
+      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, val & 0xff], line: node.line });
     }
     ctx.loc += 2;
     return;

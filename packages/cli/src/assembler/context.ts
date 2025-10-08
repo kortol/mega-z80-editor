@@ -12,6 +12,7 @@ export interface UnresolvedEntry {
 export interface AsmText {
   addr: number;
   data: number[];
+  line?: number;  // 元ソース行番号（1-based）
 }
 
 export interface AsmContext {
@@ -30,6 +31,8 @@ export interface AsmContext {
   errors: AssemblerError[];    // エラーメッセージのリスト (コンパイル中に収集)
   externs: Set<string>;        // EXTERN 宣言された外部シンボル一覧 (リンカで解決する対象)
   options?: { verbose?: boolean } // アセンブル時オプション
+  pass?: number; // 現在のアセンブルパス番号（1 or 2）
+  sourceLines?: string[]; // 元ソース行を保持（.lst生成用）
 }
 
 /**
@@ -49,6 +52,8 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     errors: [],
     externs: new Set(),
     warnings: [],
+    pass: 2,
+    sourceLines: [],
   };
   return { ...defaults, ...overrides };
 }
