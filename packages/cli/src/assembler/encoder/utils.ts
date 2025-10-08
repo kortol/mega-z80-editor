@@ -1,3 +1,4 @@
+// packages\cli\src\assembler\encoder\utils.ts
 /**
  * utils.ts - Z80 assembler encoding utilities
  *
@@ -117,11 +118,38 @@ export function parseIndexAddr(
   return { prefix, disp: val & 0xff };
 }
 
-export function resolveExpr8(ctx: AsmContext, expr: string, line: number, strict = false): number {
+export function resolveExpr8(
+  ctx: AsmContext,
+  expr: string,
+  line: number,
+  strict = false,
+  rejectReloc = false,
+  relative = false
+): number {
   const prevErrCount = ctx.errors.length;
   const tokens = tokenize(expr).filter(t => t.kind !== "eol");
   const e = parseExpr(tokens);
   const res = evalExpr(e, { ...ctx, pass: 1, visiting: new Set(), externs: ctx.externs });
+
+  // --- Reloc値 ---
+  if (res.kind === "Reloc") {
+    if (rejectReloc) {
+      throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
+    }
+
+    const relocEntry: any = {
+      addr: ctx.loc + 1,
+      symbol: res.sym,
+      size: 1,
+    };
+    if (res.addend && res.addend !== 0) relocEntry.addend = res.addend;
+    if (relative) relocEntry.relative = true;
+
+    if (!(ctx as any).relocs) (ctx as any).relocs = [];
+    (ctx as any).relocs.push(relocEntry);
+    ctx.unresolved.push(relocEntry);
+    return 0;
+  }
 
   const newErrors = ctx.errors.slice(prevErrCount);
   if (newErrors.length > 0) {
@@ -137,8 +165,9 @@ export function resolveExpr8(ctx: AsmContext, expr: string, line: number, strict
     return 0;
   }
 
+  // --- Const値 ---
   if (res.kind === "Const") {
-    if (res.value < -128 || res.value > 0xFF) {
+    if (res.value < -128 || res.value > 255) {
       if (strict) {
         throw new Error(`8bit immediate out of range: ${res.value} (line ${line})`);
       }
@@ -152,33 +181,45 @@ export function resolveExpr8(ctx: AsmContext, expr: string, line: number, strict
     return res.value & 0xFF;
   }
 
-  if (res.kind === "Reloc") {
-    if (strict) {
-      throw new Error(`Unresolved (relocatable) expression '${expr}' at line ${line}`);
-    }
-    ctx.unresolved.push({
-      addr: ctx.loc,
-      symbol: res.sym,
-      addend: Number(res.addend ?? 0),
-      size: 1,
-    });
-    return 0;
-  }
-
-  // 想定外（evalExprが異常値を返した）
   throw new Error(`Unexpected evalExpr result at line ${line}`);
 }
 
 
-export function resolveExpr16(ctx: AsmContext, expr: string, line: number, strict = false): number {
+export function resolveExpr16(ctx: AsmContext, expr: string, line: number, strict = false, rejectReloc = false): number {
   const prevErrCount = ctx.errors.length;
   const tokens = tokenize(expr).filter(t => t.kind !== "eol");
   const e = parseExpr(tokens);
   const res = evalExpr(e, { ...ctx, pass: 1, visiting: new Set(), externs: ctx.externs });
+  // console.log("evalExpr");
+
+  // 🧩 Relocatable の場合は newErrors よりも優先的に処理する
+  // console.log("Reloc");
+  // ---- Reloc値 ----
+  if (res.kind === "Reloc") {
+    if (rejectReloc) {
+      throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
+    }
+    const relocEntry = {
+      addr: ctx.loc + 1,
+      symbol: res.sym,
+      addend: Number(res.addend ?? 0),
+      size: 2,
+    };
+
+    // 🔸 新: Rレコード用に ctx.relocs にも記録
+    if (!(ctx as any).relocs) (ctx as any).relocs = [];
+    (ctx as any).relocs.push(relocEntry);
+
+    // 従来の未解決リスト（後方互換）
+    ctx.unresolved.push(relocEntry);
+    // console.log("Reloc");
+    return 0;
+  }
 
   const newErrors = ctx.errors.slice(prevErrCount);
   if (newErrors.length > 0) {
     const err = ctx.errors[ctx.errors.length - 1];
+    // console.log("newErrors");
     if (strict) {
       throw new Error(`Expression error at line ${line}: ${err.message ?? err.code}`);
     }
@@ -187,9 +228,12 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
       message: `Expression error at line ${line}`,
       line,
     });
+    // console.log("ExprNotConstant");
     return 0;
   }
 
+  // console.log("Const");
+  // ---- Const値 ----
   if (res.kind === "Const") {
     if (res.value < -32768 || res.value > 0xFFFF) {
       if (strict) {
@@ -205,18 +249,7 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
     return res.value & 0xFFFF;
   }
 
-  if (res.kind === "Reloc") {
-    if (strict) {
-      throw new Error(`Unresolved (relocatable) expression '${expr}' at line ${line}`);
-    }
-    ctx.unresolved.push({
-      addr: ctx.loc,
-      symbol: res.sym,
-      addend: Number(res.addend ?? 0),
-      size: 2,
-    });
-    return 0;
-  }
-
+  // console.log("Unexpected");
+  // ---- 想定外 ----
   throw new Error(`Unexpected evalExpr result at line ${line}`);
 }

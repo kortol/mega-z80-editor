@@ -6,7 +6,7 @@ export function handleORG(ctx: AsmContext, node: NodePseudo) {
   if (node.args.length !== 1) {
     throw new Error(`ORG requires exactly one argument at line ${node.line}`);
   }
-  const val = resolveExpr16(ctx, node.args[0], node.line, true);
+  const val = resolveExpr16(ctx, node.args[0], node.line, true, true);
 
   // 未定義シンボルはエラーにする（ORGは relocatable じゃないので）
   if (val === null) {

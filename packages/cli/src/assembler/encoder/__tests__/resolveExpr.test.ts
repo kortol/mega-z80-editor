@@ -68,28 +68,28 @@ describe("resolveExpr8/16", () => {
       const val = resolveExpr8(ctx, "EXT", ctx.loc);
       expect(val).toBe(0);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: 0, size: 1,
+        addr: 1, symbol: "EXT", size: 1,
       });
     });
 
     test("EXT+1", () => {
       resolveExpr8(ctx, "EXT+1", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: 1, size: 1,
+        addr: 1, symbol: "EXT", addend: 1, size: 1,
       });
     });
 
     test("1+EXT (入れ替え)", () => {
       resolveExpr8(ctx, "1+EXT", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: 1, size: 1,
+        addr: 1, symbol: "EXT", addend: 1, size: 1,
       });
     });
 
     test("EXT-1", () => {
       resolveExpr16(ctx, "EXT-1", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: -1, size: 2,
+        addr: 1, symbol: "EXT", addend: -1, size: 2,
       });
     });
 
@@ -106,21 +106,21 @@ describe("resolveExpr8/16", () => {
     test("EXT+FOO => unresolved(addend=10)", () => {
       resolveExpr8(ctx, "EXT+FOO", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: 10, size: 1,
+        addr: 1, symbol: "EXT", addend: 10, size: 1,
       });
     });
 
     test("FOO+EXT => unresolved(addend=10)", () => {
       resolveExpr8(ctx, "FOO+EXT", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: 10, size: 1,
+        addr: 1, symbol: "EXT", addend: 10, size: 1,
       });
     });
 
     test("EXT-FOO => unresolved(addend=-10)", () => {
       resolveExpr8(ctx, "EXT-FOO", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 0, symbol: "EXT", addend: -10, size: 1,
+        addr: 1, symbol: "EXT", addend: -10, size: 1,
       });
     });
 

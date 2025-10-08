@@ -1,8 +1,5 @@
-import { AsmContext } from "../context";
-import { OperandInfo } from "../operand/classifyOperand";
-import { NodeInstr } from "../parser";
 import { makeALUDefs, } from "./alu";
-import { djnzInstr, jrInstr } from "./branch";
+import { CALLInstrDefs, DJNZInstrDefs, JPInstrDefs, JRInstrDefs, RETInstrDefs, RSTInstrDefs } from "./jump";
 import { ldInstr } from "./ld";
 import { InstrDef } from "./types";
 
@@ -20,6 +17,10 @@ export const instrTable: Record<string, InstrDef[]> = {
   CP: makeALUDefs("CP", { allowImplicitA: true }),
 
   // 分岐命令
-  JR: jrInstr,
-  DJNZ: djnzInstr,
+  JP: JPInstrDefs,
+  JR: JRInstrDefs,
+  CALL: CALLInstrDefs,
+  RET: RETInstrDefs,
+  RST: RSTInstrDefs,
+  DJNZ: DJNZInstrDefs,
 };

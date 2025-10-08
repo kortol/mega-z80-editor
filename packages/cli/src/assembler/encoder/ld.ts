@@ -192,12 +192,12 @@ export const ldInstr: InstrDef[] = [
       dst.kind === OperandKind.REG8 &&
       dst.raw === "A" &&
       src.kind === OperandKind.MEM,
-    encode(ctx, [, src], node) {
-      // ()を除去
+    encode(ctx, [dst, src], node) {
+      const addr = ctx.loc; // ★ 現在位置を固定
       const _src = src.raw.slice(1, -1);
-      const val = resolveExpr16(ctx, _src, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [0x3a, val & 0xff, val >> 8] });
-      ctx.loc += 3;
+      const val = resolveExpr16({ ...ctx, loc: addr }, _src, node.line);
+      ctx.texts.push({ addr, data: [0x3a, val & 0xff, val >> 8] });
+      ctx.loc = addr + 3;
     },
   },
 
@@ -207,12 +207,12 @@ export const ldInstr: InstrDef[] = [
       dst.kind === OperandKind.MEM &&
       src.kind === OperandKind.REG8 &&
       src.raw === "A",
-    encode(ctx, [dst], node) {
-      // ()を除去
+    encode(ctx, [dst, src], node) {
+      const addr = ctx.loc; // ★ 現在位置を固定
       const _dst = dst.raw.slice(1, -1);
-      const val = resolveExpr16(ctx, _dst, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [0x32, val & 0xff, val >> 8] });
-      ctx.loc += 3;
+      const val = resolveExpr16({ ...ctx, loc: addr }, _dst, node.line);
+      ctx.texts.push({ addr, data: [0x32, val & 0xff, val >> 8] });
+      ctx.loc = addr + 3;
     },
   },
 

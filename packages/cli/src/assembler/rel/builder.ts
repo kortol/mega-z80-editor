@@ -1,4 +1,4 @@
-// src/assembler/rel/builder.ts
+// packages\cli\src\assembler\rel\builder.ts
 import { AsmContext } from "../context";
 import { RelFile, RelRecord } from "./types";
 

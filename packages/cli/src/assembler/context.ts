@@ -1,3 +1,4 @@
+// packages\cli\src\assembler\context.ts
 import { AssemblerError } from "./errors";
 
 export interface UnresolvedEntry {

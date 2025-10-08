@@ -1,3 +1,4 @@
+// packages\cli\src\assembler\encoder.ts
 import { AsmContext } from "./context";
 import { NodeInstr } from "./parser";
 import { encodeLD } from "./encoder/ld";
@@ -12,7 +13,7 @@ import {
   encodeCP,
 } from "./encoder/alu";
 import { encodeINC, encodeDEC } from "./encoder/incdec";
-import { encodeJP, encodeJR, encodeCALL, encodeRET, encodeRST, encodeDJNZ, } from "./encoder/jump";
+// import { encodeJP, encodeJR, encodeCALL, encodeRET, encodeRST, encodeDJNZ, } from "./encoder/jump";
 import { encodeEX } from "./encoder/ex";
 import { encodeMisc } from "./encoder/misc";
 import { encodeCB } from "./encoder/cb";
@@ -74,25 +75,25 @@ export function encodeLegacyInstr(ctx: AsmContext, node: NodeInstr) {
       encodeCP(ctx, node);
       break;
 
-    // --- Jump/Call/Return 系 ---
-    case "JP":
-      encodeJP(ctx, node);
-      break;
-    case "JR":
-      encodeJR(ctx, node);
-      break;
-    case "CALL":
-      encodeCALL(ctx, node);
-      break;
-    case "RET":
-      encodeRET(ctx, node);
-      break;
-    case "RST":
-      encodeRST(ctx, node);
-      break;
-    case "DJNZ":
-      encodeDJNZ(ctx, node);
-      break;
+    // // --- Jump/Call/Return 系 ---
+    // case "JP":
+    //   encodeJP(ctx, node);
+    //   break;
+    // case "JR":
+    //   encodeJR(ctx, node);
+    //   break;
+    // case "CALL":
+    //   encodeCALL(ctx, node);
+    //   break;
+    // case "RET":
+    //   encodeRET(ctx, node);
+    //   break;
+    // case "RST":
+    //   encodeRST(ctx, node);
+    //   break;
+    // case "DJNZ":
+    //   encodeDJNZ(ctx, node);
+    //   break;
 
     case "EX":
       encodeEX(ctx, node);

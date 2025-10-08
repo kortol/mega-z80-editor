@@ -137,5 +137,5 @@ export function isInstr(op: string): boolean {
 }
 
 function isPseudo(op: string): boolean {
-  return ["ORG", "END", "DB", "DW", "EQU", ".WORD32", ".SYMLEN", "END", "EXTERN"].includes(op);
+  return ["ORG", "END", "DB", "DEFB", "DW", "DEFW", "EQU", ".WORD32", ".SYMLEN", "END", "EXTERN"].includes(op);
 }

@@ -22,7 +22,7 @@ describe("Jump/Call/Return", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("CALL", ["BDOS"]));
     expect(ctx.texts[0].data).toEqual([0xcd, 0x00, 0x00]);
-    expect(ctx.unresolved).toEqual([{ addr: 1, symbol: "BDOS", size: 2 }]);
+    expect(ctx.unresolved).toEqual([{ addr: 1, symbol: "BDOS", size: 2, addend: 0 }]);
   });
 
   test("JR forward offset", () => {
