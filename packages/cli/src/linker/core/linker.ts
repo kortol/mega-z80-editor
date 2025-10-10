@@ -1,14 +1,8 @@
 // src/linker/core/linker.ts
 import { parseRelFile } from "./parser";
 import { RelModule, LinkResult } from "./types";
-
-function splitSymAddend(s: string): { name: string; addend: number } {
-  const m = s.match(/^([A-Z_][A-Z0-9_]*)([+\-]\d+)?$/i);
-  if (!m) return { name: s, addend: 0 };
-  const name = m[1];
-  const addend = m[2] ? parseInt(m[2], 10) : 0; // P1-C では ±1 / ±-1 程度でOK
-  return { name, addend };
-}
+import { evalLinkExpr } from "../expr/evalLinkExpr";      // ★ 追加
+import { LinkResolveContext, ResolveFn } from "../expr/types"; // ★ 追加
 
 export function linkModules(mods: RelModule[]): LinkResult {
   const symbols = new Map<string, { bank: number; addr: number }>();
@@ -18,13 +12,19 @@ export function linkModules(mods: RelModule[]): LinkResult {
 
   // パス1: シンボル収集
   for (const mod of mods) {
-
     for (const s of mod.symbols) {
       if (symbols.has(s.name)) {
+        const existing = symbols.get(s.name)!;
+        // EXTERN仮定義 → 上書きOK
+        if (existing.addr === 0) {
+          symbols.set(s.name, { bank: 0, addr: s.addr });
+          continue;
+        }
         throw new Error(`Duplicate symbol '${s.name}'`);
       }
       symbols.set(s.name, { bank: 0, addr: s.addr });
     }
+
 
     texts.push(...mod.texts);
     refs.push(...mod.refs);
@@ -33,14 +33,30 @@ export function linkModules(mods: RelModule[]): LinkResult {
       entry = mod.entry;
     }
 
-    // パス1のシンボル収集直後に追加
+    // extern宣言の登録
     for (const x of mod.externs) {
       if (!symbols.has(x)) {
-        symbols.set(x, { bank: 0, addr: 0 }); // 仮の0埋め
+        symbols.set(x, { bank: 0, addr: 0 }); // 仮定義
       }
     }
   }
 
+  // ★ リゾルブコンテキスト生成
+  const ctx: LinkResolveContext = {
+    symbols,
+    externs: new Set(mods.flatMap(m => m.externs)),
+  };
+
+  // ★ resolver関数
+  const resolver: ResolveFn = (name, context = ctx) => {
+    if (context.symbols.has(name)) {
+      return { kind: "defined", addr: context.symbols.get(name)!.addr };
+    } else if (context.externs?.has(name)) {
+      return { kind: "extern" };
+    } else {
+      return { kind: "unknown" };
+    }
+  };
 
   // パス2: メモリ配置
   const mem = new Uint8Array(0x10000);
@@ -57,16 +73,27 @@ export function linkModules(mods: RelModule[]): LinkResult {
     }
   }
 
-  // R レコード適用
+  // ★ Rレコード適用（evalLinkExpr使用）
   for (const r of refs) {
-    const { name, addend } = splitSymAddend(r.sym);
-    if (!symbols.has(name)) throw new Error(`Undefined symbol '${name}'`);
-    const val = symbols.get(name)!; // {addr: number}
-    const v = (val.addr + addend) & 0xFFFF;
+    const res = evalLinkExpr(r.sym, resolver, { wrap16: true }, ctx);
 
-    // 既存仕様に合わせて常に16bit書き込み（DBでも2B書く簡易仕様）
-    mem[r.addr] = v & 0xFF;
-    mem[r.addr + 1] = (v >> 8) & 0xFF;
+    if (res.ok) {
+      const v = res.value! & 0xFFFF;
+      mem[r.addr] = v & 0xFF;
+      mem[r.addr + 1] = (v >> 8) & 0xFF;
+    } else {
+      // 未解決またはエラー → 0埋め
+      mem[r.addr] = 0;
+      mem[r.addr + 1] = 0;
+      if (res.unresolved) {
+        console.warn(
+          `⚠️ Unresolved symbol(s): ${res.unresolved.join(", ")} at ${r.addr.toString(16)}h`
+        );
+      }
+      if (res.errors) {
+        console.warn(`⚠️ Eval error: ${res.errors.join("; ")} (at ${r.addr.toString(16)}h)`);
+      }
+    }
   }
 
   return {
