@@ -7,7 +7,7 @@ describe("P1-E: Relocation Record Generation", () => {
     const src = `
       JP EXT_C
       NOP
-      EXT_C: NOP
+      ;EXT_C: NOP
       END
     `;
     const ctx = assembleSource(src, 2);

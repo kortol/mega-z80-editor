@@ -17,22 +17,37 @@ function estimateSize(node: any): number {
   return 1;
 }
 
-// --- 追加: .sym 出力 ---
-function writeSymFile(ctx: AsmContext, outputFile: string) {
+// --- .sym 出力 ---
+export function writeSymFile(ctx: AsmContext, outputFile: string) {
   const symPath = outputFile.replace(/\.rel$/i, ".sym");
   const lines: string[] = [];
-  const entries = [...ctx.symbols.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0])
-  );
-  for (const [name, value] of entries) {
-    const kind = ctx.externs.has(name)
-      ? "EXTERN"
-      : typeof value === "number"
-        ? "LABEL"
-        : "CONST";
-    const valStr = typeof value === "number" ? value.toString(16).padStart(4, "0") : "----";
+
+  // シンボル名を集約：定義済み＋EXTERN
+  const allNames = new Set<string>([
+    ...ctx.symbols.keys(),
+    ...ctx.externs.values(),
+  ]);
+
+  // ソートして安定出力
+  const entries = [...allNames].sort((a, b) => a.localeCompare(b));
+
+  for (const name of entries) {
+    let kind = "UNKNOWN";
+    let valStr = "----";
+
+    if (ctx.externs.has(name)) {
+      kind = "EXTERN";
+    } else {
+      const entry = ctx.symbols.get(name);
+      if (typeof entry === "number") {
+        kind = "LABEL";
+        valStr = entry.toString(16).padStart(4, "0");
+      }
+    }
+
     lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind}`);
   }
+
   fs.writeFileSync(symPath, lines.join("\n") + "\n", "utf-8");
 }
 

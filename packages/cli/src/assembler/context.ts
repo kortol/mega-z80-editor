@@ -1,6 +1,9 @@
 // packages\cli\src\assembler\context.ts
 import { AssemblerError } from "./errors";
 
+// 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
+export type SymbolEntry = number;
+
 export interface UnresolvedEntry {
   addr: number;        // アドレス
   symbol: string;      // 未解決シンボル名
@@ -18,7 +21,7 @@ export interface AsmText {
 export interface AsmContext {
   loc: number;                 // 現在のアセンブル位置 (アドレスカウンタ: ORG, DB/DW などで進む)
   moduleName: string;          // モジュール名 (RELファイルの H レコード用、デフォルト "NONAME")
-  symbols: Map<string, number>; // 定義済みシンボル表 (EQU/ラベルで登録される)
+  symbols: Map<string, SymbolEntry>; // 定義済みシンボル表 (EQU/ラベルで登録される)
   unresolved: UnresolvedEntry[]; // 未解決シンボル参照リスト (外部シンボルや後方参照)
   modeWord32: boolean;         // `.WORD32` モードが有効なら true (通常16bit, 拡張32bit用)
   modeSymLen: number;          // シンボル長の基準 (通常 6、`.SYMLEN` 疑似命令で変更可能)

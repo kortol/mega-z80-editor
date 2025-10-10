@@ -49,27 +49,37 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
       throw new Error(`DW does not support string literal`);
     }
 
+    const addr = ctx.loc;
+    ctx.loc += 2;
+
     // --- 外部シンボル ± 定数 ---
     const ext = parseExternExpr(ctx, a);
     if (ext) {
-      const addr = ctx.loc;
+      // どちらのパスでもダミーデータは書く
       ctx.texts.push({ addr, data: [0x00, 0x00], line: node.line });
-      ctx.unresolved.push({ addr, symbol: ext.symbol, size: 2, addend: ext.addend });
-      ctx.loc += 2;
+
+      // ✅ pass=2のときのみ未解決登録
+      if (ctx.pass === 2) {
+        ctx.unresolved.push({
+          addr,
+          symbol: ext.symbol,
+          size: 2,
+          addend: ext.addend,
+        });
+      }
       continue;
     }
 
-    // --- 通常の式 ---
-    const val = resolveExpr16(ctx, a, node.line);
+    // --- 通常の式（Reloc禁止で評価） ---
+    const val = resolveExpr16(ctx, a, node.line, false, true);
     if (val < -0x8000 || val > 0xFFFF) {
       ctx.warnings?.push?.(`DW value ${val} truncated at line ${node.line}`);
     }
     ctx.texts.push({
-      addr: ctx.loc,
+      addr,
       data: [val & 0xFF, (val >> 8) & 0xFF],
       line: node.line,
     });
-    ctx.loc += 2;
   }
 }
 
