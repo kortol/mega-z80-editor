@@ -23,3 +23,6 @@ Thumbs.db
 
 # emulators
 tools/emulator/*
+
+# temporary files
+.tmp_tests
