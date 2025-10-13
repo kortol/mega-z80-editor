@@ -18,6 +18,7 @@ export interface AsmText {
   addr: number;
   data: number[];
   line?: number; // 元ソース行番号（1-based）
+  sectionId?: number; // セクションID（0=TEXT, 1=DATA, 2=BSS, 3以降=CUSTOM）
 }
 
 // --- セクション管理 ---

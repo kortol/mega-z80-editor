@@ -48,9 +48,13 @@ function writeLstFile(ctx: AsmContext, outputFile: string, source: string) {
   const lines: string[] = [];
   const srcLines = source.split(/\r?\n/);
   for (const t of ctx.texts) {
-    const bytes = t.data.map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+    const bytes = t.data
+      .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
+      .join(" ");
     const src = srcLines[(t.line ?? 1) - 1] ?? "";
-    lines.push(`${t.addr.toString(16).padStart(4, "0")}  ${bytes.padEnd(12)}  ${src}`);
+    lines.push(
+      `${t.addr.toString(16).padStart(4, "0")}  ${bytes.padEnd(12)}  ${src}`
+    );
   }
   fs.writeFileSync(lstPath, lines.join("\n") + "\n", "utf-8");
 }
@@ -60,7 +64,7 @@ export function assemble(
   inputFile: string,
   outputFile: string,
   pass: number,
-  options?: { verbose?: boolean, relVersion?: number }
+  options?: { verbose?: boolean; relVersion?: number }
 ): AsmContext {
   const verbose = options?.verbose ?? false;
   const ctx: AsmContext = {
@@ -124,7 +128,6 @@ export function assemble(
   writeSymFile(ctx, outputFile);
   writeLstFile(ctx, outputFile, source);
 
-
   // ------------------------------------------------------------
   // Verbose出力
   // ------------------------------------------------------------
@@ -141,7 +144,11 @@ export function assemble(
 
     if (ctx.errors.length > 0) {
       for (const e of ctx.errors) {
-        console.log(`E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${e.line ?? "?"})`);
+        console.log(
+          `E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${
+            e.line ?? "?"
+          })`
+        );
       }
     }
   }
@@ -153,6 +160,9 @@ function assemblePhase1(ctx: AsmContext) {
   ctx.pass = 1;
   ctx.loc = 0;
   ctx.texts = [];
+  ctx.sections = new Map();
+  ctx.unresolved = [];
+  ctx.errors = [];  
   for (const node of nodes) {
     if (node.kind === "label") {
       ctx.symbols.set(node.name, ctx.loc);
@@ -169,6 +179,12 @@ function assemblePhase2(ctx: AsmContext) {
   ctx.pass = 2;
   ctx.loc = 0;
   ctx.texts = [];
+  for (const sec of ctx.sections.values()) {
+    sec.lc = 0;
+    sec.bytes = [];
+  }
+  ctx.unresolved = [];
+  ctx.errors = [];
   for (const node of nodes) {
     if (node.kind === "label") {
       ctx.symbols.set(node.name, ctx.loc);
@@ -179,4 +195,3 @@ function assemblePhase2(ctx: AsmContext) {
     }
   }
 }
-

@@ -9,35 +9,35 @@ export function encodeEX(ctx: AsmContext, node: NodeInstr) {
 
   // EX AF,AF'
   if ((op1 === "AF" && op2 === "AF'") || (op1 === "AF'" && op2 === "AF")) {
-    ctx.texts.push({ addr: ctx.loc, data: [0x08], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0x08], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 1;
     return;
   }
 
   // EX DE,HL
   if ((op1 === "DE" && op2 === "HL") || (op1 === "HL" && op2 === "DE")) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xEB], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xEB], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 1;
     return;
   }
 
   // EX (SP),HL
   if ((op1 === "(SP)" && op2 === "HL") || (op1 === "HL" && op2 === "(SP)")) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xE3], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xE3], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 1;
     return;
   }
 
   // EX (SP),IX
   if ((op1 === "(SP)" && op2 === "IX") || (op1 === "IX" && op2 === "(SP)")) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xDD, 0xE3], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xDD, 0xE3], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }
 
   // EX (SP),IY
   if ((op1 === "(SP)" && op2 === "IY") || (op1 === "IY" && op2 === "(SP)")) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xFD, 0xE3], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xFD, 0xE3], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }

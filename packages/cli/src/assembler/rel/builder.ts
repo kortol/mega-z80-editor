@@ -4,7 +4,11 @@ import { AsmContext } from "../context";
 import { RelFile, RelRecord } from "./types"; // v1互換の型
 import { writeRelV2 } from "./writerV2";
 import {
-  RelModuleV2, RelHeaderV2, RelSectionDescV2, RelSymbolV2, RelFixupV2
+  RelModuleV2,
+  RelHeaderV2,
+  RelSectionDescV2,
+  RelSymbolV2,
+  RelFixupV2,
 } from "./types";
 
 export class RelBuilder {
@@ -34,7 +38,13 @@ export class RelBuilder {
   // ★ 未解決シンボルを追加する
   addUnresolved(addr: number, symbol: string) {
     this.file.unresolved.push({ addr, symbol });
-    this.file.records.push({ kind: "R", addr, size: 2, sym: symbol, addend: 0 }); // ← 追加
+    this.file.records.push({
+      kind: "R",
+      addr,
+      size: 2,
+      sym: symbol,
+      addend: 0,
+    }); // ← 追加
   }
 
   build(): RelFile {
@@ -60,7 +70,13 @@ export function buildRelFile(ctx: AsmContext): RelFile {
 
   // R
   for (const r of ctx.unresolved) {
-    records.push({ kind: "R", addr: r.addr, sym: r.symbol, size: r.size, addend: r.addend });
+    records.push({
+      kind: "R",
+      addr: r.addr,
+      sym: r.symbol,
+      size: r.size,
+      addend: r.addend,
+    });
   }
 
   // X
@@ -84,7 +100,6 @@ export function buildRelFile(ctx: AsmContext): RelFile {
     records.push({ kind: "E", addr: ctx.entry });
   }
 
-
   return {
     module: ctx.moduleName,
     records,
@@ -92,12 +107,13 @@ export function buildRelFile(ctx: AsmContext): RelFile {
   };
 }
 
-
-
 // --- 省略: RelBuilder / buildRelFile (v1互換) は既存のまま ---
 
 // strtab ユーティリティ
-function buildStrTab(names: string[]): { strtab: Uint8Array; offsets: Map<string, number> } {
+function buildStrTab(names: string[]): {
+  strtab: Uint8Array;
+  offsets: Map<string, number>;
+} {
   const offsets = new Map<string, number>();
   const bytes: number[] = [];
   for (const name of names) {
@@ -113,15 +129,17 @@ function buildStrTab(names: string[]): { strtab: Uint8Array; offsets: Map<string
 // V2モジュール構築（sections/symbols/fixups/strtab/data を全部作る）
 export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
   // 1) Sections
-  const sections: RelSectionDescV2[] = Array.from(ctx.sections.values()).map(s => ({
-    id: s.id,
-    name: s.name,
-    kind: s.kind,
-    align: s.align,
-    size: s.bytes.length,     // s.size ではなく実データ長を優先
-    flags: s.flags,
-    data: Uint8Array.from(s.bytes),
-  }));
+  const sections: RelSectionDescV2[] = Array.from(ctx.sections.values()).map(
+    (s) => ({
+      id: s.id,
+      name: s.name,
+      kind: s.kind,
+      align: s.align,
+      size: s.bytes.length, // s.size ではなく実データ長を優先
+      flags: s.flags,
+      data: Uint8Array.from(s.bytes),
+    })
+  );
 
   // dataOffset を後で付与するので先に data ブロブを作る
   let cursor = 0;
@@ -147,9 +165,9 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
     if (typeof val === "number") {
       symbols.push({
         name,
-        storage: "REL",       // TODO: EQU等はABSに切替
-        sectionId: 0,         // TODO: 定義位置からセクション特定へ置換
-        value: val,           // TODO: セクション内相対へ変換（ORG運用により要調整）
+        storage: "REL", // TODO: EQU等はABSに切替
+        sectionId: 0, // TODO: 定義位置からセクション特定へ置換
+        value: val, // TODO: セクション内相対へ変換（ORG運用により要調整）
       });
     }
   }
@@ -169,20 +187,20 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
     // r.symbol のインデックスを後で張るため、一旦ダミー(-1)で入れて後で解決してもOKだが、
     // ここでは name→index を先に作れるよう、後段で再マップする。
     return {
-      sectionId: 0,                  // TODO: 実際はその命令が出力されたセクションID
-      offset: r.addr,                // TODO: セクション内オフセットに調整
+      sectionId: 0, // TODO: 実際はその命令が出力されたセクションID
+      offset: r.addr, // TODO: セクション内オフセットに調整
       width: (r.size ?? 2) as 1 | 2, // v1準拠 1 or 2
-      signed: false,                 // TODO: 将来拡張
-      pcrel: false,                  // TODO: JRなどPC相対が来たらtrue
-      symIndex: -1,                  // 後で解決
+      signed: false, // TODO: 将来拡張
+      pcrel: false, // TODO: JRなどPC相対が来たらtrue
+      symIndex: -1, // 後で解決
       addend: r.addend ?? 0,
     };
   });
 
   // 4) strtab の構築（セクション名＋シンボル名）
   const allNames = [
-    ...sections.map(s => s.name),
-    ...symbols.map(s => s.name),
+    ...sections.map((s) => s.name),
+    ...symbols.map((s) => s.name),
   ];
   const { strtab, offsets } = buildStrTab(allNames);
 
@@ -230,6 +248,13 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
     sections,
     symbols,
     fixups,
+    texts: ctx.texts.map((t) => ({
+      sectionId: t.sectionId ?? ctx.currentSection ?? 0,
+      addr: t.addr,
+      data: t.data,
+      line: t.line,
+    })),
+    entry: ctx.entry, // undefinedなら未指定
     data,
     strtab,
     entrySymIndex: -1,

@@ -75,6 +75,13 @@ export interface RelFixupV2 {
   addend: number;
 }
 
+export interface RelTextV2 {
+  sectionId: number;
+  addr: number;
+  data: number[];
+  line?: number;
+}
+
 export interface RelModuleV2 {
   /** ヘッダ情報 */
   header: RelHeaderV2;
@@ -84,6 +91,10 @@ export interface RelModuleV2 {
   symbols: RelSymbolV2[];
   /** リロケーション情報 */
   fixups: RelFixupV2[];
+  /** 実データ */
+  texts: RelTextV2[];
+  /** エントリーポイントアドレス */
+  entry?: number;  
   /** セクション結合済みのデータ */
   data: Uint8Array;
   /** stringテーブル */

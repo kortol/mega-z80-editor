@@ -47,7 +47,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
       const val = resolveExpr8(ctx, src.raw, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 2;
     },
     estimate: 2,
@@ -60,7 +60,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR,
       encode(ctx, [src], node) {
         const val = resolveExpr8(ctx, src.raw, node.line);
-        ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line });
+        ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line, sectionId: ctx.currentSection });
         ctx.loc += 2;
       },
       estimate: 2,
@@ -74,7 +74,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
       const opcode = base | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 1;
     },    
   });
@@ -86,7 +86,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.REG8,
       encode(ctx, [src], node) {
         const opcode = base | regCode(src.raw);
-        ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
+        ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection });
         ctx.loc += 1;
       },
     });
@@ -100,7 +100,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.REG16,
       encode(ctx, [dst, src], node) {
         const code = reg16Code(src.raw);
-        ctx.texts.push({ addr: ctx.loc, data: [0x09 | (code << 4)], line: node.line });
+        ctx.texts.push({ addr: ctx.loc, data: [0x09 | (code << 4)], line: node.line, sectionId: ctx.currentSection });
         ctx.loc += 1;
       },
     });
@@ -137,13 +137,13 @@ function encodeALU(
   // --- レジスタ版
   if (isReg8(src)) {
     const opcode = base | regCode(src);
-    ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 1;
     return;
   }
   // --- (HL)版
   if (src === "(HL)") {
-    ctx.texts.push({ addr: ctx.loc, data: [hlOpcode], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [hlOpcode], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 1;
     return;
   }
@@ -152,10 +152,10 @@ function encodeALU(
     const val = resolveValue(ctx, src);
     if (val === null) {
       // 未解決シンボル
-      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, 0x00], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, 0x00], line: node.line, sectionId: ctx.currentSection });
       ctx.unresolved.push({ addr: ctx.loc + 1, symbol: src, size: 1 });
     } else {
-      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, val & 0xff], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [immOpcode, val & 0xff], line: node.line, sectionId: ctx.currentSection });
     }
     ctx.loc += 2;
     return;
@@ -174,21 +174,21 @@ function encodeADD(ctx: AsmContext, node: NodeInstr) {
   // 16bit: ADD HL,ss
   if (dst === "HL" && ["BC", "DE", "HL", "SP"].includes(src)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, HL: 0x29, SP: 0x39 };
-    ctx.texts.push({ addr: ctx.loc, data: [table[src]] });
+    ctx.texts.push({ addr: ctx.loc, data: [table[src]], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 1;
     return;
   }
   // 16bit: ADD IX,rr
   if (dst === "IX" && ["BC", "DE", "IX", "SP"].includes(src)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, IX: 0x29, SP: 0x39 };
-    ctx.texts.push({ addr: ctx.loc, data: [0xdd, table[src]] });
+    ctx.texts.push({ addr: ctx.loc, data: [0xdd, table[src]], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }
   // 16bit: ADD IY,rr
   if (dst === "IY" && ["BC", "DE", "IY", "SP"].includes(src)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, IY: 0x29, SP: 0x39 };
-    ctx.texts.push({ addr: ctx.loc, data: [0xfd, table[src]] });
+    ctx.texts.push({ addr: ctx.loc, data: [0xfd, table[src]], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }

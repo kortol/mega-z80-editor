@@ -31,9 +31,9 @@ export const JPInstrDefs: InstrDef[] = [
     encode(ctx, args, node) {
       // console.log("JP (HL)");
       const t = args[0].raw.toUpperCase();
-      if (t === "(HL)") ctx.texts.push({ addr: ctx.loc, data: [0xE9] });
-      else if (t === "(IX)") ctx.texts.push({ addr: ctx.loc, data: [0xDD, 0xE9] });
-      else ctx.texts.push({ addr: ctx.loc, data: [0xFD, 0xE9], line: node.line });
+      if (t === "(HL)") ctx.texts.push({ addr: ctx.loc, data: [0xE9], line: node.line, sectionId: ctx.currentSection });
+      else if (t === "(IX)") ctx.texts.push({ addr: ctx.loc, data: [0xDD, 0xE9], line: node.line, sectionId: ctx.currentSection });
+      else ctx.texts.push({ addr: ctx.loc, data: [0xFD, 0xE9], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += ctx.texts.at(-1)!.data.length;
     },
     estimate: (ctx, args) => (args[0].raw.toUpperCase() === "(HL)" ? 1 : 2),
@@ -46,7 +46,7 @@ export const JPInstrDefs: InstrDef[] = [
       const cond = args[0].raw.toUpperCase();
       const val = resolveExpr16(ctx, args[1].raw, node.line, true);
       const opcode = 0xC2 | condCodes[cond];
-      ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xFF, val >> 8], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xFF, val >> 8], line: node.line , sectionId: ctx.currentSection });
       ctx.loc += 3;
     },
     estimate: 3,
@@ -57,7 +57,7 @@ export const JPInstrDefs: InstrDef[] = [
     encode(ctx, args, node) {
       // console.log("JP NN");
       const val = resolveExpr16(ctx, args[0].raw, node.line, true);
-      ctx.texts.push({ addr: ctx.loc, data: [0xC3, val & 0xFF, val >> 8], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0xC3, val & 0xFF, val >> 8], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 3;
     },
     estimate: 3,
@@ -94,7 +94,7 @@ export const JRInstrDefs: InstrDef[] = [
       }
 
       const opcode = { NZ: 0x20, Z: 0x28, NC: 0x30, C: 0x38 }[cond];
-      ctx.texts.push({ addr: ctx.loc, data: [opcode ?? 0, offset & 0xff], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode ?? 0, offset & 0xff], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 2;
     },
     estimate: 2,
@@ -119,7 +119,7 @@ export const JRInstrDefs: InstrDef[] = [
         return;
       }
 
-      ctx.texts.push({ addr: ctx.loc, data: [0x18, offset & 0xff], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0x18, offset & 0xff], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 2;
     },
     estimate: 2,
@@ -138,7 +138,7 @@ export const CALLInstrDefs: InstrDef[] = [
       const cond = args[0].raw.toUpperCase();
       const val = resolveExpr16(ctx, args[1].raw, node.line, true);
       const opcode = 0xC4 | condCodes[cond];
-      ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xFF, val >> 8], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xFF, val >> 8], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 3;
     },
     estimate: 3,
@@ -148,7 +148,7 @@ export const CALLInstrDefs: InstrDef[] = [
     match: (ctx, args) => args.length === 1,
     encode(ctx, args, node) {
       const val = resolveExpr16(ctx, args[0].raw, node.line, true);
-      ctx.texts.push({ addr: ctx.loc, data: [0xCD, val & 0xFF, val >> 8], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0xCD, val & 0xFF, val >> 8], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 3;
     },
     estimate: 3,
@@ -165,7 +165,7 @@ export const RETInstrDefs: InstrDef[] = [
       args.length === 1 && condCodes.hasOwnProperty(args[0].raw.toUpperCase()),
     encode(ctx, args, node) {
       const cond = args[0].raw.toUpperCase();
-      ctx.texts.push({ addr: ctx.loc, data: [0xC0 | condCodes[cond]], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0xC0 | condCodes[cond]], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 1;
     },
   },
@@ -173,7 +173,7 @@ export const RETInstrDefs: InstrDef[] = [
   {
     match: (ctx, args) => args.length === 0,
     encode(ctx, args, node) {
-      ctx.texts.push({ addr: ctx.loc, data: [0xC9], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0xC9], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 1;
     },
   },
@@ -186,7 +186,7 @@ export const RSTInstrDefs: InstrDef[] = [
       const val = resolveExpr8(ctx, args[0].raw, node.line, true);
       if (val % 8 !== 0 || val < 0 || val > 0x38)
         throw new Error(`Invalid RST vector ${val}`);
-      ctx.texts.push({ addr: ctx.loc, data: [0xC7 + val], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0xC7 + val], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 1;
     },
   },
@@ -215,7 +215,7 @@ export const DJNZInstrDefs: InstrDef[] = [
         return;
       }
 
-      ctx.texts.push({ addr: ctx.loc, data: [0x10, offset & 0xff], line: node.line });
+      ctx.texts.push({ addr: ctx.loc, data: [0x10, offset & 0xff], line: node.line, sectionId: ctx.currentSection });
       ctx.loc += 2;
     },
     estimate: 2,

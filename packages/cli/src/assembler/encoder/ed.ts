@@ -19,7 +19,7 @@ export function encodeED(ctx: AsmContext, node: NodeInstr) {
   };
 
   if (op in table && args.length === 0) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xED, table[op]], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xED, table[op]], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }
@@ -33,7 +33,7 @@ export function encodeED(ctx: AsmContext, node: NodeInstr) {
   };
   const key = [op, ...args].join(" ");
   if (ldTable[key]) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xED, ldTable[key]], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xED, ldTable[key]], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }
@@ -46,7 +46,7 @@ export function encodeED(ctx: AsmContext, node: NodeInstr) {
     if (isNaN(mode) || mode < 0 || mode > 2) {
       throw new Error(`Invalid IM mode: ${args[0]}`);
     }
-    ctx.texts.push({ addr: ctx.loc, data: [0xED, codes[mode]], line: node.line });
+    ctx.texts.push({ addr: ctx.loc, data: [0xED, codes[mode]], line: node.line, sectionId: ctx.currentSection });
     ctx.loc += 2;
     return;
   }

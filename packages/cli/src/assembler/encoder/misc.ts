@@ -26,6 +26,6 @@ export function encodeMisc(ctx: AsmContext, node: NodeInstr) {
     throw new Error(`Unsupported misc instruction ${node.op}`);
   }
 
-  ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
+  ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection });
   ctx.loc += 1;
 }
