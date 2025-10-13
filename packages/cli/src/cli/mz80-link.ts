@@ -1,27 +1,62 @@
-// src/cli/mz80-link.ts
 import { parseRelFile } from "../linker/core/parser";
 import { linkModules } from "../linker/core/linker";
 import { BinOutputAdapter } from "../linker/output/binAdapter";
-import * as fs from "fs";
+import { MapAdapter } from "../linker/output/mapAdapter";
+import { SymAdapter } from "../linker/output/symAdapter";
+import { LogAdapter } from "../linker/output/logAdapter";
 
-export function link(inputFiles: string[], outputFile: string) {
-  const mods = inputFiles.map(parseRelFile);
+export function link(
+  inputFiles: string[],
+  outputFile: string,
+  opts: {
+    verbose?: boolean;
+    map?: boolean;
+    sym?: boolean;
+    log?: boolean;
+  }
+) {
+  const verbose = !!opts.verbose; 
+
+  const mods = inputFiles.map((f) => {
+    if (verbose) console.log(`[LOAD] ${f}`);
+    return parseRelFile(f);
+  });
+
   const result = linkModules(mods);
-  const verbose = true;
+  if (verbose) {
+    console.log(`[PASS1] Collected ${result.symbols.size} symbols`);
+    console.log(`[PASS2] Linked ${result.segments.length} segment(s)`);
+  }
 
-  const adapter = new BinOutputAdapter(result);
-  adapter.write(outputFile, verbose);
+  // .bin
+  new BinOutputAdapter(result).write(outputFile, verbose);
 
-  console.log(`Linked ${inputFiles.length} modules -> ${outputFile}`);
-  for (const seg of result.segments) {
-    console.log(
-      `Segment bank=${seg.bank} kind=${seg.kind} ` +
-      `range=${seg.range.min.toString(16)}h..${seg.range.max.toString(16)}h` +
-      (seg.data ? ` size=${seg.range.max - seg.range.min + 1}` : " (bss)")
+  // .map
+  if (opts.map) {
+    new MapAdapter(result).write(
+      outputFile.replace(/\.[^.]+$/, ".map"),
+      verbose
     );
   }
-  if (result.entry !== undefined) {
-    console.log(`Entry point: ${result.entry.toString(16)}h`);
-  }
-}
 
+  // .sym
+  if (opts.sym) {
+    new SymAdapter(result).write(
+      outputFile.replace(/\.[^.]+$/, ".sym"),
+      verbose
+    );
+  }
+
+  // .log
+  if (opts.log) {
+    // 現状はconsole.warnから収集予定 → 将来 logBuffer に差し替え
+    new LogAdapter(result, []).write(
+      outputFile.replace(/\.[^.]+$/, ".log"),
+      verbose
+    );
+  }
+
+  if (verbose) {
+    console.log(`✅ Linked ${inputFiles.length} modules -> ${outputFile}`);
+  }  
+}

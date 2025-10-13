@@ -11,6 +11,8 @@ import { link } from "./cli/mz80-link";
 
 const program = new Command();
 
+program.enablePositionalOptions();
+
 program
   .name("mz80")
   .description("MegaZ80Editor CLI (P0 phase)")
@@ -25,8 +27,11 @@ program
   .description("Check and print the mz80.yaml configuration")
   .action(() => {
     const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" =
-      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
+    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
+      ? "quiet"
+      : opts.verbose
+      ? "verbose"
+      : "normal";
     const logger = new Logger(logLevel);
 
     const configPath = path.resolve(process.cwd(), opts.config);
@@ -59,12 +64,15 @@ program
   .description("Assemble .asm into .rel")
   .action((input, output) => {
     const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" =
-      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
+    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
+      ? "quiet"
+      : opts.verbose
+      ? "verbose"
+      : "normal";
     const logger = new Logger(logLevel);
 
     try {
-      assemble(input, output);
+      assemble(input, output, 2, { verbose: !!opts.verbose });
       logger.info(`✅ Assembled: ${input} → ${output}`);
     } catch (err: any) {
       logger.error(`❌ Assembly failed: ${err.message}`);
@@ -75,21 +83,20 @@ program
 // === サブコマンド: link (リンカ) ===
 program
   .command("link <output> <inputs...>")
-  .description("Link .rel files into .bin")
-  .action((output, inputs: string[]) => {
-    const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" =
-      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
-    const logger = new Logger(logLevel);
-
+  .description("Link .rel files into .bin / .map / .sym / .log")
+  .option("--map", "Generate .map file")
+  .option("--sym", "Generate .sym file")
+  .option("--log", "Generate .log file")
+  .option("--verbose", "Show detailed output")
+  .option("--quiet", "Suppress logs")
+  .action((output, inputs: string[], opts) => {
     try {
-      link(inputs, output);
-      logger.info(`✅ Linked: ${inputs.join(", ")} → ${output}`);
+      link(inputs, output, opts);
     } catch (err: any) {
-      logger.error(`❌ Link failed: ${err.message}`);
+      console.error(`❌ Link failed: ${err.message}`);
       process.exit(1);
     }
-  });  
+  });
 
 // === サブコマンド: build ===
 program
@@ -97,8 +104,11 @@ program
   .description("Build the project (stub in P0 phase)")
   .action(() => {
     const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" =
-      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
+    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
+      ? "quiet"
+      : opts.verbose
+      ? "verbose"
+      : "normal";
     const logger = new Logger(logLevel);
 
     logger.info("🔨 [build] Stub: build process not implemented yet.");
@@ -113,8 +123,11 @@ program
   .description("Run the project (stub in P0 phase)")
   .action(() => {
     const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" =
-      opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal";
+    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
+      ? "quiet"
+      : opts.verbose
+      ? "verbose"
+      : "normal";
     const logger = new Logger(logLevel);
 
     logger.info("▶️ [run] Stub: run process not implemented yet.");

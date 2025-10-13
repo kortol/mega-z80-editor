@@ -26,7 +26,13 @@ export function writeOutputFile(
 
   if (verbose) {
     const size = buf.length;
-    console.log(`${tag} ${target} (${size} bytes / ${formatHumanSize(size)})`);
+    const sizeStr = formatHumanSize(size);
+    if (`${size} bytes` === sizeStr) {
+      // bytes未満なら省略
+      console.log(`${tag} ${target} (${sizeStr})`);
+    } else {
+      console.log(`${tag} ${target} (${size} bytes / ${sizeStr})`);
+    }
   }
 }
 

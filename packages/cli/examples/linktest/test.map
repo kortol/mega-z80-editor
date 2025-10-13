@@ -1,0 +1,8 @@
+LINK MAP OF OUTPUT
+---------------------------------
+?EXTVAL   ----H   BANK0
+@START    0100H   BANK0
+?ZERO     ----H   BANK0
+SEGMENTS:
+  [text] 0100H..0105H size=0006H (6 bytes)
+ENTRY: 0100H

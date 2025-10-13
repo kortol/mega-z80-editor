@@ -38,7 +38,7 @@ describe("P1-C integration fixture", () => {
   });
 
   test("link .rel to .bin", () => {
-    link([relFile], binFile);
+    link([relFile], binFile,  { verbose: false, map: false, sym: false, log: false });
 
     const bin = fs.readFileSync(binFile);
     expect(bin.length).toBeGreaterThan(0);

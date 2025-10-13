@@ -19,10 +19,6 @@ export abstract class BaseTextAdapter {
   write(targetFile: string, verbose = false): void {
     const text = this.generateText();
     writeOutputFile(targetFile, text, verbose, this.tag);
-    if (verbose) {
-      const size = this.formatSize(text);
-      console.log(`${this.tag} ${targetFile} (${size})`);
-    }
   }
 
   /**
