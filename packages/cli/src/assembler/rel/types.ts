@@ -35,12 +35,14 @@ export interface RelHeaderV2 {
   symCount: number;
   fixupCount: number;
   dataSize: number;
-  entrySymIndex: number;
+  entrySymIndex: number; // -1なら未指定
 }
+
+export type RelSectionKindV2 = "TEXT" | "DATA" | "BSS" | "CUSTOM";
 
 export interface RelSectionDescV2 {
   id: number;
-  kind: "TEXT" | "DATA" | "BSS" | "CUSTOM";
+  kind: RelSectionKindV2;
   name: string;
   align: number;
   flags: number;      // bitflags (RO/RW/EXEC/ALLOC/LOAD)
@@ -53,12 +55,14 @@ export interface RelSectionDescV2 {
   nameStrOff?: number;
 }
 
+export type RelSymbolStorageV2 = "ABS" | "REL" | "EXT";
+
 export interface RelSymbolV2 {
   name: string;
-  storage: "ABS" | "REL" | "EXT";
+  storage: RelSymbolStorageV2;
   sectionId: number | null;
   value: number;
-  nameStrOff: number;
+  nameStrOff?: number;
 }
 
 export interface RelFixupV2 {
