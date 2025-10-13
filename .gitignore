@@ -25,4 +25,5 @@ Thumbs.db
 tools/emulator/*
 
 # temporary files
-packages/cli/.tmp_tests/*
+#**/.tmp_tests
+#**/.tmp_tests/**
