@@ -35,7 +35,8 @@ export const JPInstrDefs: InstrDef[] = [
       else if (t === "(IX)") ctx.texts.push({ addr: ctx.loc, data: [0xDD, 0xE9] });
       else ctx.texts.push({ addr: ctx.loc, data: [0xFD, 0xE9], line: node.line });
       ctx.loc += ctx.texts.at(-1)!.data.length;
-    }
+    },
+    estimate: (ctx, args) => (args[0].raw.toUpperCase() === "(HL)" ? 1 : 2),
   },
   // JP cc,nn
   {
@@ -48,6 +49,7 @@ export const JPInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xFF, val >> 8], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
   // JP nn
   {
@@ -58,6 +60,7 @@ export const JPInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0xC3, val & 0xFF, val >> 8], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 ];
 
@@ -94,6 +97,7 @@ export const JRInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [opcode ?? 0, offset & 0xff], line: node.line });
       ctx.loc += 2;
     },
+    estimate: 2,
   },
   // JR offset
   {
@@ -118,6 +122,7 @@ export const JRInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0x18, offset & 0xff], line: node.line });
       ctx.loc += 2;
     },
+    estimate: 2,
   },
 ];
 
@@ -136,6 +141,7 @@ export const CALLInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [opcode, val & 0xFF, val >> 8], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
   // CALL nn
   {
@@ -145,6 +151,7 @@ export const CALLInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0xCD, val & 0xFF, val >> 8], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 ];
 
@@ -211,5 +218,6 @@ export const DJNZInstrDefs: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0x10, offset & 0xff], line: node.line });
       ctx.loc += 2;
     },
+    estimate: 2,
   },
 ];

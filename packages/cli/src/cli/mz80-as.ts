@@ -1,21 +1,12 @@
 import { tokenize } from "../assembler/tokenizer";
-import { parse } from "../assembler/parser";
-import { encodeInstr } from "../assembler/encoder";
+import { Node, NodeInstr, parse } from "../assembler/parser";
+import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
 import { AsmContext } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
-
-// --- 追加: 命令長の見積もり ---
-function estimateSize(node: any): number {
-  const op = node.op?.toUpperCase?.() ?? "";
-  if (["JP", "CALL"].includes(op)) return 3;
-  if (["JR", "DJNZ"].includes(op)) return 2;
-  if (["RET", "NOP", "EXX"].includes(op)) return 1;
-  if (op.startsWith("LD")) return 2; // 簡易
-  return 1;
-}
+import { emitRelV2 } from "../assembler/rel/builder";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -69,13 +60,9 @@ export function assemble(
   inputFile: string,
   outputFile: string,
   pass: number,
-  options?: { verbose?: boolean }
+  options?: { verbose?: boolean, relVersion?: number }
 ): AsmContext {
   const verbose = options?.verbose ?? false;
-  const source = fs.readFileSync(inputFile, "utf-8");
-  const tokens = tokenize(source);
-  const nodes = parse(tokens);
-
   const ctx: AsmContext = {
     loc: 0,
     pass: 1, // ← 追加
@@ -89,20 +76,24 @@ export function assemble(
     errors: [],
     externs: new Set(),
     options,
+    warnings: [],
+    sections: new Map(),
+    currentSection: 0,
+    output: { relVersion: options?.relVersion ? options.relVersion : 1 },
   };
+
+  // PASS 0 : トークン化と構文解析
+  const source = fs.readFileSync(inputFile, "utf-8");
+  const tokens = tokenize(source);
+  const nodes = parse(tokens);
+  ctx.source = source;
+  ctx.tokens = tokens;
+  ctx.nodes = nodes;
 
   // ------------------------------------------------------------
   // PASS 1: シンボル収集
   // ------------------------------------------------------------
-  for (const node of nodes) {
-    if (node.kind === "label") {
-      ctx.symbols.set(node.name, ctx.loc);
-    } else if (node.kind === "pseudo") {
-      handlePseudo(ctx, node);
-    } else if (node.kind === "instr") {
-      ctx.loc += estimateSize(node);
-    }
-  }
+  assemblePhase1(ctx);
 
   // 1Pass指定のときはここで終了
   if (pass === 1) {
@@ -112,26 +103,27 @@ export function assemble(
   // ------------------------------------------------------------
   // PASS 2: 実際のアセンブル
   // ------------------------------------------------------------
-  ctx.pass = 2;
-  ctx.loc = 0;
-  ctx.texts = [];
-  for (const node of nodes) {
-    if (node.kind === "label") {
-      ctx.symbols.set(node.name, ctx.loc);
-    } else if (node.kind === "pseudo") {
-      handlePseudo(ctx, node);
-    } else if (node.kind === "instr") {
-      encodeInstr(ctx, node);
-    }
-  }
+  assemblePhase2(ctx);
 
   // ------------------------------------------------------------
   // 出力フェーズ
   // ------------------------------------------------------------
-  const rel = emitRel(ctx);
-  fs.writeFileSync(outputFile, rel, "utf-8");
+  const relVersion = options?.relVersion ?? 1;
+  if (relVersion === 2) {
+    // v2 Writer 経由で出力
+    emitRelV2(ctx, outputFile);
+  } else {
+    const rel = emitRel(ctx); // 従来どおり
+    fs.writeFileSync(outputFile, rel, "utf-8");
+    ctx.output.relSize = rel.length;
+    ctx.output.relVersion = 1;
+    ctx.output.generatedAt = new Date();
+  }
+
+  // 共通：SYM / LST 出力
   writeSymFile(ctx, outputFile);
   writeLstFile(ctx, outputFile, source);
+
 
   // ------------------------------------------------------------
   // Verbose出力
@@ -144,7 +136,7 @@ export function assemble(
     console.log(`Externs: ${[...ctx.externs.values()].join(", ") || "(none)"}`);
     console.log(`Errors : ${ctx.errors.length}`);
     console.log(`Texts  : ${ctx.texts.length} records`);
-    console.log(`Output size: ${rel.length} bytes`);
+    console.log(`Output size: ${ctx.output.relSize} bytes`);
     console.log("───────────────────────────────────────────────");
 
     if (ctx.errors.length > 0) {
@@ -153,6 +145,38 @@ export function assemble(
       }
     }
   }
-
   return ctx;
 }
+
+function assemblePhase1(ctx: AsmContext) {
+  const nodes = ctx.nodes ?? [];
+  ctx.pass = 1;
+  ctx.loc = 0;
+  ctx.texts = [];
+  for (const node of nodes) {
+    if (node.kind === "label") {
+      ctx.symbols.set(node.name, ctx.loc);
+    } else if (node.kind === "pseudo") {
+      handlePseudo(ctx, node);
+    } else if (node.kind === "instr") {
+      ctx.loc += estimateInstrSize(ctx, node);
+    }
+  }
+}
+
+function assemblePhase2(ctx: AsmContext) {
+  const nodes = ctx.nodes ?? [];
+  ctx.pass = 2;
+  ctx.loc = 0;
+  ctx.texts = [];
+  for (const node of nodes) {
+    if (node.kind === "label") {
+      ctx.symbols.set(node.name, ctx.loc);
+    } else if (node.kind === "pseudo") {
+      handlePseudo(ctx, node);
+    } else if (node.kind === "instr") {
+      encodeInstr(ctx, node);
+    }
+  }
+}
+

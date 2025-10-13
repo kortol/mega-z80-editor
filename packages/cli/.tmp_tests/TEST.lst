@@ -1,2 +1,5 @@
-0000  C3 00 00      JP EXT_C
-0003  00                  NOP
+0000  2A 00 00      LD HL,(EXT_A)
+0003  32 00 00            LD (EXT_B),A
+0006  C3 00 00            JP EXT_C
+0009  CD 00 00            CALL EXT_D
+000c  00 00               DEFW EXT_E

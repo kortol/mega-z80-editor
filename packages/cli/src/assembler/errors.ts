@@ -25,8 +25,12 @@ export enum AssemblerErrorCode {
   ExternMissingSymbol = "A4002",   // ★ 新規
   MissingOperand = "A4003",
 
+
   // Linker 系
   UnresolvedExtern = "A5000",
+
+  // Section 系
+  OrgBackward = "A6000",    // ORGが後退
 
   // Branch 系
   OutOfRange8 = "A8000",

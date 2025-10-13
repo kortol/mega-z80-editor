@@ -24,6 +24,24 @@ import { encodeED } from "./encoder/ed";
 import { instrTable } from "./encoder/instrTable";
 import { classifyOperand } from "./operand/classifyOperand";
 
+// --- 命令長の見積もり ---
+export function estimateInstrSize(ctx: AsmContext, node: NodeInstr): number {
+  const defs = instrTable[node.op];
+  const operand = node.args.map(classifyOperand)
+  if (defs) {
+    for (const def of defs) {
+      if (def.match(ctx, operand)) {
+        if (typeof def.estimate === "function") {
+          return def.estimate(ctx, operand, node);
+        } else {
+          return def.estimate ?? 1;
+        }
+      }
+    }
+  }
+  return 1;
+}
+
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   const defs = instrTable[node.op];
   const operand = node.args.map(classifyOperand)

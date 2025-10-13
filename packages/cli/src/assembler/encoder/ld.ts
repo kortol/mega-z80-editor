@@ -77,6 +77,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0xed, table[`${dst.raw},${src.raw}`]], line: node.line });
       ctx.loc += 2;
     },
+    estimate: 2,
   },
 
   // --- LD SP,HL ---
@@ -102,6 +103,7 @@ export const ldInstr: InstrDef[] = [
       });
       ctx.loc += 2;
     },
+    estimate: 2,
   },
 
   // --- LD rr,nn ---
@@ -118,6 +120,7 @@ export const ldInstr: InstrDef[] = [
       });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 
   // --- LD HL,(nn) ---
@@ -133,6 +136,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0x2a, val & 0xff, val >> 8], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 
   // --- LD rr,(nn) --- (extended form, for linker relocation)
@@ -172,6 +176,7 @@ export const ldInstr: InstrDef[] = [
       });
       ctx.loc += 4;
     },
+    estimate: 4,
   },
 
   // --- LD (nn),HL ---
@@ -187,6 +192,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [0x22, val & 0xff, val >> 8], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 
   // --- LD A,(nn) ---
@@ -202,6 +208,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr, data: [0x3a, val & 0xff, val >> 8], line: node.line });
       ctx.loc = addr + 3;
     },
+    estimate: 3,
   },
 
   // --- LD (nn),A ---
@@ -217,6 +224,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr, data: [0x32, val & 0xff, val >> 8], line: node.line });
       ctx.loc = addr + 3;
     },
+    estimate: 3,
   },
 
   // --- LD r,(IX+d) / LD r,(IY+d) ---
@@ -231,6 +239,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 
   // --- LD (IX+d),r / LD (IY+d),r ---
@@ -245,6 +254,7 @@ export const ldInstr: InstrDef[] = [
       ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp], line: node.line });
       ctx.loc += 3;
     },
+    estimate: 3,
   },
 ];
 

@@ -17,7 +17,7 @@ function assemble(src: string) {
   const ctx = makeCtx();
   for (const node of nodes) {
     if (node.kind === "pseudo" && node.op === "END") {
-      handleEND(node, ctx);
+      handleEND(ctx, node);
     }
   }
   return ctx;

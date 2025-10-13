@@ -50,6 +50,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line });
       ctx.loc += 2;
     },
+    estimate: 2,
   });
 
   // --- n (暗黙A) ---
@@ -62,6 +63,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         ctx.texts.push({ addr: ctx.loc, data: [imm, val & 0xff], line: node.line });
         ctx.loc += 2;
       },
+      estimate: 2,
     });
   }
 
@@ -74,7 +76,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       const opcode = base | regCode(src.raw);
       ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line });
       ctx.loc += 1;
-    },
+    },    
   });
 
   // --- r (暗黙A) ---

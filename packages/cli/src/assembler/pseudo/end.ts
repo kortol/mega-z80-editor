@@ -5,7 +5,7 @@ import { Node } from "../parser";
 import { AssemblerErrorCode, makeError } from "../errors";
 import { Token, tokenize } from "../tokenizer";
 
-export function handleEND(node: Node, ctx: AsmContext) {
+export function handleEND(ctx: AsmContext, node: Node) {
   if (node.kind !== "pseudo" || node.op !== "END") return;
 
   // ENDに到達

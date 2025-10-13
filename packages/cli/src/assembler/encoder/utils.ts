@@ -15,6 +15,7 @@ import { AsmContext } from "../context";
 import { AssemblerErrorCode } from "../errors";
 import { evalExpr } from "../expr/eval";
 import { parseExpr } from "../expr/parserExpr";
+import { NodeInstr } from "../parser";
 import { parseNumber, tokenize } from "../tokenizer";
 
 /* -------------------- 値解決 -------------------- */
@@ -259,3 +260,5 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
   // ---- 想定外 ----
   throw new Error(`Unexpected evalExpr result at line ${line}`);
 }
+
+

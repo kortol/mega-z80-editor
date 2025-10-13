@@ -45,8 +45,12 @@ export interface RelSectionDescV2 {
   align: number;
   flags: number;      // bitflags (RO/RW/EXEC/ALLOC/LOAD)
   size: number;
-  dataOffset: number; // DataBlob内オフセット
-  nameStrOff: number; // StrTab参照
+  /** セクション内バイト列 */
+  data: Uint8Array;
+  /** 出力時オフセット */  
+  dataOffset?: number;
+  /** StrTab参照オフセット */
+  nameStrOff?: number;
 }
 
 export interface RelSymbolV2 {
@@ -68,10 +72,18 @@ export interface RelFixupV2 {
 }
 
 export interface RelModuleV2 {
+  /** ヘッダ情報 */
   header: RelHeaderV2;
+  /** セクション情報 */
   sections: RelSectionDescV2[];
+  /** シンボル情報 */
   symbols: RelSymbolV2[];
+  /** リロケーション情報 */
   fixups: RelFixupV2[];
+  /** セクション結合済みのデータ */
   data: Uint8Array;
+  /** stringテーブル */
   strtab: Uint8Array;
+  /** エントリーポイントシンボルのインデックス (-1=未指定) */
+  entrySymIndex?: number;
 }

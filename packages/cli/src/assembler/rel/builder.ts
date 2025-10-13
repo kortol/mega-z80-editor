@@ -1,6 +1,7 @@
 // packages\cli\src\assembler\rel\builder.ts
 import { AsmContext } from "../context";
 import { RelFile, RelRecord } from "./types";
+import { writeRelV2 } from "./writerV2";
 
 export class RelBuilder {
   private file: RelFile;
@@ -85,4 +86,46 @@ export function buildRelFile(ctx: AsmContext): RelFile {
     records,
     unresolved: ctx.unresolved,
   };
+}
+
+export function emitRelV2(ctx: AsmContext, outPath: string) {
+  const mod = buildModuleV2(ctx);
+  const header = {
+    magic: "MZ8R" as const,
+    version: 2 as const,
+    flags: 0,
+    sectionCount: mod.sections.length,
+    strTabSize: 0,
+    symCount: 0,
+    fixupCount: 0,
+    dataSize: mod.sections.reduce((a, s) => a + s.data.length, 0),
+    entrySymIndex: -1,
+  };
+  const relV2 = {
+    header,
+    sections: mod.sections,
+    symbols: [],
+    fixups: [],
+    data: Buffer.concat(mod.sections.map(s => Buffer.from(s.data))),
+    strtab: new Uint8Array(),
+    entrySymIndex: -1,
+  };
+  writeRelV2(relV2, outPath);
+  ctx.output.relPath = outPath;
+  ctx.output.relSize = relV2.data.length;
+  ctx.output.relVersion = 2;
+  ctx.output.generatedAt = new Date();
+}
+
+export function buildModuleV2(ctx: AsmContext) {
+  const sections = Array.from(ctx.sections.values()).map(s => ({
+    id: s.id,
+    name: s.name,
+    kind: s.kind,
+    align: s.align,
+    size: s.size,
+    flags: s.flags,
+    data: Uint8Array.from(s.bytes)
+  }));
+  return { sections };
 }

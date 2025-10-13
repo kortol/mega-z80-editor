@@ -62,6 +62,9 @@ program
 program
   .command("as <input> <output>")
   .description("Assemble .asm into .rel")
+  .option("--rel-version <version>", "Specify the .rel version (1 or 2)", "1")
+  .option("--verbose", "Show detailed output")
+  .option("--quiet", "Suppress logs")
   .action((input, output) => {
     const opts = program.opts();
     const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
@@ -70,9 +73,10 @@ program
       ? "verbose"
       : "normal";
     const logger = new Logger(logLevel);
+    const relVersion = opts.relVersion === "2" ? 2 : 1;
 
     try {
-      assemble(input, output, 2, { verbose: !!opts.verbose });
+      assemble(input, output, 2, { verbose: !!opts.verbose, relVersion });
       logger.info(`✅ Assembled: ${input} → ${output}`);
     } catch (err: any) {
       logger.error(`❌ Assembly failed: ${err.message}`);
