@@ -5,7 +5,7 @@ import { NodePseudo } from "../parser";
 
 export function handleEXTERN(ctx: AsmContext, node: NodePseudo) {
   const [sym, fromKw, file] = node.args;
-  if (!sym) {
+  if (!sym || !sym.value) {
     ctx.errors.push({
       code: AssemblerErrorCode.ExternMissingSymbol,
       message: "EXTERN requires a symbol",
@@ -14,10 +14,10 @@ export function handleEXTERN(ctx: AsmContext, node: NodePseudo) {
     return;
   }
   // 参照は作らない。宣言だけ
-  ctx.externs.add(sym.toUpperCase());
+  ctx.externs.add(sym?.value.toUpperCase());
 
   // FROM "libfile" は今は無視
-  if (fromKw?.toUpperCase() === "FROM") {
+  if (fromKw?.value.toUpperCase() === "FROM") {
     // 将来ライブラリ対応時に処理する
   }
 }

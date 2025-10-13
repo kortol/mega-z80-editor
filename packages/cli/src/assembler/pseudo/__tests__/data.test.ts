@@ -8,7 +8,7 @@ function makeCtx(): AsmContext {
 
 
 function makeNode(op: string, args: string[] = [], line = 1): NodePseudo {
-  return { kind: "pseudo", op, args, line };
+  return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), line };
 }
 
 describe("pseudo - DB/DW", () => {

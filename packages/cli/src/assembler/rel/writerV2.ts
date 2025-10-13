@@ -10,6 +10,9 @@ function writeStrZ(arr: number[], s: string) {
   for (const c of s) arr.push(c.charCodeAt(0));
   arr.push(0);
 }
+function writeStr(arr: number[], s: string) {
+  for (const c of s) arr.push(c.charCodeAt(0));
+}
 
 /**
  * `.rel v2` writer
@@ -18,7 +21,7 @@ export function writeRelV2(module: RelModuleV2, outPath: string) {
   const buf: number[] = [];
 
   // ---- Header ----
-  writeStrZ(buf, "MZ8R"); // magic
+  writeStr(buf, "MZ8R"); // magic
   writeU8(buf, 2);        // version
   writeU8(buf, 0);        // flags
   writeU16(buf, module.sections.length);

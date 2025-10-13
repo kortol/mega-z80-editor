@@ -6,22 +6,22 @@ function makeCtx(): AsmContext {
     return createContext({ moduleName: "TEST" });
 }
 
-function makeNode(op: string, args: string[], line = 1): NodePseudo {
+function makeNode(op: string, args: { key: string, value: string }[], line = 1): NodePseudo {
     return { kind: "pseudo", op, args, line };
 }
 
 describe("pseudo - EQU", () => {
     test("basic EQU registers symbol", () => {
         const ctx = makeCtx();
-        handlePseudo(ctx, makeNode("EQU", ["FOO", "10"]));
+        handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "10" }]));
         expect(ctx.symbols.get("FOO")).toBe(10);
     });
 
     test("redefinition throws error", () => {
         const ctx = makeCtx();
-        handlePseudo(ctx, makeNode("EQU", ["FOO", "10"]));
+        handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "10" }]));
         expect(() =>
-            handlePseudo(ctx, makeNode("EQU", ["FOO", "20"]))
+            handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "20" }]))
         ).toThrow(/redefined/);
     });
 
@@ -34,15 +34,15 @@ describe("pseudo - EQU", () => {
     test("case insensitive option treats foo=FOO", () => {
         const ctx = makeCtx();
         ctx.caseInsensitive = true;
-        handlePseudo(ctx, makeNode("EQU", ["FOO", "5"]));
+        handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "5" }]));
         expect(ctx.symbols.get("FOO")).toBe(5);
     });
 
     test("case sensitive mode treats foo != FOO", () => {
         const ctx = makeCtx();
         ctx.caseInsensitive = false;
-        handlePseudo(ctx, makeNode("EQU", ["FOO", "5"]));
-        handlePseudo(ctx, makeNode("EQU", ["foo", "6"]));
+        handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "5" }]));
+        handlePseudo(ctx, makeNode("EQU", [{ key: "foo", value: "6" }]));
         expect(ctx.symbols.get("FOO")).toBe(5);
         expect(ctx.symbols.get("foo")).toBe(6);
     });
@@ -50,7 +50,7 @@ describe("pseudo - EQU", () => {
     test("symbol name truncated when exceeding SYMLEN", () => {
         const ctx = makeCtx();
         ctx.modeSymLen = 4;
-        handlePseudo(ctx, makeNode("EQU", ["TOOLONG", "1"]));
+        handlePseudo(ctx, makeNode("EQU", [{ key: "TOOLONG", value: "1" }]));
         // シンボルは先頭4文字に切り捨て
         expect(ctx.symbols.get("TOOL")).toBe(1);
         // 警告が残っていることを確認

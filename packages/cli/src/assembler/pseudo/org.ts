@@ -8,11 +8,13 @@ export function handleORG(ctx: AsmContext, node: NodePseudo) {
     throw new Error(`ORG requires exactly one argument at line ${node.line}`);
   }
 
-  const val = resolveExpr16(ctx, node.args[0], node.line, true, true);
+  const arg = node.args[0];
+  const inValue = arg.value;
+  const val = resolveExpr16(ctx, inValue, node.line, true, true);
 
   // 未定義シンボルはエラーにする（ORGは relocatable じゃないので）
   if (val === null) {
-    throw new Error(`ORG with unresolved symbol '${node.args[0]}' at line ${node.line}`);
+    throw new Error(`ORG with unresolved symbol '${inValue}' at line ${node.line}`);
   }
 
   // --- 🩹 フォールバック: sections未定義なら旧動作 ---

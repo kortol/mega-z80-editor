@@ -10,10 +10,15 @@ export interface NodeInstr {
   line: number;
 }
 
+export interface PseudoArg {
+  key?: string;
+  value: string;
+}
+
 export interface NodePseudo {
   kind: "pseudo";
   op: string;
-  args: string[];
+  args: PseudoArg[];
   line: number;
 }
 
@@ -71,10 +76,11 @@ export function parse(tokens: Token[]): Node[] {
         .slice(2)
         .filter((t) => t.kind !== "comma")
         .map((t) => t.text);
+      
       nodes.push({
         kind: "pseudo",
         op: "EQU",
-        args: [symbol, ...valueTokens],
+        args: [{ key: symbol, value: valueTokens.join(", ") }],
         line: line[0].line,
       });
       return;
@@ -101,7 +107,18 @@ export function parse(tokens: Token[]): Node[] {
     }
 
     if (isPseudo(op)) {
-      nodes.push({ kind: "pseudo", op, args, line: line[0].line });
+      const pseudoArgs: PseudoArg[] = [];
+      for (const a of args) {
+        const eqIdx = a.indexOf("=");
+        if (eqIdx >= 0) {
+          const key = a.slice(0, eqIdx).trim();
+          const value = a.slice(eqIdx + 1).trim();
+          pseudoArgs.push({ key, value });
+        } else {
+          pseudoArgs.push({ value: a.trim() });
+        }
+      }
+      nodes.push({ kind: "pseudo", op, args: pseudoArgs, line: line[0].line });
     } else if (isInstr(op)) {
       nodes.push({ kind: "instr", op, args, line: line[0].line });
     } else {
@@ -123,19 +140,55 @@ export function parse(tokens: Token[]): Node[] {
 
 export function isInstr(op: string): boolean {
   const instrs = [
-    "LD", "CALL", "JP", "JR", "DJNZ", "RET", "RETI", "RETN",
-    "ADD", "ADC", "SUB", "SBC",
-    "AND", "OR", "XOR", "CP",
-    "INC", "DEC",
-    "PUSH", "POP",
-    "EX", "EXX",
-    "NOP", "HALT", "RST", "DI", "EI",
-    "OUT", "IN",
+    "LD",
+    "CALL",
+    "JP",
+    "JR",
+    "DJNZ",
+    "RET",
+    "RETI",
+    "RETN",
+    "ADD",
+    "ADC",
+    "SUB",
+    "SBC",
+    "AND",
+    "OR",
+    "XOR",
+    "CP",
+    "INC",
+    "DEC",
+    "PUSH",
+    "POP",
+    "EX",
+    "EXX",
+    "NOP",
+    "HALT",
+    "RST",
+    "DI",
+    "EI",
+    "OUT",
+    "IN",
     // まだ足りないけど、P1-C フィクスチャで必要そうな命令はここに追加
   ];
   return instrs.includes(op.toUpperCase());
 }
 
 function isPseudo(op: string): boolean {
-  return ["ORG", "END", "DB", "DEFB", "DW", "DEFW", "EQU", ".WORD32", ".SYMLEN", "END", "EXTERN"].includes(op);
+  return [
+    "ORG",
+    "END",
+    "DB",
+    "DEFB",
+    "DW",
+    "DEFW",
+    "DS",
+    "DEFS",
+    "EQU",
+    ".WORD32",
+    ".SYMLEN",
+    "END",
+    "EXTERN",
+    "SECTION",
+  ].includes(op);
 }

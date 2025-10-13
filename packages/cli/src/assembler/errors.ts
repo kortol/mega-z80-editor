@@ -18,6 +18,7 @@ export enum AssemblerErrorCode {
   UnterminatedString = "A3001",
   InvalidEquSyntax = "A3002",
   ExprExternInEnd = "A3101",
+  RedefSymbol = "A3102",  // シンボルの再定義
 
   // Encoder 系
   InvalidOperand = "A4000",

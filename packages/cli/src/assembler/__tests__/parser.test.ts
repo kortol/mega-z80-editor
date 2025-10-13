@@ -45,7 +45,7 @@ describe("parser", () => {
   test("ORG pseudo", () => {
     const nodes = parseLines("ORG 100H");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "ORG", args: ["100H"], line: 1 }
+      { kind: "pseudo", op: "ORG", args: [{ value: "100H" }], line: 1 }
     ]);
   });
 
@@ -54,14 +54,14 @@ describe("parser", () => {
     const nodes = parseLines("FOO EQU 10");
     // P1簡易仕様: "EQU" を疑似命令として扱い、args に残りを入れる
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: ["FOO", "10"], line: 1 }
+      { kind: "pseudo", op: "EQU", args: [{ key: "FOO" , value: "10" }], line: 1 }
     ]);
   });
 
   test("EQU with expression", () => {
     const nodes = parseLines("BAR EQU 0x100+10");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: ["BAR", "0x100", "+", "10"], line: 1 }
+      { kind: "pseudo", op: "EQU", args: [{ key: "BAR" ,value: "0x100, +, 10"}], line: 1 }
     ]); 
   });
 
@@ -69,8 +69,8 @@ describe("parser", () => {
   test("DB and DW pseudo", () => {
     const nodes = parseLines("DB 1,2,3\nDW 100H");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "DB", args: ["1", "2", "3"], line: 1 },
-      { kind: "pseudo", op: "DW", args: ["100H"], line: 2 }
+      { kind: "pseudo", op: "DB", args: [{ value: "1" }, { value: "2" }, { value: "3" }], line: 1 },
+      { kind: "pseudo", op: "DW", args: [{ value: "100H" }], line: 2 }
     ]);
   });
 
