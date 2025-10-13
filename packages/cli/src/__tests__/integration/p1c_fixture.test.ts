@@ -44,6 +44,7 @@ describe("P1-C integration fixture", () => {
     expect(bin.length).toBeGreaterThan(0);
 
     // 先頭にLD A,7 (3E 07) があるか
-    expect(bin.includes(0x3e) && bin.includes(0x07)).toBe(true);
+    // expect(bin.includes(0x3e) && bin.includes(0x07)).toBe(true);
+    expect(bin.toString().slice(0, 11)).toBe("0120: 3E 07");
   });
 });

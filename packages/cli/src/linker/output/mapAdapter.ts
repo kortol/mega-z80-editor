@@ -6,14 +6,14 @@ import { formatHumanSize } from "./common/outputUtils";
  * M80スタイルのMAPファイルを出力するアダプタ
  */
 export class MapAdapter extends BaseTextAdapter {
-  ext = ".map";
-  tag = "[MAP]";
+  readonly ext = ".map";
+  readonly tag = "[MAP]";
 
   constructor(private result: LinkResult) {
     super();
   }
 
-  generateText(): string {
+  generateText(): string | Uint8Array {
     const lines: string[] = [];
 
     lines.push("LINK MAP OF OUTPUT");

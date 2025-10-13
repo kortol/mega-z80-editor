@@ -7,9 +7,10 @@ import * as fs from "fs";
 export function link(inputFiles: string[], outputFile: string) {
   const mods = inputFiles.map(parseRelFile);
   const result = linkModules(mods);
+  const verbose = true;
 
-  const bin = new BinOutputAdapter().write(result);
-  fs.writeFileSync(outputFile, bin);
+  const adapter = new BinOutputAdapter(result);
+  adapter.write(outputFile, verbose);
 
   console.log(`Linked ${inputFiles.length} modules -> ${outputFile}`);
   for (const seg of result.segments) {

@@ -13,32 +13,20 @@ export function replaceExt(file: string, newExt: string): string {
 }
 
 /**
- * テキストファイルを書き出す（UTF-8固定）
+ * テキストまたはバイナリを出力し、verbose時にログを出力。
  */
-export function writeTextFile(
+export function writeOutputFile(
   target: string,
-  text: string,
-  verbose = false
+  text: string | Uint8Array,
+  verbose = false,
+  tag = "[TEXT]"
 ): void {
-  fs.writeFileSync(target, text, "utf-8");
-  if (verbose) {
-    console.log(`[TEXT] ${target} (${text.length} chars)\n${text}`);
-  }
-}
+  const buf = typeof text === "string" ? Buffer.from(text, "utf-8") : text;
+  fs.writeFileSync(target, buf);
 
-/**
- * バイナリファイルを書き出す（ヒューマンフレンドリーサイズ併記）
- */
-export function writeBinaryFile(
-  target: string,
-  data: Uint8Array,
-  verbose = false
-): void {
-  fs.writeFileSync(target, data);
   if (verbose) {
-    const size = data.length;
-    const human = formatHumanSize(size);
-    console.log(`[BIN] ${target} (${size} bytes / ${human})`);
+    const size = buf.length;
+    console.log(`${tag} ${target} (${size} bytes / ${formatHumanSize(size)})`);
   }
 }
 

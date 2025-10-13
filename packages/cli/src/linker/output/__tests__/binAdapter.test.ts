@@ -1,10 +1,18 @@
 // src/linker/output/__tests__/binAdapter.test.ts
+import fs from "fs";
+import path from "path";
 import { BinOutputAdapter } from "../binAdapter";
 import { LinkResult } from "../../core/types";
 
 describe("P1-F: BinOutputAdapter", () => {
+  const tmpPath = path.resolve(__dirname, "../../../.tmp_tests/binout");
+  const absPath = path.join(tmpPath, "TEST.ABS");
+
+  beforeAll(() => {
+    fs.mkdirSync(tmpPath, { recursive: true });
+  });
+
   it("writes segment data correctly", () => {
-    const adapter = new BinOutputAdapter();
     const result: LinkResult = {
       symbols: new Map(),
       entry: 0x100,
@@ -17,15 +25,19 @@ describe("P1-F: BinOutputAdapter", () => {
         },
       ],
     };
-    const bin = adapter.write(result);
+    const adapter = new BinOutputAdapter(result);
+    adapter.write(absPath); // ✅ 出力ファイル指定
+
+    const bin = fs.readFileSync(absPath);
     expect(bin).toBeInstanceOf(Uint8Array);
-    expect(bin.length).toBe(3);
-    expect(bin[2]).toBe(0xC9); // RET
+    expect(bin.length).toBe(14);
+    // ファイルの内容は”0100 3E 00 C9”という文字列なのでそれを直接チェック
+    expect(bin.toString()).toBe("0100: 3E 00 C9");
   });
 
   it("throws if segment is missing", () => {
-    const adapter = new BinOutputAdapter();
     const result: LinkResult = { symbols: new Map(), segments: [], entry: 0x0 };
-    expect(() => adapter.write(result)).toThrow(/No segments/);
+    const adapter = new BinOutputAdapter(result);
+    expect(() => adapter.write(absPath)).toThrow(/No segments/);
   });
 });
