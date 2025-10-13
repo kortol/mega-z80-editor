@@ -13,7 +13,7 @@ export class MapAdapter extends BaseTextAdapter {
     super();
   }
 
-  generateText(): string | Uint8Array {
+  generateText(): string {
     const lines: string[] = [];
 
     lines.push("LINK MAP OF OUTPUT");
