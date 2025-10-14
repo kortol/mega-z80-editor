@@ -100,7 +100,7 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
         0,
         {
           id: 0,
-          name: "TEXT",
+          name: ".text",
           kind: "TEXT",
           align: 1,
           flags: 5,      // RO + EXEC

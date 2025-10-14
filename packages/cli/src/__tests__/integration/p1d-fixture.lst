@@ -1,3 +1,4 @@
+0100  00 00 AA 55   TABLE:  DB      0x00,0x00,0xAA,0x55
 0100  18 04                 JR      NEXT            ; PC-relative forward
 0102  06 03                 LD      B, 3
 0104  10 FE         DJLOOP: DJNZ    DJLOOP          ; PC-relative backward
@@ -13,4 +14,4 @@
 011d  DB 00                 IN      A,(PORT_BASE)       ; 0x20
 011f  D3 00                 OUT     (PORT_BASE+0x10),A  ; 0x30
 0121  11 2B 01              LD      DE,$+10
-0124  00 00 AA 55   TABLE:  DB      0x00,0x00,0xAA,0x55
+0100  00 00 AA 55   TABLE:  DB      0x00,0x00,0xAA,0x55

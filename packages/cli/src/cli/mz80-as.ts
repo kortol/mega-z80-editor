@@ -7,6 +7,7 @@ import { AsmContext } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
+import { initCodegen } from "../assembler/codegen/emit";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -85,6 +86,8 @@ export function assemble(
     currentSection: 0,
     output: { relVersion: options?.relVersion ? options.relVersion : 1 },
   };
+  initCodegen(ctx, { withDefaultSections: true });
+  console.log(ctx);
 
   // PASS 0 : トークン化と構文解析
   const source = fs.readFileSync(inputFile, "utf-8");
@@ -145,8 +148,7 @@ export function assemble(
     if (ctx.errors.length > 0) {
       for (const e of ctx.errors) {
         console.log(
-          `E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${
-            e.line ?? "?"
+          `E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${e.line ?? "?"
           })`
         );
       }
@@ -160,9 +162,8 @@ function assemblePhase1(ctx: AsmContext) {
   ctx.pass = 1;
   ctx.loc = 0;
   ctx.texts = [];
-  ctx.sections = new Map();
   ctx.unresolved = [];
-  ctx.errors = [];  
+  ctx.errors = [];
   for (const node of nodes) {
     if (node.kind === "label") {
       ctx.symbols.set(node.name, ctx.loc);
@@ -178,13 +179,13 @@ function assemblePhase2(ctx: AsmContext) {
   const nodes = ctx.nodes ?? [];
   ctx.pass = 2;
   ctx.loc = 0;
-  ctx.texts = [];
+  // ctx.texts = [];
   for (const sec of ctx.sections.values()) {
     sec.lc = 0;
     sec.bytes = [];
   }
-  ctx.unresolved = [];
-  ctx.errors = [];
+  // ctx.unresolved = [];
+  // ctx.errors = [];
   for (const node of nodes) {
     if (node.kind === "label") {
       ctx.symbols.set(node.name, ctx.loc);

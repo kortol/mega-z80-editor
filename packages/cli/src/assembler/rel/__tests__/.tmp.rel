@@ -1,2 +1,2 @@
 MZ8R
-$SECTION 0 TEXT size=1 align=1
+$SECTION 0 .text size=1 align=1

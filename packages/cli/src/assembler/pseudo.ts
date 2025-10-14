@@ -35,7 +35,7 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       const name = node.args?.[0]?.value ?? "TEXT";
       const alignArg = node.args?.find((a) => a.key?.toUpperCase() === "ALIGN");
       const align = alignArg ? Number(alignArg.value) : 1;
-      handleSECTION(ctx, name, { ALIGN: align });
+      handleSECTION(ctx, name, { align: align });
       break;
     }
     case "ALIGN": {

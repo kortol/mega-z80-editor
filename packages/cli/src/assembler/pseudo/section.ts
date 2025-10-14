@@ -1,51 +1,24 @@
+// src/assembler/pseudo/section.ts
 import { AsmContext } from "../context";
+import { NodePseudo } from "../parser";
+import { emitSection } from "../codegen/emit";
 
-export function handleSECTION(
-  ctx: AsmContext,
-  name: string,
-  attrs?: { ALIGN?: number }
-) {
-  const upper = name.toUpperCase();
-  const lower = "." + upper.toLowerCase(); // ← ".text" ".data" ".bss"
+/**
+ * SECTION 擬似命令
+ *   SECTION TEXT
+ *   SECTION DATA
+ *   SECTION BSS
+ *   SECTION .custom
+ */
+export function handleSECTION(ctx: AsmContext, node: NodePseudo | string, attrs?: { align?: number }) {
+  // nodeが文字列で渡された場合もサポート（テストや内部呼び出し用）
+  const name = typeof node === "string" ? node : node.args?.[0]?.value ?? "TEXT";
 
-  let kind: "TEXT" | "DATA" | "BSS" | "CUSTOM" = [
-    "TEXT",
-    "DATA",
-    "BSS",
-  ].includes(upper)
-    ? (upper as any)
-    : "CUSTOM";
+  // emitSection に責務を委譲
+  emitSection(ctx, name, attrs);
 
-  // --- 現在のセクションを退避し、LCを保存 ---
-  if (ctx.sections.has(ctx.currentSection)) {
-    const prev = ctx.sections.get(ctx.currentSection)!;
-    prev.lc = ctx.loc; // 🔹 現在位置を前セクションに記録
-    prev.size = Math.max(prev.size, prev.lc);
+  if (ctx.options?.verbose) {
+    const sec = ctx.sections.get(ctx.currentSection);
+    console.log(`Switched to section ${sec?.name} (id=${sec?.id}) at loc=${ctx.loc}`);
   }
-
-  console.log(ctx.sections);
-
-  // 既存セクション探索（.text/.data/.bssなど小文字化したキー）
-  let sec = Array.from(ctx.sections.values()).find((s) => s.name === lower);
-
-  // なければ作成
-  if (!sec) {
-    const id = ctx.sections.size;
-    sec = {
-      id,
-      name: lower,
-      kind,
-      align: attrs?.ALIGN ?? 1,
-      flags: 0,
-      lc: 0,
-      size: 0,
-      bytes: [],
-    };
-    ctx.sections.set(id, sec);
-  }
-  ctx.currentSection = sec.id;
-  // 🔹 loc をそのセクションの lc に復元
-  ctx.loc = sec.lc;
-
-  console.log(`Switched to section ${sec.name} (id=${sec.id}) at loc=${ctx.loc}`);
 }

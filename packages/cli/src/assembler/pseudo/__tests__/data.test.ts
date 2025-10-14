@@ -1,9 +1,12 @@
 import { AsmContext, createContext } from "../../context";
 import { NodePseudo } from "../../parser";
 import { handlePseudo } from "../../pseudo";
+import * as extern from "../../expr/parseExternExpr";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "TEST" });
+  const ctx = createContext({ moduleName: "TEST" });
+  ctx.pass = 2; // 未解決シンボル登録を有効化
+  return ctx;
 }
 
 
@@ -53,6 +56,83 @@ describe("pseudo - DB/DW", () => {
     expect(() =>
       handlePseudo(ctx, makeNode("DW", ['"AB"']))
     ).toThrow(/does not support/i);
+  });
+
+  test("DW with numeric list", () => {
+    const ctx = makeCtx();
+    handlePseudo(ctx, makeNode("DW", ["1", "2", "3"]));
+    expect(ctx.texts[0].data).toEqual([1, 0, 2, 0, 3, 0]);
+  });
+
+  // 🧩 NEW: DS（Define Storage）
+  test("DS allocates zero-filled bytes", () => {
+    const ctx = makeCtx();
+    handlePseudo(ctx, makeNode("DS", ["8"]));
+    const sec = ctx.sections.get(ctx.currentSection)!;
+    expect(sec.bytes.length).toBe(8);
+    expect(sec.bytes.every(b => b === 0)).toBe(true);
+    expect(ctx.texts[0].data).toEqual(new Array(8).fill(0));
+    expect(sec.lc).toBe(8);
+  });
+
+  // 🧩 NEW: 未解決シンボル（EXTERN式）
+  test("DB with external symbol registers unresolved", () => {
+    const ctx = makeCtx();
+
+    // 🔹 parseExternExprをスタブ化して、外部参照と認識させる
+    jest.spyOn(extern, "parseExternExpr").mockReturnValue({
+      symbol: "EXT",
+      addend: 1,
+    });
+
+    // 擬似的にparseExternExprが "EXT+1" のような形式を認識する前提
+    handlePseudo(ctx, makeNode("DB", ["EXT+1"]));
+
+    console.log(ctx);
+
+    expect(ctx.unresolved.length).toBe(1);
+    const u = ctx.unresolved[0];
+    expect(u.symbol).toBe("EXT");
+    expect(u.addend).toBe(1);
+    expect(u.size).toBe(1);
+    expect(ctx.texts[0].data).toEqual([0x00]); // 仮データ
+  });
+
+  test("DW with external symbol registers unresolved", () => {
+    const ctx = makeCtx();
+
+    // 🔹 parseExternExprをスタブ化
+    jest.spyOn(extern, "parseExternExpr").mockReturnValue({
+      symbol: "EXT",
+      addend: 0,
+    });
+
+    handlePseudo(ctx, makeNode("DW", ["EXT"]));
+
+    expect(ctx.unresolved.length).toBe(1);
+    const u = ctx.unresolved[0];
+    expect(u.symbol).toBe("EXT");
+    expect(u.size).toBe(2);
+    expect(u.addend).toBe(0);
+
+    // 仮データが [00, 00]
+    expect(ctx.texts[0].data).toEqual([0x00, 0x00]);
+  });
+
+  test("DS EXT1-$ registers unresolved (future support)", () => {
+    const ctx = makeCtx();
+
+    jest.spyOn(extern, "parseExternExpr").mockReturnValue({
+      symbol: "EXT1",
+      addend: 0,
+    });
+
+    handlePseudo(ctx, makeNode("DS", ["EXT1-$"]));
+
+    expect(ctx.unresolved.length).toBe(1);
+    const u = ctx.unresolved[0];
+    expect(u.symbol).toBe("EXT1");
+    expect(u.size).toBe(0); // DS は実データ生成しない
   });
 
   test(".WORD32 with no operand sets flag", () => {

@@ -15,11 +15,19 @@ describe("P1-E Fixture Integration", () => {
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
 
+    console.log(ctx);
+    console.log(rel);
+    console.log(rRecords);
+
     // 各命令1件ずつ R 出力されていること
     expect(rRecords.length).toBe(5);
 
     // それぞれのシンボルが正しく出力されているか
     const symbols = rRecords.map(r => r.sym);
     expect(symbols).toEqual(["EXT_A", "EXT_B", "EXT_C", "EXT_D", "EXT_E"]);
+    const aRec = rRecords.find(r => r.sym === "EXT_A");
+    expect(aRec?.addr).toBe(1);
+    const eRec = rRecords.find(r => r.sym === "EXT_E");
+    expect(eRec?.addr).toBe(12);
   });
 });
