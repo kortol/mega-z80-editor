@@ -107,21 +107,7 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     warnings: [],
     sourceLines: [],
     currentSection: 0,
-    sections: new Map([
-      [
-        0,
-        {
-          id: 0,
-          name: ".text",
-          kind: "TEXT",
-          align: 1,
-          flags: 5,      // RO + EXEC
-          lc: 0,
-          size: 0,
-          bytes: [],
-        },
-      ],
-    ]),
+    sections: new Map(),
     output: {
       relVersion: 1,
     },

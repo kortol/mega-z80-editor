@@ -9,6 +9,8 @@ import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
 import { initCodegen } from "../assembler/codegen/emit";
 import { setPhase } from "../assembler/phaseManager";
+import { console } from "inspector";
+import { Logger } from "../logger";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -72,6 +74,7 @@ function writeLstFile(ctx: AsmContext, outputFile: string, source: string) {
 
 // --- 本体 ---
 export function assemble(
+  logger: Logger,
   inputFile: string,
   outputFile: string,
   options?: { verbose?: boolean; relVersion?: number }
@@ -82,6 +85,7 @@ export function assemble(
     output: { relVersion: options?.relVersion ?? 1 },
     verbose,
     inputFile,
+    logger,
   });
   initCodegen(ctx, { withDefaultSections: true });
   // とりあえずデバッグモード
@@ -176,19 +180,19 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
   // Verbose出力
   // ------------------------------------------------------------
   if (ctx.verbose) {
-    console.log("────────── Assembler Verbose Report ──────────");
-    console.log(`Input : ${ctx.inputFile}`);
-    console.log(`Output: ${outputFile}`);
-    console.log(`Symbols: ${[...ctx.symbols.keys()].join(", ")}`);
-    console.log(`Externs: ${[...ctx.externs.values()].join(", ") || "(none)"}`);
-    console.log(`Errors : ${ctx.errors.length}`);
-    console.log(`Texts  : ${ctx.texts.length} records`);
-    console.log(`Output size: ${ctx.output.relSize} bytes`);
-    console.log("───────────────────────────────────────────────");
+    ctx.logger?.info("────────── Assembler Verbose Report ──────────");
+    ctx.logger?.info(`Input : ${ctx.inputFile}`);
+    ctx.logger?.info(`Output: ${outputFile}`);
+    ctx.logger?.info(`Symbols: ${[...ctx.symbols.keys()].join(", ")}`);
+    ctx.logger?.info(`Externs: ${[...ctx.externs.values()].join(", ") || "(none)"}`);
+    ctx.logger?.info(`Errors : ${ctx.errors.length}`);
+    ctx.logger?.info(`Texts  : ${ctx.texts.length} records`);
+    ctx.logger?.info(`Output size: ${ctx.output.relSize} bytes`);
+    ctx.logger?.info("───────────────────────────────────────────────");
 
     if (ctx.errors.length > 0) {
       for (const e of ctx.errors) {
-        console.log(
+        ctx.logger?.info(
           `E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${e.line ?? "?"
           })`
         );

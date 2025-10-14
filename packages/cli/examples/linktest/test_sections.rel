@@ -1,9 +1,15 @@
-H TEST_SECTIONS
+MZ8R
+$SECTION 0 .text size=4 align=1
+$SECTION 1 .data size=4 align=1
+$SECTION 2 .bss size=16 align=1
+$TEXT section=.text
 T 0000 3E 00
 T 0002 06 01
-T 0004 11 11
-T 0006 22 22
-S VAR1 0004
-S VAR2 0006
-S BUF 0008
-E 0018
+$TEXT section=.data
+T 0000 11 11
+T 0002 22 22
+$TEXT section=.bss
+T 0000 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+S VAR1 0000
+S VAR2 0002
+S BUF 0000
