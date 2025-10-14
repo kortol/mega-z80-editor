@@ -1,5 +1,5 @@
 // src/assembler/codegen/emit.ts
-import { AsmContext, SectionState } from "../context";
+import { AsmContext, RequesterInfo, SectionState } from "../context";
 
 /**
  * Codegen/Emit API
@@ -51,6 +51,7 @@ export function emitBytes(ctx: AsmContext, data: number[], line?: number) {
 
   ctx.texts.push({ addr, data, line, sectionId: ctx.currentSection });
   ctx.loc = sec.lc;
+  // console.log(ctx.phase, ctx.loc, ctx.sections?.get?.(ctx.currentSection)?.lc, data);
 }
 
 /* ---------------------------------------------------------
@@ -60,14 +61,14 @@ export function emitWord(ctx: AsmContext, value: number, line?: number) {
   const lo = value & 0xff;
   const hi = (value >> 8) & 0xff;
   emitBytes(ctx, [lo, hi], line);
+  // console.log(ctx.phase, ctx.loc, ctx.sections?.get?.(ctx.currentSection)?.lc, value);
 }
 
 /* ---------------------------------------------------------
  * 🧩 未解決シンボルをFixupとして登録（Relocatable参照）
  * -------------------------------------------------------*/
-export function emitFixup(ctx: AsmContext, symbol: string, size: 1 | 2 | 4 = 2, addend = 0, line?: number) {
+export function emitFixup(ctx: AsmContext, symbol: string, size: 1 | 2 | 4 = 2, requester: RequesterInfo, addend = 0, line?: number) {
   const sec = ctx.sections.get(ctx.currentSection);
-  console.log(ctx);
 
   if (!sec) throw new Error(`emitFixup: invalid section`);
   const addr = sec.lc;
@@ -80,6 +81,7 @@ export function emitFixup(ctx: AsmContext, symbol: string, size: 1 | 2 | 4 = 2, 
     symbol,
     size,
     addend,
+    requester,
   });
 }
 
@@ -178,4 +180,12 @@ export function setLC(ctx: AsmContext, newLC: number) {
  * -------------------------------------------------------*/
 export function emitStorage(ctx: AsmContext, count: number) {
   emitGap(ctx, count);
+}
+
+
+export function advanceLC(ctx: AsmContext, n: number) {
+  const sec = ctx.sections.get(ctx.currentSection);
+  if (!sec) throw new Error("advanceLC: invalid section");
+  sec.lc += n;
+  ctx.loc = sec.lc;
 }

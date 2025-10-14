@@ -1,3 +1,4 @@
+import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { NodeInstr } from "../parser";
 
@@ -26,6 +27,5 @@ export function encodeMisc(ctx: AsmContext, node: NodeInstr) {
     throw new Error(`Unsupported misc instruction ${node.op}`);
   }
 
-  ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection });
-  ctx.loc += 1;
+  emitBytes(ctx, [opcode], node.line);
 }

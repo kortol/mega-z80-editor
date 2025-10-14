@@ -18,7 +18,7 @@ START: LD A,(EXTSYM)
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(asmPath, asmSrc);
-    assemble(asmPath, relPath, 2, { verbose: false });
+    assemble(asmPath, relPath, { verbose: false });
   });
 
   it('should list LABEL, CONST, and EXTERN correctly', () => {

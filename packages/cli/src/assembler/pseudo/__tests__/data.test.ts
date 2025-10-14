@@ -5,7 +5,7 @@ import * as extern from "../../expr/parseExternExpr";
 
 function makeCtx(): AsmContext {
   const ctx = createContext({ moduleName: "TEST" });
-  ctx.pass = 2; // 未解決シンボル登録を有効化
+  ctx.phase = "emit"; // 未解決シンボル登録を有効化
   return ctx;
 }
 

@@ -1,32 +1,11 @@
 import { AsmContext, createContext } from "../../context";
-import { EvalContext } from "../../expr/eval";
-import { evalExpr } from "../../expr/eval";
-import { parseExpr } from "../../expr/parserExpr";
-import { tokenize } from "../../tokenizer";
 import { resolveExpr16, resolveExpr8 } from "../utils";
-
-// function makeCtx(): EvalContext {
-//   const ctx: EvalContext = {
-//     symbols: new Map(),
-//     externs: new Set(),
-//     pass: 1,
-//     errors: [],
-//     visiting: new Set(),
-//   };
-//   ctx.symbols.set("FOO", 10);
-//   ctx.symbols.set("BAR", 20);
-//   ctx.symbols.set("ZERO", ctx.loc);
-//   ctx.externs.add("EXT");
-//   ctx.externs.add("EXT1");
-//   ctx.externs.add("EXT2");
-//   return ctx;
-// }
 
 function makeCtx(): AsmContext {
   const ctx = createContext({
     loc: 0,
     moduleName: "TEST",
-    symbols: new Map(),
+    phase: "emit"
   });
   ctx.symbols.set("FOO", 10);
   ctx.symbols.set("BAR", 20);
@@ -89,7 +68,7 @@ describe("resolveExpr8/16", () => {
     test("EXT-1", () => {
       resolveExpr16(ctx, "EXT-1", ctx.loc);
       expect(ctx.unresolved).toContainEqual({
-        addr: 1, symbol: "EXT", addend: -1, size: 2,
+        addr: 1, symbol: "EXT", addend: -1, size: 2, "requester": { "line": 0, "op": "ENCODER", "phase": "assemble" },
       });
     });
 

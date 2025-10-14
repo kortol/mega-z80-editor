@@ -1,5 +1,5 @@
 // src/assembler/pseudo/data.ts
-import { emitBytes, emitFixup, emitGap, emitWord, getLC } from "../codegen/emit";
+import { advanceLC, emitBytes, emitFixup, emitGap, emitWord, getLC } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { resolveExpr16, resolveExpr8 } from "../encoder/utils";
 import { parseExternExpr } from "../expr/parseExternExpr";
@@ -23,7 +23,22 @@ function bytesFromLiteral(arg: string): number[] {
 // -----------------------------------------------------
 export function handleDB(ctx: AsmContext, node: NodePseudo) {
   const bytes: number[] = [];
-  const sec = ctx.sections.get(ctx.currentSection)!;
+  // --- analyze ではサイズだけ前進、出力しない ---
+  if (ctx.phase !== "emit") {
+    let count = 0;
+    for (const a of node.args) {
+      const v = a.value;
+      const lit = bytesFromLiteral(v);
+      if (lit.length) { count += lit.length; continue; }
+      const ext = parseExternExpr(ctx, v);
+      if (ext) { count += 1; continue; } // 外部参照は1バイト仮サイズ
+      // 通常式は1バイト
+      count += 1;
+    }
+    advanceLC(ctx, count);
+    return;
+  }
+
   for (const a of node.args) {
     const valStr = a.value;
     // --- 文字列／文字 ---
@@ -41,8 +56,12 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
         emitBytes(ctx, bytes, node.line); // ← ここでバッファをフラッシュ
         bytes.length = 0;
       }
-      if (ctx.pass == 2) {
-        emitFixup(ctx, ext.symbol, 1, ext.addend, node.line);
+      if (ctx.phase === "emit") {
+        emitFixup(ctx, ext.symbol, 1, {
+          op: "DB",                     // or "DATA" depending on pseudo
+          phase: "assemble",
+          line: node.line,
+        }, ext.addend, node.line);
       }
       continue;
     }
@@ -63,6 +82,20 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
 // DW (Define Word)
 // -----------------------------------------------------
 export function handleDW(ctx: AsmContext, node: NodePseudo) {
+  // --- analyze ではサイズだけ前進、出力しない ---
+  if (ctx.phase !== "emit") {
+    // 文字列は非対応、外部参照は2バイト仮サイズ
+    let count = 0;
+    for (const a of node.args) {
+      const s = a.value;
+      if (s.startsWith('"') && s.endsWith('"')) continue; // 実際はエラーだが count には乗せない
+      const ext = parseExternExpr(ctx, s);
+      count += ext ? 2 : 2;
+    }
+    advanceLC(ctx, count);
+    return;
+  }
+
   const words: number[] = [];
   for (const a of node.args) {
     const valStr = a.value;
@@ -80,8 +113,14 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
         emitBytes(ctx, bytes, node.line);
         words.length = 0;
       }
-      if (ctx.pass == 2) {
-        emitFixup(ctx, ext.symbol, 2, ext.addend, node.line);
+      if (ctx.phase === "emit") {
+        const addr = ctx.loc;
+        emitFixup(ctx, ext.symbol, 2, {
+          op: "DW",                     // or "DATA" depending on pseudo
+          phase: "assemble",
+          line: node.line,
+        }, ext.addend, node.line);
+
       }
       continue;
     }
@@ -110,12 +149,24 @@ export function handleDS(ctx: AsmContext, node: NodePseudo) {
   // (将来案) handleDS 内に追加
   const ext = parseExternExpr(ctx, valStr);
   if (ext) {
-    ctx.unresolved.push({ addr: getLC(ctx), symbol: ext.symbol, size: 0, addend: ext.addend });
+    ctx.unresolved.push({
+      addr: getLC(ctx), symbol: ext.symbol, size: 0 as 1 | 2 | 4, addend: ext.addend, requester: {                  // ✅ 追加
+        op: "DS",
+        phase: "assemble",
+        line: node.line,
+      },
+    });
     return;
   }
 
-  const count = Number(node.args?.[0]?.value ?? 0);
-  emitGap(ctx, count, node.line);
+  const n = resolveExpr16(ctx, valStr, node.line, false, /*rejectReloc*/ true); // reloc不可
+
+  if (ctx.phase !== "emit") {
+    advanceLC(ctx, Math.max(0, n));
+    return;
+  }
+
+  emitGap(ctx, Math.max(0, n), node.line);
 }
 
 

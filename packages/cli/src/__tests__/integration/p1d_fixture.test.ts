@@ -15,7 +15,7 @@ describe('P1-D integration fixture', () => {
   const outPath = path.join(relDir, 'p1d-fixture.rel');
 
   test('assemble fixture-p1d.asm (verbose mode)', () => {
-    const ctx = assemble(asmPath, outPath, 2, { verbose: true });
+    const ctx = assemble(asmPath, outPath, { verbose: true });
 
     expect(fs.existsSync(outPath)).toBe(true);
     const relContent = fs.readFileSync(outPath, 'utf-8');

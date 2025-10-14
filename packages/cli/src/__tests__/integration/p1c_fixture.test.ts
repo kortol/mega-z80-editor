@@ -20,8 +20,9 @@ describe("P1-C integration fixture", () => {
   });
 
   test("assemble fixture to .rel", () => {
-    assemble(asmFile, relFile, 1);
+    assemble(asmFile, relFile);
     const relText = readFileText(relFile);
+    console.log(relText);
 
     // JSONアダプタで読み取り
     const relJson = new JsonRelAdapter().write(
@@ -38,7 +39,7 @@ describe("P1-C integration fixture", () => {
   });
 
   test("link .rel to .bin", () => {
-    link([relFile], binFile,  { verbose: false, map: false, sym: false, log: false });
+    link([relFile], binFile, { verbose: false, map: false, sym: false, log: false });
 
     const bin = fs.readFileSync(binFile);
     expect(bin.length).toBeGreaterThan(0);

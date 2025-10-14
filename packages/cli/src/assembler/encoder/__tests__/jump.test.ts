@@ -3,7 +3,7 @@ import { NodeInstr } from "../../parser";
 import { encodeInstr } from "../../encoder";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "TEST" });
+  return createContext({ moduleName: "TEST", phase: "emit" });
 }
 
 
@@ -22,7 +22,11 @@ describe("Jump/Call/Return", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("CALL", ["BDOS"]));
     expect(ctx.texts[0].data).toEqual([0xcd, 0x00, 0x00]);
-    expect(ctx.unresolved).toEqual([{ addr: 1, symbol: "BDOS", size: 2, addend: 0 }]);
+    expect(ctx.unresolved).toEqual([{
+      addr: 1, symbol: "BDOS", size: 2, addend: 0, requester: {
+        line: 1, op: "ENCODER", phase: "assemble"
+      }
+    }]);
   });
 
   test("JR forward offset", () => {

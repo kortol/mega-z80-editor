@@ -29,7 +29,13 @@ describe("rel emitter", () => {
 
   test("R record unresolved", () => {
     const ctx = makeCtx();
-    ctx.unresolved.push({ addr: 0x0200, symbol: "BDOS", size: 2 });
+    ctx.unresolved.push({
+      addr: 0x0200, symbol: "BDOS", size: 2, requester: {
+        op: "ENCODER",
+        phase: "assemble",
+        line: 1,
+      },
+    });
     const rel = emitRel(ctx).split("\n");
     expect(rel).toContain("R 0200 BDOS");
   });
@@ -45,7 +51,13 @@ describe("rel emitter", () => {
     const ctx = makeCtx();
     ctx.texts.push({ addr: 0x0000, data: [0xCD, 0x05, 0x00] }); // CALL 0005h
     ctx.symbols.set("START", 0x0000);
-    ctx.unresolved.push({ addr: 0x0001, symbol: "BDOS", size: 2 });
+    ctx.unresolved.push({
+      addr: 0x0001, symbol: "BDOS", size: 2, requester: {
+        op: "ENCODER",
+        phase: "assemble",
+        line: 1,
+      },
+    });
     ctx.entry = 0x0000;
 
     const rel = emitRel(ctx).split("\n");

@@ -1,5 +1,5 @@
 // packages/cli/src/assembler/__tests__/rel_record.test.ts
-import { assembleSource } from "../testUtils";
+import { assembleSource, phaseAnalyze, phaseEmit } from "../testUtils";
 import { buildRelFile } from "../../assembler/rel/builder";
 
 describe("P1-E: Relocation Record Generation", () => {
@@ -10,7 +10,7 @@ describe("P1-E: Relocation Record Generation", () => {
       ;EXT_C: NOP
       END
     `;
-    const ctx = assembleSource(src, 2);
+    const ctx = assembleSource(phaseEmit, src);
 
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
@@ -29,7 +29,7 @@ describe("P1-E: Relocation Record Generation", () => {
       JP 1234H
       END
     `;
-    const ctx = assembleSource(src, 1);
+    const ctx = assembleSource(phaseAnalyze, src);
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
 

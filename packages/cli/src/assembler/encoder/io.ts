@@ -1,3 +1,4 @@
+import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { NodeInstr } from "../parser";
 import { resolveValue, isReg8, regCode } from "./utils";
@@ -19,14 +20,19 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     const portExpr = args[1].slice(1, -1);
     const port = resolveValue(ctx, portExpr);
     if (port === null) {
-      ctx.texts.push({ addr: ctx.loc, data: [0xdb, 0x00], line: node.line, sectionId: ctx.currentSection });
-      ctx.unresolved.push({ addr: ctx.loc + 1, symbol: portExpr, size: 1 });
+      emitBytes(ctx, [0xdb, 0x00], node.line);
+      ctx.unresolved.push({
+        addr: ctx.loc + 1, symbol: portExpr, size: 1, requester: {
+          op: node.op,
+          phase: "assemble",
+          line: node.line,
+        }
+      });
     } else {
       if (port < 0 || port > 0xff)
         throw new Error(`Port number out of range: ${args[1]}`);
-      ctx.texts.push({ addr: ctx.loc, data: [0xdb, port & 0xff], line: node.line, sectionId: ctx.currentSection });
+      emitBytes(ctx, [0xdb, port & 0xff], node.line);
     }
-    ctx.loc += 2;
     return;
   }
 
@@ -40,14 +46,19 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     const portExpr = args[0].slice(1, -1);
     const port = resolveValue(ctx, portExpr);
     if (port === null) {
-      ctx.texts.push({ addr: ctx.loc, data: [0xd3, 0x00], line: node.line, sectionId: ctx.currentSection });
-      ctx.unresolved.push({ addr: ctx.loc + 1, symbol: portExpr, size: 1 });
+      emitBytes(ctx, [0xd3, 0x00], node.line);
+      ctx.unresolved.push({
+        addr: ctx.loc + 1, symbol: portExpr, size: 1, requester: {
+          op: node.op,
+          phase: "assemble",
+          line: node.line,
+        },
+      });
     } else {
       if (port < 0 || port > 0xff)
         throw new Error(`Port number out of range: ${args[0]}`);
-      ctx.texts.push({ addr: ctx.loc, data: [0xd3, port & 0xff], line: node.line, sectionId: ctx.currentSection });
+      emitBytes(ctx, [0xd3, port & 0xff], node.line);
     }
-    ctx.loc += 2;
     return;
   }
 
@@ -59,8 +70,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     isReg8(args[0])
   ) {
     const code = 0x40 | (regCode(args[0]) << 3);
-    ctx.texts.push({ addr: ctx.loc, data: [0xed, code], line: node.line, sectionId: ctx.currentSection });
-    ctx.loc += 2;
+    emitBytes(ctx, [0xed, code], node.line);
     return;
   }
 
@@ -72,8 +82,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     isReg8(args[1])
   ) {
     const code = 0x41 | (regCode(args[1]) << 3);
-    ctx.texts.push({ addr: ctx.loc, data: [0xed, code], line: node.line, sectionId: ctx.currentSection });
-    ctx.loc += 2;
+    emitBytes(ctx, [0xed, code], node.line);
     return;
   }
 
@@ -83,8 +92,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     ((args.length === 1 && args[0] === "(C)") ||
       (args.length === 2 && args[0] === "F" && args[1] === "(C)"))
   ) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xed, 0x70], line: node.line, sectionId: ctx.currentSection });
-    ctx.loc += 2;
+    emitBytes(ctx, [0xed, 0x70], node.line);
     return;
   }
 
@@ -95,8 +103,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     args[0] === "(C)" &&
     args[1] === "0"
   ) {
-    ctx.texts.push({ addr: ctx.loc, data: [0xed, 0x71], line: node.line, sectionId: ctx.currentSection });
-    ctx.loc += 2;
+    emitBytes(ctx, [0xed, 0x71], node.line);
     return;
   }
 

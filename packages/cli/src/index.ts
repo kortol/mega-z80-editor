@@ -30,8 +30,8 @@ program
     const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
       ? "quiet"
       : opts.verbose
-      ? "verbose"
-      : "normal";
+        ? "verbose"
+        : "normal";
     const logger = new Logger(logLevel);
 
     const configPath = path.resolve(process.cwd(), opts.config);
@@ -70,13 +70,13 @@ program
     const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
       ? "quiet"
       : opts.verbose
-      ? "verbose"
-      : "normal";
+        ? "verbose"
+        : "normal";
     const logger = new Logger(logLevel);
     const relVersion = opts.relVersion === "2" ? 2 : 1;
 
     try {
-      assemble(input, output, 2, { verbose: !!opts.verbose, relVersion });
+      assemble(input, output, { verbose: !!opts.verbose, relVersion });
       logger.info(`✅ Assembled: ${input} → ${output}`);
     } catch (err: any) {
       logger.error(`❌ Assembly failed: ${err.message}`);
@@ -111,8 +111,8 @@ program
     const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
       ? "quiet"
       : opts.verbose
-      ? "verbose"
-      : "normal";
+        ? "verbose"
+        : "normal";
     const logger = new Logger(logLevel);
 
     logger.info("🔨 [build] Stub: build process not implemented yet.");
@@ -130,8 +130,8 @@ program
     const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
       ? "quiet"
       : opts.verbose
-      ? "verbose"
-      : "normal";
+        ? "verbose"
+        : "normal";
     const logger = new Logger(logLevel);
 
     logger.info("▶️ [run] Stub: run process not implemented yet.");

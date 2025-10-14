@@ -1,3 +1,3 @@
 0100  3E FF         START: LD A,0FFH
-0102  10 FC                DJNZ START
-0104  C3 00 00             JP EXT_C
+0102  10 FC         DJNZ START
+0104  C3 00 00      JP EXT_C

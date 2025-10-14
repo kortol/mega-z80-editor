@@ -1,3 +1,4 @@
+import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { NodeInstr } from "../parser";
 import { regCode } from "./utils";
@@ -25,8 +26,7 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
     if (args.length !== 1) throw new Error(`${op} requires 1 operand`);
     const r = args[0];
     const reg = regCode(r);
-    ctx.texts.push({ addr: ctx.loc, data: [0xCB, rotMap[op] | reg], line: node.line, sectionId: ctx.currentSection });
-    ctx.loc += 2;
+    emitBytes(ctx, [0xCB, rotMap[op] | reg], node.line);
     return;
   }
 
@@ -40,8 +40,7 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
     const r = args[1];
     const reg = regCode(r);
     const base = op === "BIT" ? 0x40 : op === "RES" ? 0x80 : 0xC0; // SET
-    ctx.texts.push({ addr: ctx.loc, data: [0xCB, base | (bit << 3) | reg], line: node.line, sectionId: ctx.currentSection });
-    ctx.loc += 2;
+    emitBytes(ctx, [0xCB, base | (bit << 3) | reg], node.line);
     return;
   }
 

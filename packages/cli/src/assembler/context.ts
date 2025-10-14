@@ -1,17 +1,27 @@
 // packages\cli\src\assembler\context.ts
+import { Logger } from "../logger";
 import { AssemblerError } from "./errors";
 import { Node } from "./parser";
+import { AsmPhase } from "./phaseManager";
 import { Token } from "./tokenizer";
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
 export type SymbolEntry = number;
 
+export interface RequesterInfo {
+  op: string;
+  phase: "assemble" | "link";
+  file?: string;
+  line?: number;
+}
+
 export interface UnresolvedEntry {
   addr: number; // アドレス
   symbol: string; // 未解決シンボル名
-  size: number; // バイト数 1 or 2（現状Rは常に16bit適用だが、addendの保持が必要）
+  size: 1 | 2 | 4; // バイト数 1 or 2（現状Rは常に16bit適用だが、addendの保持が必要）
   relative?: boolean; // JR/DJNZ など相対ジャンプなら true
   addend?: number; // ← 追加：式中の ±n を持たせる
+  requester: RequesterInfo; // 
 }
 
 export interface AsmText {
@@ -51,6 +61,7 @@ export interface OutputInfo {
 export interface AsmContext {
   loc: number; // 現在のアセンブル位置 (アドレスカウンタ: ORG, DB/DW などで進む)
   moduleName: string; // モジュール名 (RELファイルの H レコード用、デフォルト "NONAME")
+  inputFile: string;
   symbols: Map<string, SymbolEntry>; // 定義済みシンボル表 (EQU/ラベルで登録される)
   unresolved: UnresolvedEntry[]; // 未解決シンボル参照リスト (外部シンボルや後方参照)
   modeWord32: boolean; // `.WORD32` モードが有効なら true (通常16bit, 拡張32bit用)
@@ -64,7 +75,6 @@ export interface AsmContext {
   errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
   externs: Set<string>; // EXTERN 宣言された外部シンボル一覧 (リンカで解決する対象)
   options?: { verbose?: boolean }; // アセンブル時オプション
-  pass?: number; // 現在のアセンブルパス番号（1 or 2）
   sourceLines?: string[]; // 元ソース行を保持（.lst生成用）
   currentSection: number; // 現在のセクションID（0がTEXT、1がDATA、2がBSS、3以降がCUSTOM）
   sections: Map<number, SectionState>; // セクションIDをキーとしたセクション状態のマップ
@@ -72,6 +82,9 @@ export interface AsmContext {
   source?: string; // ソース全文
   tokens?: Token[]; // トークン解析結果
   nodes?: Node[]; // 構文解析結果
+  phase: AsmPhase; // フェーズ
+  logger?: Logger; // ロガー
+  verbose: boolean;
 }
 
 
@@ -92,7 +105,6 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     errors: [],
     externs: new Set(),
     warnings: [],
-    pass: 2,
     sourceLines: [],
     currentSection: 0,
     sections: new Map([
@@ -113,6 +125,9 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     output: {
       relVersion: 1,
     },
+    phase: "tokenize",
+    verbose: false,
+    inputFile: "",
   };
   return { ...defaults, ...overrides };
 }

@@ -9,31 +9,13 @@ import {
   getLC,
   setLC,
 } from "../emit";
-import { AsmContext } from "../../context";
-
-function createCtx(): AsmContext {
-  return {
-    loc: 0,
-    moduleName: "TESTMOD",
-    symbols: new Map(),
-    unresolved: [],
-    modeWord32: false,
-    modeSymLen: 6,
-    caseInsensitive: false,
-    texts: [],
-    errors: [],
-    externs: new Set(),
-    sections: new Map(),
-    currentSection: 0,
-    output: {} as any,
-  };
-}
+import { AsmContext, createContext } from "../../context";
 
 describe("emit.ts 基本動作テスト", () => {
   let ctx: AsmContext;
 
   beforeEach(() => {
-    ctx = createCtx();
+    ctx = createContext();
     initCodegen(ctx, { withDefaultSections: true });
   });
 
@@ -62,7 +44,11 @@ describe("emit.ts 基本動作テスト", () => {
   });
 
   test("emitFixupで未解決シンボルが登録され、仮データが出力される", () => {
-    emitFixup(ctx, "EXTSYM", 2, 4);
+    emitFixup(ctx, "EXTSYM", 2, {
+      op: "DB",                     // or "DATA" depending on pseudo
+      phase: "assemble",
+      line: 0,
+    }, 4);
     const u = ctx.unresolved[0];
     expect(u.symbol).toBe("EXTSYM");
     expect(u.size).toBe(2);

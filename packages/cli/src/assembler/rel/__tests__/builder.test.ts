@@ -11,7 +11,13 @@ function makeCtx(): AsmContext {
       { addr: 0x1002, data: [0xC3, 0x00, 0x10] } // JP 1000H
     ],
     symbols: new Map([["START", 0x1000]]),
-    unresolved: [{ addr: 0x1002, symbol: "START", size: 2 }],
+    unresolved: [{
+      addr: 0x1002, symbol: "START", size: 2, requester: {
+        op: "JP",                     // or "DATA" depending on pseudo
+        phase: "assemble",
+        line: 0,
+      }
+    }],
     entry: 0x1000
   });
 }

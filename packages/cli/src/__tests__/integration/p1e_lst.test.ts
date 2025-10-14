@@ -18,7 +18,7 @@ START: LD A,0FFH
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(asmPath, asmSrc);
-    assemble(asmPath, relPath, 2, { verbose: false });
+    assemble(asmPath, relPath, { verbose: false });
   });
 
   it('should generate .lst file with address and source lines', () => {

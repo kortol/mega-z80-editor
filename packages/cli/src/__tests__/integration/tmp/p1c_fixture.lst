@@ -1,11 +1,10 @@
 0120  3E 07         START:  LD A,1+2*3              ; 7
-0122  21 31 01              LD HL,L1+10
-0125  C6 32                 ADD A,100/2             ; 50
-0127  EE 07                 XOR 1+2+4               ; 7
-0129  D6 00                 SUB 300                 ; overflow -> low 8 bits (0x2C) [assembler warns A2001]
-012b  03 0C         ; P1-C fixture: expressions, EQU/ORG, LD immediates, arithmetic immediates, DB/DW, EXTERN FROM, external+addend
-012d  78 00         ; P1-C fixture: expressions, EQU/ORG, LD immediates, arithmetic immediates, DB/DW, EXTERN FROM, external+addend
-012f  96 00         ; P1-C fixture: expressions, EQU/ORG, LD immediates, arithmetic immediates, DB/DW, EXTERN FROM, external+addend
-0131  64 00         ; P1-C fixture: expressions, EQU/ORG, LD immediates, arithmetic immediates, DB/DW, EXTERN FROM, external+addend
-2000  00            ; P1-C fixture: expressions, EQU/ORG, LD immediates, arithmetic immediates, DB/DW, EXTERN FROM, external+addend
-2001  00 00         ; P1-C fixture: expressions, EQU/ORG, LD immediates, arithmetic immediates, DB/DW, EXTERN FROM, external+addend
+0122  21 35 01      LD HL,L1+10
+0125  C6 32         ADD A,100/2             ; 50
+0127  EE 07         XOR 1+2+4               ; 7
+0129  D6 00         SUB 300                 ; overflow -> low 8 bits (0x2C) [assembler warns A2001]
+012B  03 0C         L1:     DB 1+2,3*4              ; 3,12
+012D  78 00 96 00   DW 100+20,200-50        ; 120,150
+0131  64 00         DW FOO-BAR              ; 100 (same-module absolute)
+2000  00            DB EXT+1                ; R(size=1, addend=+1) at 0x2000
+2001  00 00         DW EXT-1                ; R(size=2, addend=-1) at 0x2001

@@ -17,6 +17,7 @@ import {
 import { InstrDef } from "./types";
 import { OperandKind } from "../operand/operandKind";
 import { AssemblerErrorCode } from "../errors";
+import { emitBytes } from "../codegen/emit";
 
 export const ldInstr: InstrDef[] = [
   // --- LD r,r2 ---
@@ -26,8 +27,7 @@ export const ldInstr: InstrDef[] = [
       src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
       const opcode = 0x40 | (regCode(dst.raw) << 3) | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 1;
+      emitBytes(ctx, [opcode], node.line);
     },
   },
 
@@ -39,8 +39,7 @@ export const ldInstr: InstrDef[] = [
       src.raw == "(HL)",
     encode(ctx, [dst], node) {
       const opcode = 0x46 | (regCode(dst.raw) << 3);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 1;
+      emitBytes(ctx, [opcode], node.line);
     },
   },
 
@@ -52,8 +51,7 @@ export const ldInstr: InstrDef[] = [
       src.kind === OperandKind.REG8,
     encode(ctx, [, src], node) {
       const opcode = 0x70 | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [opcode], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 1;
+      emitBytes(ctx, [opcode], node.line);
     },
   },
 
@@ -74,8 +72,7 @@ export const ldInstr: InstrDef[] = [
         "A,I": 0x57, "A,R": 0x5f,
         "I,A": 0x47, "R,A": 0x4f,
       };
-      ctx.texts.push({ addr: ctx.loc, data: [0xed, table[`${dst.raw},${src.raw}`]], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 2;
+      emitBytes(ctx, [0xed, table[`${dst.raw},${src.raw}`]], node.line);
     },
     estimate: 2,
   },
@@ -84,8 +81,7 @@ export const ldInstr: InstrDef[] = [
   {
     match: (ctx, [dst, src]) => dst.raw === "SP" && src.raw === "HL",
     encode(ctx, args, node) {
-      ctx.texts.push({ addr: ctx.loc, data: [0xf9], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 1;
+      emitBytes(ctx, [0xf9], node.line);
     },
   },
 
@@ -96,13 +92,7 @@ export const ldInstr: InstrDef[] = [
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
       const val = resolveExpr8(ctx, src.raw, node.line);
-      ctx.texts.push({
-        addr: ctx.loc,
-        data: [0x06 | (regCode(dst.raw) << 3), val & 0xff],
-        line: node.line,
-        sectionId: ctx.currentSection
-      });
-      ctx.loc += 2;
+      emitBytes(ctx, [0x06 | (regCode(dst.raw) << 3), val & 0xff], node.line);
     },
     estimate: 2,
   },
@@ -114,13 +104,7 @@ export const ldInstr: InstrDef[] = [
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
       const val = resolveExpr16(ctx, src.raw, node.line);
-      ctx.texts.push({
-        addr: ctx.loc,
-        data: [0x01 | (reg16Code(dst.raw) << 4), val & 0xff, (val >> 8) & 0xff],
-        line: node.line,
-        sectionId: ctx.currentSection
-      });
-      ctx.loc += 3;
+      emitBytes(ctx, [0x01 | (reg16Code(dst.raw) << 4), val & 0xff, (val >> 8) & 0xff], node.line);
     },
     estimate: 3,
   },
@@ -135,8 +119,7 @@ export const ldInstr: InstrDef[] = [
       // ()を除去
       const _src = src.raw.slice(1, -1);
       const val = resolveExpr16(ctx, _src, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [0x2a, val & 0xff, val >> 8], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 3;
+      emitBytes(ctx, [0x2a, val & 0xff, val >> 8], node.line);
     },
     estimate: 3,
   },
@@ -170,13 +153,7 @@ export const ldInstr: InstrDef[] = [
         });
         return;
       }
-
-      ctx.texts.push({
-        addr: ctx.loc,
-        data: [0xed, opcode, val & 0xff, val >> 8],
-        line: node.line,
-      });
-      ctx.loc += 4;
+      emitBytes(ctx, [0xed, opcode, val & 0xff, val >> 8], node.line);
     },
     estimate: 4,
   },
@@ -191,8 +168,7 @@ export const ldInstr: InstrDef[] = [
       // ()を除去
       const _dst = dst.raw.slice(1, -1);
       const val = resolveExpr16(ctx, _dst, node.line);
-      ctx.texts.push({ addr: ctx.loc, data: [0x22, val & 0xff, val >> 8], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 3;
+      emitBytes(ctx, [0x22, val & 0xff, val >> 8], node.line);
     },
     estimate: 3,
   },
@@ -207,8 +183,7 @@ export const ldInstr: InstrDef[] = [
       const addr = ctx.loc; // ★ 現在位置を固定
       const _src = src.raw.slice(1, -1);
       const val = resolveExpr16({ ...ctx, loc: addr }, _src, node.line);
-      ctx.texts.push({ addr, data: [0x3a, val & 0xff, val >> 8], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc = addr + 3;
+      emitBytes(ctx, [0x3a, val & 0xff, val >> 8], node.line);
     },
     estimate: 3,
   },
@@ -223,8 +198,7 @@ export const ldInstr: InstrDef[] = [
       const addr = ctx.loc; // ★ 現在位置を固定
       const _dst = dst.raw.slice(1, -1);
       const val = resolveExpr16({ ...ctx, loc: addr }, _dst, node.line);
-      ctx.texts.push({ addr, data: [0x32, val & 0xff, val >> 8], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc = addr + 3;
+      emitBytes(ctx, [0x32, val & 0xff, val >> 8], node.line);
     },
     estimate: 3,
   },
@@ -238,8 +212,7 @@ export const ldInstr: InstrDef[] = [
       const prefix = src.raw.startsWith("(IX") ? 0xdd : 0xfd;
       const disp = (src.disp ?? 0) & 0xff;
       const opcode = 0x46 | (regCode(dst.raw) << 3);
-      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 3;
+      emitBytes(ctx, [prefix, opcode, disp], node.line);
     },
     estimate: 3,
   },
@@ -253,8 +226,7 @@ export const ldInstr: InstrDef[] = [
       const prefix = dst.raw.startsWith("(IX") ? 0xdd : 0xfd;
       const disp = (dst.disp ?? 0) & 0xff;
       const opcode = 0x70 | regCode(src.raw);
-      ctx.texts.push({ addr: ctx.loc, data: [prefix, opcode, disp], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 3;
+      emitBytes(ctx, [prefix, opcode, disp], node.line);
     },
     estimate: 3,
   },
@@ -267,8 +239,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   if (isReg8(dst)) {
     const idx = parseIndexAddr(ctx, src);
     if (idx) {
-      ctx.texts.push({ addr: ctx.loc, data: [idx.prefix, 0x46 | (regCode(dst) << 3), idx.disp], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 3;
+      emitBytes(ctx, [idx.prefix, 0x46 | (regCode(dst) << 3), idx.disp], node.line)
       return;
     }
   }
@@ -277,8 +248,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   {
     const idx = parseIndexAddr(ctx, dst);
     if (idx && isReg8(src)) {
-      ctx.texts.push({ addr: ctx.loc, data: [idx.prefix, 0x70 | regCode(src), idx.disp], line: node.line, sectionId: ctx.currentSection  });
-      ctx.loc += 3;
+      emitBytes(ctx, [idx.prefix, 0x70 | regCode(src), idx.disp], node.line);
       return;
     }
   }
@@ -287,13 +257,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   if ((dst === "IX" || dst === "IY") && isImm16(ctx, src)) {
     const val = resolveValue(ctx, src)!;
     const prefix = dst === "IX" ? 0xdd : 0xfd;
-    ctx.texts.push({
-      addr: ctx.loc,
-      data: [prefix, 0x21, val & 0xff, (val >> 8) & 0xff],
-      line: node.line,
-      sectionId: ctx.currentSection
-    });
-    ctx.loc += 4;
+    emitBytes(ctx, [prefix, 0x21, val & 0xff, (val >> 8) & 0xff], node.line);
     return;
   }
 

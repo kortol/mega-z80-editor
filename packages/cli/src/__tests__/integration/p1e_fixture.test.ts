@@ -1,5 +1,12 @@
-import { assembleSource } from "../../assembler/testUtils";
+import * as fs from "fs";
+import { assembleSource, phaseAnalyze, phaseEmit } from "../../assembler/testUtils";
 import { buildRelFile } from "../../assembler/rel/builder";
+import { createContext } from "../../assembler/context";
+import { initCodegen } from "../../assembler/codegen/emit";
+import { setPhase } from "../../assembler/phaseManager";
+import { tokenize } from "../../assembler/tokenizer";
+import { parse } from "../../assembler/parser";
+import { runAnalyze } from "../../cli/mz80-as";
 
 describe("P1-E Fixture Integration", () => {
   it("should generate correct number of R records", () => {
@@ -11,13 +18,13 @@ describe("P1-E Fixture Integration", () => {
       DEFW EXT_E
       END
     `;
-    const ctx = assembleSource(src, 2);
+    const ctx = assembleSource(phaseEmit, src);
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
 
-    console.log(ctx);
-    console.log(rel);
-    console.log(rRecords);
+    // console.log(ctx);
+    // console.log(rel);
+    // console.log(rRecords);
 
     // 各命令1件ずつ R 出力されていること
     expect(rRecords.length).toBe(5);

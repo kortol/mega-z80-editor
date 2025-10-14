@@ -11,7 +11,7 @@
  *     encode 側で必ず (HL)/(IX+d)/(IY+d) → (nn) → imm8 の順に判定すること
  */
 
-import { AsmContext } from "../context";
+import { AsmContext, UnresolvedEntry } from "../context";
 import { AssemblerErrorCode } from "../errors";
 import { evalExpr } from "../expr/eval";
 import { parseExpr } from "../expr/parserExpr";
@@ -139,7 +139,7 @@ export function resolveExpr8(
     }
 
     // --- pass2 のときだけ記録 ---
-    if (ctx.pass === 2) {
+    if (ctx.phase === "emit") {
       const relocEntry: any = {
         addr: ctx.loc + 1,
         symbol: res.sym,
@@ -204,12 +204,17 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
       throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
     }
     // --- pass2 のときだけ記録 ---
-    if (ctx.pass === 2) {
-      const relocEntry = {
+    if (ctx.phase === "emit") {
+      const relocEntry: UnresolvedEntry = {
         addr: ctx.loc + 1,
         symbol: res.sym,
         addend: Number(res.addend ?? 0),
-        size: 2,
+        size: 2 as 1 | 2 | 4,
+        requester: {                    // ✅ 追加！
+          op: "ENCODER",                // 呼び出し元フェーズ
+          phase: "assemble",
+          line,
+        },
       };
 
       // 🔸 新: Rレコード用に ctx.relocs にも記録
