@@ -205,7 +205,6 @@ describe("tokenizer", () => {
 
   test("include", () => {
     const tokens = tokenize('INCLUDE "mac.inc"');
-    console.log(tokens);
     expect(tokens[0]).toMatchObject({ kind: "ident", text: "INCLUDE" });
     expect(tokens[1]).toMatchObject({ kind: "string", stringValue: "mac.inc" });
   })
