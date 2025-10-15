@@ -1,3 +1,4 @@
+import { defineSymbol } from "../../context";
 import { tokenize } from "../../tokenizer";
 import { EvalContext } from "../eval";
 import { evalExpr } from "../eval";

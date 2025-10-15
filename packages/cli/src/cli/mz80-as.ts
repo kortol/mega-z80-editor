@@ -3,7 +3,7 @@ import { parse } from "../assembler/parser";
 import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
-import { AsmContext, createContext } from "../assembler/context";
+import { AsmContext, createContext, defineSymbol } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
@@ -33,9 +33,9 @@ export function writeSymFile(ctx: AsmContext, outputFile: string) {
       kind = "EXTERN";
     } else {
       const entry = ctx.symbols.get(name);
-      if (typeof entry === "number") {
+      if (typeof (entry?.value) === "number") {
         kind = "LABEL";
-        valStr = entry.toString(16).padStart(4, "0");
+        valStr = entry.value.toString(16).padStart(4, "0");
       }
     }
 
@@ -122,7 +122,7 @@ export function runAnalyze(ctx: AsmContext) {
   for (const node of ctx.nodes ?? []) {
     switch (node.kind) {
       case "label":
-        ctx.symbols.set(node.name, ctx.loc);
+        defineSymbol(ctx, node.name, ctx.loc, "LABEL");
         break;
       case "pseudo":
         handlePseudo(ctx, node);  // EQU などはここで確定
@@ -144,7 +144,7 @@ export function runEmit(ctx: AsmContext) {
   for (const node of ctx.nodes ?? []) {
     switch (node.kind) {
       case "label":
-        ctx.symbols.set(node.name, ctx.loc);
+        defineSymbol(ctx, node.name, ctx.loc, "LABEL");
         break;
       case "pseudo":
         handlePseudo(ctx, node);

@@ -22,10 +22,6 @@ describe("P1-E Fixture Integration", () => {
     const rel = buildRelFile(ctx);
     const rRecords = rel.records.filter(r => r.kind === "R");
 
-    // console.log(ctx);
-    // console.log(rel);
-    // console.log(rRecords);
-
     // 各命令1件ずつ R 出力されていること
     expect(rRecords.length).toBe(5);
 

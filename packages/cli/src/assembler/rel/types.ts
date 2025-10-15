@@ -7,7 +7,7 @@
 export type RelRecord =
   | { kind: "H"; name: string }
   | { kind: "T"; addr: number; bytes: number[] }
-  | { kind: "S"; name: string; addr: number }
+  | { kind: "S"; name: string; addr: number; sectionId: number }
   | { kind: "R"; addr: number; sym: string; size: number; addend?: number }
   | { kind: "X"; name: string }
   | { kind: "E"; addr: number };
@@ -49,7 +49,7 @@ export interface RelSectionDescV2 {
   size: number;
   /** セクション内バイト列 */
   data: Uint8Array;
-  /** 出力時オフセット */  
+  /** 出力時オフセット */
   dataOffset?: number;
   /** StrTab参照オフセット */
   nameStrOff?: number;
@@ -94,7 +94,7 @@ export interface RelModuleV2 {
   /** 実データ */
   texts: RelTextV2[];
   /** エントリーポイントアドレス */
-  entry?: number;  
+  entry?: number;
   /** セクション結合済みのデータ */
   data: Uint8Array;
   /** stringテーブル */

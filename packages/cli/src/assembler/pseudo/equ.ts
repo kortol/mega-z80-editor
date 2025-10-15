@@ -1,4 +1,4 @@
-import { AsmContext } from "../context";
+import { AsmContext, defineSymbol } from "../context";
 import { NodePseudo } from "../parser";
 import { makeError, AssemblerErrorCode } from "../errors";
 import { parseNumber } from "../tokenizer";
@@ -17,18 +17,18 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
   }
   // 大文字小文字処理
   let sym = ctx.caseInsensitive ? key.toUpperCase() : key;
-  
+  // シンボル長制限
   if (sym.length > ctx.modeSymLen) {
     const truncated = sym.substring(0, ctx.modeSymLen);
     ctx.warnings?.push?.(`Symbol '${sym}' truncated to '${truncated}'`);
     sym = truncated; // ← 登録キーを更新
   }
-
+  // 即値を評価（EQUは式を許可しない）
   const val = parseNumber(valStr);
-
+  // 既存シンボルとの衝突確認
   if (ctx.symbols.has(sym)) {
     const prev = ctx.symbols.get(sym);
-    if (prev !== val) {
+    if (prev && (prev as any).value !== val) {
       ctx.errors.push(
         makeError(
           AssemblerErrorCode.RedefSymbol,
@@ -39,7 +39,7 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
     }
   }
 
-  ctx.symbols.set(sym, val);
+  defineSymbol(ctx, sym, val, "CONST");
 }
 
 export function handleSYMLEN(ctx: AsmContext, node: NodePseudo) {

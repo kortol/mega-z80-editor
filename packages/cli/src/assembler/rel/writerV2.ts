@@ -32,8 +32,7 @@ export function writeRelV2(mod: RelModuleV2, outPath: string) {
   // --- Section table ---
   for (const sec of mod.sections) {
     w(
-      `$SECTION ${sec.id} ${sec.name} size=${sec.size ?? 0} align=${
-        sec.align ?? 1
+      `$SECTION ${sec.id} ${sec.name} size=${sec.size ?? 0} align=${sec.align ?? 1
       }`
     );
   }
@@ -55,8 +54,17 @@ export function writeRelV2(mod: RelModuleV2, outPath: string) {
 
   // --- Symbols ---
   for (const sym of mod.symbols) {
+    if (sym.storage === "EXT") {
+      w(`X ${sym.name}`); // 外部参照
+      continue;
+    }
+
     const addrHex = sym.value.toString(16).padStart(4, "0").toUpperCase();
-    w(`S ${sym.name} ${addrHex}`);
+    const secName =
+      sym.sectionId != null && mod.sections[sym.sectionId]
+        ? ` ${mod.sections[sym.sectionId].name}`
+        : "";
+    w(`S ${sym.name} ${addrHex}${secName}`);
   }
 
   // --- Entry point ---

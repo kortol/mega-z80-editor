@@ -1,10 +1,10 @@
 // packages/cli/src/assembler/expr/eval.ts
 import { EvalResult, Expr } from "./types";
 import { AssemblerErrorCode, makeError } from "../errors";
-import { AsmContext } from "../context";
+import { AsmContext, SymbolEntry } from "../context";
 
 export interface EvalContext {
-  symbols: Map<string, Expr | number>; // 定義済みシンボル
+  symbols: Map<string, Expr | SymbolEntry | number>; // 定義済みシンボル
   externs: Set<string>;                // EXTERN 宣言済みシンボル
   pass: 1 | 2;                         // 現在のパス番号
   errors: any[];                       // 発生したエラーを蓄積
@@ -40,9 +40,12 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
       }
       // 定義済みなら即値 or 再帰評価
       if (ctx.symbols.has(expr.name)) {
-        const val = ctx.symbols.get(expr.name)!;
-        if (typeof val === "number") {
-          return { kind: "Const", value: val };
+        const entry = ctx.symbols.get(expr.name)!;
+        if (typeof (entry as any).value === "number") {
+          return { kind: "Const", value: (entry as any).value };
+        } else if (typeof entry === "number") {
+          // 古いMapを扱うコード互換用（後方互換）
+          return { kind: "Const", value: entry };
         } else {
           if (ctx.visiting.has(expr.name)) {
             ctx.errors.push(
@@ -54,7 +57,7 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
             return { kind: "Error", code: AssemblerErrorCode.ExprCircularRef };
           }
           ctx.visiting.add(expr.name);
-          const res = evalExpr(val, ctx);
+          const res = evalExpr(entry as any, ctx);
           ctx.visiting.delete(expr.name);
           return res;
         }

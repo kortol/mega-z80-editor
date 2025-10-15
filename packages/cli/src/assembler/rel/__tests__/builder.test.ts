@@ -1,16 +1,15 @@
 // src/assembler/rel/__tests__/builder.test.ts
 import { buildRelFile, RelBuilder } from "../builder";
 import { TextRelAdapter } from "../adapter";
-import { AsmContext, createContext } from "../../context";
+import { AsmContext, createContext, defineSymbol } from "../../context";
 
 function makeCtx(): AsmContext {
-  return createContext({
+  const ctx = createContext({
     moduleName: "TESTMOD",
     texts: [
       { addr: 0x1000, data: [0x3E, 0x01] },   // LD A,1
       { addr: 0x1002, data: [0xC3, 0x00, 0x10] } // JP 1000H
     ],
-    symbols: new Map([["START", 0x1000]]),
     unresolved: [{
       addr: 0x1002, symbol: "START", size: 2, requester: {
         op: "JP",                     // or "DATA" depending on pseudo
@@ -20,6 +19,8 @@ function makeCtx(): AsmContext {
     }],
     entry: 0x1000
   });
+  defineSymbol(ctx, "START", 0x1000, "LABEL");
+  return ctx;
 }
 
 describe("rel builder", () => {

@@ -23,8 +23,8 @@ export class RelBuilder {
     this.file.records.push({ kind: "T", addr, bytes });
   }
 
-  addSymbol(name: string, addr: number) {
-    this.file.records.push({ kind: "S", name, addr });
+  addSymbol(name: string, addr: number, sectionId: number) {
+    this.file.records.push({ kind: "S", name, addr, sectionId });
   }
 
   addReloc(addr: number, sym: string, addend: number = 0) {
@@ -64,8 +64,16 @@ export function buildRelFile(ctx: AsmContext): RelFile {
   }
 
   // S
-  for (const [sym, addr] of ctx.symbols.entries()) {
-    records.push({ kind: "S", name: sym, addr });
+  for (const [sym, entry] of ctx.symbols.entries()) {
+    const addr = typeof entry === "number" ? entry : entry.value;
+    const sectionId = typeof entry === "number" ? 0 : entry.sectionId ?? 0;
+
+    records.push({
+      kind: "S",
+      name: sym,
+      addr,
+      sectionId
+    });
   }
 
   // R
@@ -90,7 +98,8 @@ export function buildRelFile(ctx: AsmContext): RelFile {
   } else if (ctx.texts.length > 0) {
     // END未指定なら補完する
     if (ctx.symbols.has("START")) {
-      ctx.entry = ctx.symbols.get("START") as number;
+      const entry = ctx.symbols.get("START");
+      ctx.entry = entry?.value;
     } else if (ctx.loc !== undefined) {
       ctx.entry = ctx.loc;
     }
@@ -168,6 +177,16 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
         storage: "REL", // TODO: EQU等はABSに切替
         sectionId: 0, // TODO: 定義位置からセクション特定へ置換
         value: val, // TODO: セクション内相対へ変換（ORG運用により要調整）
+      });
+    } else {
+      if (val.type === "EXTERN") continue;  // ← ここでスキップ
+      const storage = val.type === "CONST" ? "ABS" : "REL";
+
+      symbols.push({
+        name,
+        storage,
+        sectionId: val.sectionId ?? 0,
+        value: val.value ?? 0,
       });
     }
   }

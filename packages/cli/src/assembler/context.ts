@@ -6,7 +6,14 @@ import { AsmPhase } from "./phaseManager";
 import { Token } from "./tokenizer";
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
-export type SymbolEntry = number;
+export interface SymbolEntry {
+  /** シンボルの数値値（絶対 or 相対） */
+  value: number;
+  /** 属するセクションID（0=.text, 1=.data, 2=.bss, ...） */
+  sectionId: number;
+  /** シンボル種別 */
+  type: "LABEL" | "CONST" | "EXTERN";
+}
 
 export interface RequesterInfo {
   op: string;
@@ -116,4 +123,29 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     inputFile: "",
   };
   return { ...defaults, ...overrides };
+}
+
+/**
+ * シンボル登録用ユーティリティ関数
+ * - 現在セクションを自動的に付与
+ * - 既存登録がある場合は上書き警告を発行
+ */
+export function defineSymbol(
+  ctx: AsmContext,
+  name: string,
+  value: number,
+  type: SymbolEntry["type"] = "LABEL"
+) {
+  const sectionId = ctx.currentSection;
+  const existing = ctx.symbols.get(name);
+
+  if (existing) {
+    ctx.warnings?.push?.(
+      `Symbol redefined: ${name} (old=${existing.value.toString(
+        16
+      )}, new=${value.toString(16)})`
+    );
+  }
+
+  ctx.symbols.set(name, { value, sectionId, type });
 }

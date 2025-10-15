@@ -1,5 +1,5 @@
 import { initCodegen } from "../codegen/emit";
-import { AsmContext, createContext } from "../context";
+import { AsmContext, createContext, defineSymbol } from "../context";
 import { emitRel } from "../rel";
 
 function makeCtx(): AsmContext {
@@ -25,7 +25,7 @@ describe("rel emitter", () => {
 
   test("S record with symbol", () => {
     const ctx = makeCtx();
-    ctx.symbols.set("FOO", 0x1234);
+    defineSymbol(ctx, "FOO", 0x1234, "LABEL");
     const rel = emitRel(ctx).split("\n");
     expect(rel).toContain("S FOO 1234");
   });
@@ -53,7 +53,7 @@ describe("rel emitter", () => {
   test("combined case", () => {
     const ctx = makeCtx();
     ctx.texts.push({ addr: 0x0000, data: [0xCD, 0x05, 0x00] }); // CALL 0005h
-    ctx.symbols.set("START", 0x0000);
+    defineSymbol(ctx, "START", 0x0000, "LABEL");
     ctx.unresolved.push({
       addr: 0x0001, symbol: "BDOS", size: 2, requester: {
         op: "ENCODER",

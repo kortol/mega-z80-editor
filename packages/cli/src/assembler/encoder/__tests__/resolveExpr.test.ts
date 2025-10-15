@@ -1,4 +1,4 @@
-import { AsmContext, createContext } from "../../context";
+import { AsmContext, createContext, defineSymbol } from "../../context";
 import { resolveExpr16, resolveExpr8 } from "../utils";
 
 function makeCtx(): AsmContext {
@@ -7,9 +7,9 @@ function makeCtx(): AsmContext {
     moduleName: "TEST",
     phase: "emit"
   });
-  ctx.symbols.set("FOO", 10);
-  ctx.symbols.set("BAR", 20);
-  ctx.symbols.set("ZERO", 0);
+  defineSymbol(ctx, "FOO", 10, "CONST");
+  defineSymbol(ctx, "BAR", 20, "CONST");
+  defineSymbol(ctx, "ZERO", 0, "CONST");
   ctx.externs.add("EXT");
   ctx.externs.add("EXT1");
   ctx.externs.add("EXT2");
