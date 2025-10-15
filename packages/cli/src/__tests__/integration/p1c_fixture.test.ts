@@ -24,7 +24,7 @@ describe("P1-C integration fixture", () => {
     const logger = new Logger();
     assemble(logger, asmFile, relFile);
     const relText = readFileText(relFile);
-    console.log(relText);
+    // console.log(relText);
 
     // JSONアダプタで読み取り
     const relJson = new JsonRelAdapter().write(
