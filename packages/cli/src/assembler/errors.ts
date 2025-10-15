@@ -19,6 +19,7 @@ export enum AssemblerErrorCode {
   InvalidEquSyntax = "A3002",
   ExprExternInEnd = "A3101",
   RedefSymbol = "A3102",  // シンボルの再定義
+  SyntaxError = "A3103",
 
   // Encoder 系
   InvalidOperand = "A4000",

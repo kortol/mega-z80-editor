@@ -95,11 +95,18 @@ export function parse(tokens: Token[]): Node[] {
       line[0].kind === "ident" &&
       op === "INCLUDE"
     ) {
-      const arg = line[1].text.replace(/^["']|["']$/g, ""); // クォート除去
+      const argTok = line[1];
+      if (argTok.kind !== "string") {
+        throw makeError(
+          AssemblerErrorCode.SyntaxError,
+          `INCLUDE expects a string literal at line ${argTok.line}`
+        );
+      }
+      const path = argTok.stringValue ?? argTok.text.replace(/^["']|["']$/g, "");
       nodes.push({
         kind: "pseudo",
         op: "INCLUDE",
-        args: [{ value: arg }],
+        args: [{ value: path }],
         line: line[0].line,
       });
       return;
