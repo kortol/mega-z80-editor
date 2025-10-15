@@ -1,6 +1,7 @@
 import { assemble } from '../../../src/cli/mz80-as';
 import fs from 'fs';
 import path from 'path';
+import { Logger } from '../../logger';
 
 describe('P1-E: SYM file generation', () => {
   const asmSrc = `
@@ -18,7 +19,8 @@ START: LD A,(EXTSYM)
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(asmPath, asmSrc);
-    assemble(asmPath, relPath, { verbose: false });
+    const logger = new Logger();
+    assemble(logger, asmPath, relPath, { verbose: false });
   });
 
   it('should list LABEL, CONST, and EXTERN correctly', () => {

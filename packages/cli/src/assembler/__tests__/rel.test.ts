@@ -1,8 +1,11 @@
+import { initCodegen } from "../codegen/emit";
 import { AsmContext, createContext } from "../context";
 import { emitRel } from "../rel";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "HELLO" });
+  const ctx = createContext({ moduleName: "HELLO" });
+  initCodegen(ctx, { withDefaultSections: true });
+  return ctx;
 }
 
 describe("rel emitter", () => {

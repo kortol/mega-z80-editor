@@ -1,11 +1,13 @@
 import fs from "fs";
 import path from "path";
 import { assemble } from "../../cli/mz80-as";
+import { Logger } from "../../logger";
 
 test("SECTION命令で複数セクションをRelV2に出力できる", () => {
   const input = path.join(__dirname, "../../../examples/linktest/test_sections.asm");
   const output = path.join(__dirname, "../../../.tmp_tests/test_sections.rel");
-  const ctx = assemble(input, output, { relVersion: 2 });
+  const logger = new Logger();
+  const ctx = assemble(logger, input, output, { relVersion: 2 });
 
   const buf = fs.readFileSync(output);
   // Magic + version チェック

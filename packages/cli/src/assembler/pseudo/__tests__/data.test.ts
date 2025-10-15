@@ -2,9 +2,11 @@ import { AsmContext, createContext } from "../../context";
 import { NodePseudo } from "../../parser";
 import { handlePseudo } from "../../pseudo";
 import * as extern from "../../expr/parseExternExpr";
+import { initCodegen } from "../../codegen/emit";
 
 function makeCtx(): AsmContext {
   const ctx = createContext({ moduleName: "TEST" });
+  initCodegen(ctx, { withDefaultSections: true });
   ctx.phase = "emit"; // 未解決シンボル登録を有効化
   return ctx;
 }

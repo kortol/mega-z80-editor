@@ -1,9 +1,12 @@
 import { AsmContext, createContext } from "../../context";
 import { NodeInstr } from "../../parser";
 import { encodeInstr } from "../../encoder";
+import { initCodegen } from "../../codegen/emit";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "TEST" });
+  const ctx = createContext({ moduleName: "TEST" });
+  initCodegen(ctx, { withDefaultSections: true });
+  return ctx;
 }
 
 

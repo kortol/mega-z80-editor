@@ -1,5 +1,5 @@
 import { tokenize } from "../assembler/tokenizer";
-import { Node, NodeInstr, parse } from "../assembler/parser";
+import { parse } from "../assembler/parser";
 import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
@@ -9,7 +9,6 @@ import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
 import { initCodegen } from "../assembler/codegen/emit";
 import { setPhase } from "../assembler/phaseManager";
-import { console } from "inspector";
 import { Logger } from "../logger";
 
 // --- .sym 出力 ---

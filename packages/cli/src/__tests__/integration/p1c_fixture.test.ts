@@ -3,6 +3,7 @@ import * as path from "path";
 import { assemble } from "../../cli/mz80-as";
 import { link } from "../../cli/mz80-link";
 import { JsonRelAdapter } from "../../assembler/rel/adapter";
+import { Logger } from "../../logger";
 
 const TMP_DIR = path.join(__dirname, "tmp");
 
@@ -20,7 +21,8 @@ describe("P1-C integration fixture", () => {
   });
 
   test("assemble fixture to .rel", () => {
-    assemble(asmFile, relFile);
+    const logger = new Logger();
+    assemble(logger, asmFile, relFile);
     const relText = readFileText(relFile);
     console.log(relText);
 
