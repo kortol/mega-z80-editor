@@ -15,16 +15,16 @@ test("SECTION命令で複数セクションをRelV2に出力できる", () => {
   expect(buf[4]).toBe(2);
 
   // ctx.sections 検証
-  // expect(ctx.sections.size).toBeGreaterThanOrEqual(3);
-  // const names = Array.from(ctx.sections.values()).map(s => s.name);
-  // expect(names).toContain(".text");
-  // expect(names).toContain(".data");
-  // expect(names).toContain(".bss");
+  expect(ctx.sections.size).toBeGreaterThanOrEqual(3);
+  const names = Array.from(ctx.sections.values()).map(s => s.name);
+  expect(names).toContain(".text");
+  expect(names).toContain(".data");
+  expect(names).toContain(".bss");
 
-  // // 各セクションのデータ長が個別に取れているか
-  // for (const s of ctx.sections.values()) {
-  //   expect(typeof s.size).toBe("number");
-  // }
+  // 各セクションのデータ長が個別に取れているか
+  for (const s of ctx.sections.values()) {
+    expect(typeof s.size).toBe("number");
+  }
   const text = buf.toString();
   expect(text).toContain("$SECTION 0 .text");
   expect(text).toContain("$SECTION 1 .data");
