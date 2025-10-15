@@ -202,4 +202,11 @@ describe("tokenizer", () => {
     expect(toks.map((t) => t.text)).toContain("LD");
     expect(toks.map((t) => t.text)).not.toContain("B"); // 打ち切られる
   });
+
+  test("include", () => {
+    const tokens = tokenize('INCLUDE "mac.inc"');
+    console.log(tokens);
+    expect(tokens[0]).toMatchObject({ kind: "ident", text: "INCLUDE" });
+    expect(tokens[1]).toMatchObject({ kind: "string", stringValue: "mac.inc" });
+  })
 });

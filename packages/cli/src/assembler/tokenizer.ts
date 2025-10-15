@@ -1,6 +1,7 @@
 export type TokenKind =
   | "ident"
   | "num"
+  | "string"
   | "comma"
   | "colon"
   | "lparen"
@@ -11,7 +12,8 @@ export type TokenKind =
 export interface Token {
   kind: TokenKind;
   text: string;
-  value?: number;
+  value?: number;        // 数値リテラル（従来どおり）
+  stringValue?: string;  // 文字列リテラル用（例: "mac.inc"）
   line: number;
   col: number;
 }
@@ -106,6 +108,30 @@ export function tokenize(src: string): Token[] {
           );
         }
       }
+
+      // --- 文字列リテラル (INCLUDE "file.inc" 等) ---
+      if (rest[0] === '"' || rest[0] === "'") {
+        const quote = rest[0];
+        // 正規表現: 同じクォートで閉じるまでを取得（改行を跨がない）
+        const strMatch = rest.match(new RegExp(`^${quote}([^${quote}]*)${quote}`));
+        if (!strMatch) {
+          throw new Error(
+            `Tokenizer error at line ${lineNo + 1}, col ${col}: unterminated string literal`
+          );
+        }
+        const text = strMatch[0];
+        const stringValue = strMatch[1]; // 中身だけ取り出す
+        tokens.push({
+          kind: "string",
+          text,
+          stringValue,
+          line: lineNo + 1,
+          col,
+        });
+        col += text.length;
+        continue;
+      }
+
 
       // %の場合、%(0|1)+は数値でそれ以外はoperator
       if (rest[0] === "%") {

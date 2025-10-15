@@ -76,7 +76,7 @@ export function parse(tokens: Token[]): Node[] {
         .slice(2)
         .filter((t) => t.kind !== "comma")
         .map((t) => t.text);
-      
+
       nodes.push({
         kind: "pseudo",
         op: "EQU",
@@ -88,6 +88,22 @@ export function parse(tokens: Token[]): Node[] {
 
     // 通常の命令 or 疑似命令
     const op = line[0].text.toUpperCase();
+
+    // INCLUDE 構文: INCLUDE "path"
+    if (
+      line.length >= 2 &&
+      line[0].kind === "ident" &&
+      op === "INCLUDE"
+    ) {
+      const arg = line[1].text.replace(/^["']|["']$/g, ""); // クォート除去
+      nodes.push({
+        kind: "pseudo",
+        op: "INCLUDE",
+        args: [{ value: arg }],
+        line: line[0].line,
+      });
+      return;
+    }
 
     // カンマで区切られた引数リストを作る
     const args: string[] = [];
@@ -190,5 +206,6 @@ function isPseudo(op: string): boolean {
     "END",
     "EXTERN",
     "SECTION",
+    "INCLUDE",
   ].includes(op);
 }

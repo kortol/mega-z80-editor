@@ -1,4 +1,4 @@
-import { tokenize } from "../tokenizer";
+import { Token, tokenize } from "../tokenizer";
 import { parse, Node } from "../parser";
 
 function parseLines(src: string): Node[] {
@@ -54,15 +54,15 @@ describe("parser", () => {
     const nodes = parseLines("FOO EQU 10");
     // P1簡易仕様: "EQU" を疑似命令として扱い、args に残りを入れる
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: [{ key: "FOO" , value: "10" }], line: 1 }
+      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], line: 1 }
     ]);
   });
 
   test("EQU with expression", () => {
     const nodes = parseLines("BAR EQU 0x100+10");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: [{ key: "BAR" ,value: "0x100, +, 10"}], line: 1 }
-    ]); 
+      { kind: "pseudo", op: "EQU", args: [{ key: "BAR", value: "0x100, +, 10" }], line: 1 }
+    ]);
   });
 
   // 7. 疑似命令 DB, DW
@@ -100,5 +100,22 @@ describe("parser", () => {
 
   test("label + EQU is invalid", () => {
     expect(() => parseLines("FOO: EQU 10")).toThrow(/EQU cannot be used/);
-  });  
+  });
+
+  test("parse INCLUDE directive", () => {
+    const tokens: Token[] = [
+      { kind: "ident", text: "INCLUDE", line: 1, col: 0 },
+      { kind: "string", text: '"mac.inc"', stringValue: 'mac.inc', line: 1, col: 8 },
+      { kind: "eol", text: "\n", line: 1, col: 18 },
+    ];
+    const nodes = parse(tokens);
+    expect(nodes).toEqual([
+      {
+        kind: "pseudo",
+        op: "INCLUDE",
+        args: [{ value: "mac.inc" }],
+        line: 1,
+      },
+    ]);
+  });
 });
