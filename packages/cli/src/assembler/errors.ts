@@ -1,7 +1,13 @@
+import { SourceFrame } from "./context";
+
 // エラーコードをまとめた列挙型
 export enum AssemblerErrorCode {
   // 汎用
   Unknown = "A0000",
+
+  IncludeSyntaxError = "A1001",
+  IncludeNotFound = "A1002",
+  IncludeLoop = "A1003",
 
   // Expr 系
   ExprOverflow = "A2001", // 幅外れ (下位ビット採用)
@@ -46,6 +52,11 @@ export interface AssemblerError {
   line?: number;
   column?: number;
   symbol?: string;
+  file?: string;
+  /** INCLUDE / MACRO 呼び出しなどのスタック情報 */
+  frame?: SourceFrame;
+  /** ネストした呼び出しトレース（INCLUDEスタックなど） */
+  trace?: SourceFrame[];
 }
 
 // メッセージを組み立てるヘルパー

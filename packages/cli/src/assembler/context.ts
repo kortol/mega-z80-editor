@@ -109,7 +109,7 @@ export interface AsmContext {
 
   // --- エラー／診断 ---
   errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
-  warnings?: string[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
+  warnings: string[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
 }
 
 

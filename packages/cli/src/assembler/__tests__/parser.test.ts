@@ -124,15 +124,22 @@ describe("parser", () => {
     const ctx = makeCtx();
     const tokens: Token[] = [
       { kind: "ident", text: "INCLUDE", line: 1, col: 0 },
-      { kind: "string", text: '"mac.inc"', stringValue: 'mac.inc', line: 1, col: 8 },
+      {
+        kind: "string",
+        text: '"src/assembler/__tests__/mac.inc"',
+        stringValue: 'src/assembler/__tests__/mac.inc',
+        line: 1,
+        col: 8
+      },
       { kind: "eol", text: "\n", line: 1, col: 17 },
     ];
     const nodes = parse(ctx, tokens);
+    console.log(nodes);
     expect(nodes).toEqual([
       {
         kind: "pseudo",
         op: "INCLUDE",
-        args: [{ value: "mac.inc" }],
+        args: [{ value: "src/assembler/__tests__/mac.inc" }],
         line: 1,
         file: "test.asm"
       },
@@ -141,11 +148,11 @@ describe("parser", () => {
 
   test("context basic", () => {
     const ctx = makeCtx();
-    const nodes = parseLines(ctx, 'INCLUDE "mac.inc"\nLD A,0');
+    const nodes = parseLines(ctx, 'INCLUDE "src/assembler/__tests__/mac.inc"\nLD A,0');
     expect(nodes[0]).toMatchObject({
       kind: "pseudo",
       op: "INCLUDE",
-      args: [{ value: "mac.inc" }],
+      args: [{ value: "src/assembler/__tests__/mac.inc" }],
       file: "test.asm",
     });
     expect(nodes[1]).toMatchObject({

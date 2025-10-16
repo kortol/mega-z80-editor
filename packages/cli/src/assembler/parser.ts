@@ -1,5 +1,6 @@
 import { AsmContext } from "./context";
 import { AssemblerErrorCode, makeError } from "./errors";
+import { handleInclude } from "./pseudo/include";
 import { Token } from "./tokenizer";
 
 export type Node = NodeInstr | NodePseudo | NodeLabel;
@@ -114,13 +115,22 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         );
       }
       const path = argTok.stringValue ?? argTok.text.replace(/^["']|["']$/g, "");
-      nodes.push({
+
+      // INCLUDE nodeを登録
+      const includeNode: Node = {
         kind: "pseudo",
         op: "INCLUDE",
         args: [{ value: path }],
         line: line[0].line,
         file: ctx.currentFile,
-      });
+      };
+      nodes.push(includeNode);
+
+      // --- 🔹 INCLUDE即時展開 ---
+      const subNodes = handleInclude(includeNode, ctx);
+
+      // 展開結果を現在のnodesに統合
+      nodes.push(...subNodes);
       return nodes;
     }
 
