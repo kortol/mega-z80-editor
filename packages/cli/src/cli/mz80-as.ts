@@ -99,7 +99,7 @@ export function assemble(
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  ctx.nodes = parse(ctx.tokens);
+  ctx.nodes = parse(ctx, ctx.tokens);
   ctx.source = source;
 
   // --- PHASE: analyze ---

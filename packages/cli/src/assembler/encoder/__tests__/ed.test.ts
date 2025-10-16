@@ -9,8 +9,8 @@ function makeCtx(): AsmContext {
   return ctx;
 }
 
-function makeNode(op: string, args: string[], line = 1): NodeInstr {
-  return { kind: "instr", op, args, line };
+function makeNode(op: string, args: string[], line = 1, file = "test.asm"): NodeInstr {
+  return { kind: "instr", op, args, line, file };
 }
 
 describe("ED prefix", () => {

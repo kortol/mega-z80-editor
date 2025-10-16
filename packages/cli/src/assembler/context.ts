@@ -65,6 +65,11 @@ export interface OutputInfo {
   generatedAt?: Date;
 }
 
+export interface SourceFrame {
+  file: string;   // 現在のファイルパス
+  line: number;   // INCLUDE 呼び出し元行
+}
+
 export interface AsmContext {
   loc: number; // 現在のアセンブル位置 (アドレスカウンタ: ORG, DB/DW などで進む)
   moduleName: string; // モジュール名 (RELファイルの H レコード用、デフォルト "NONAME")
@@ -76,14 +81,11 @@ export interface AsmContext {
   caseInsensitive: boolean; // シンボル名の大文字小文字を区別しない場合 true
   texts: AsmText[]; // 出力済みテキストレコードのリスト (アドレス＋バイト列)
   endReached?: boolean; // END 疑似命令に到達したかどうか (trueなら以降アセンブル停止)
-  warnings?: string[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
   maxSymbolLen?: number; // 許可されるシンボル名の最大長 (未設定なら無制限扱い)
   entry?: number; // エントリポイント (END 疑似命令で指定された場合に設定)
-  errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
   externs: Set<string>; // EXTERN 宣言された外部シンボル一覧 (リンカで解決する対象)
   options?: { verbose?: boolean }; // アセンブル時オプション
   sourceLines?: string[]; // 元ソース行を保持（.lst生成用）
-  currentSection: number; // 現在のセクションID（0がTEXT、1がDATA、2がBSS、3以降がCUSTOM）
   sections: Map<number, SectionState>; // セクションIDをキーとしたセクション状態のマップ
   output: OutputInfo;
   source?: string; // ソース全文
@@ -92,6 +94,22 @@ export interface AsmContext {
   phase: AsmPhase; // フェーズ
   logger?: Logger; // ロガー
   verbose: boolean;
+
+  // --- 現在状態 ---
+  currentFile: string;            // 現在解析中のファイル名
+  currentLine: number;            // 現在行番号（eol更新ごと）
+  currentSection: number; // 現在のセクションID（0がTEXT、1がDATA、2がBSS、3以降がCUSTOM）
+
+  // --- ネスト管理 ---
+  includeStack: SourceFrame[];    // INCLUDE呼出し階層
+  includeCache: Set<string>;      // 重複防止（#pragma once 相当）
+
+  // --- セクション管理 ---
+  sectionStack: string[];         // INCLUDE中のSECTION復帰用
+
+  // --- エラー／診断 ---
+  errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
+  warnings?: string[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
 }
 
 
@@ -121,6 +139,11 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     phase: "tokenize",
     verbose: false,
     inputFile: "",
+    currentFile: "",
+    currentLine: 0,
+    includeStack: [],
+    includeCache: new Set(),
+    sectionStack: [],
   };
   return { ...defaults, ...overrides };
 }

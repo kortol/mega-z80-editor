@@ -12,8 +12,8 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[] = [], line = 1): NodePseudo {
-  return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), line };
+function makeNode(op: string, args: string[] = [], line = 1, file = "test.asm"): NodePseudo {
+  return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), line, file };
 }
 
 describe("pseudo - DB/DW", () => {

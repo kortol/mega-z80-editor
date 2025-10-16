@@ -6,8 +6,8 @@ function makeCtx(): AsmContext {
     return createContext({ moduleName: "TEST" });
 }
 
-function makeNode(op: string, args: { key: string, value: string }[], line = 1): NodePseudo {
-    return { kind: "pseudo", op, args, line };
+function makeNode(op: string, args: { key: string, value: string }[], line = 1, file = "test.asm"): NodePseudo {
+    return { kind: "pseudo", op, args, line, file };
 }
 
 describe("pseudo - EQU", () => {

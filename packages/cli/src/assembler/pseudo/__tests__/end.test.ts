@@ -11,10 +11,9 @@ function makeCtx(): AsmContext {
 }
 
 
-function assemble(src: string) {
+function assemble(ctx: AsmContext, src: string) {
   const tokens = tokenize(src);
-  const nodes = parse(tokens);
-  const ctx = makeCtx();
+  const nodes = parse(ctx, tokens);
   for (const node of nodes) {
     if (node.kind === "pseudo" && node.op === "END") {
       handleEND(ctx, node);
@@ -33,21 +32,24 @@ describe("END pseudo", () => {
   });
 
   test("ENDのみ → Eレコードなし", () => {
-    const ctx = assemble("END");
+    const ctx = makeCtx();
+    assemble(ctx, "END");
     const file = buildRelFile(ctx);
     const out = new TextRelAdapter().write(file);
     expect(out).not.toMatch(/^E/);
   });
 
   test("END expr → Eレコードあり", () => {
-    const ctx = assemble("END 1234H");
+    const ctx = makeCtx();
+    assemble(ctx, "END 1234H");
     const file = buildRelFile(ctx);
     const out = new TextRelAdapter().write(file);
     expect(out).toContain("E 1234");
   });
 
   test("END extern → エラー", () => {
-    const ctx = assemble("END EXT");
+    const ctx = makeCtx();
+    assemble(ctx, "END EXT");
     expect(ctx.errors.length).toBeGreaterThan(0);
     expect(ctx.errors[0].code).toBe(AssemblerErrorCode.ExprExternInEnd);
   });

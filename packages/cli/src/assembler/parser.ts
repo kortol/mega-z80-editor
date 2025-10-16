@@ -1,3 +1,4 @@
+import { AsmContext } from "./context";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { Token } from "./tokenizer";
 
@@ -8,6 +9,7 @@ export interface NodeInstr {
   op: string;
   args: string[];
   line: number;
+  file: string;
 }
 
 export interface PseudoArg {
@@ -20,20 +22,23 @@ export interface NodePseudo {
   op: string;
   args: PseudoArg[];
   line: number;
+  file: string;
 }
 
 export interface NodeLabel {
   kind: "label";
   name: string;
   line: number;
+  file: string;
 }
 
-export function parse(tokens: Token[]): Node[] {
+export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
+
   const nodes: Node[] = [];
   let line: Token[] = [];
 
   function flushLine() {
-    if (line.length === 0) return;
+    if (line.length === 0) return nodes;
 
     // ラベル（ident + colon）
     if (
@@ -56,9 +61,14 @@ export function parse(tokens: Token[]): Node[] {
         );
       }
 
-      nodes.push({ kind: "label", name: label, line: line[0].line });
+      nodes.push({
+        kind: "label",
+        name: label,
+        line: line[0].line,
+        file: ctx.currentFile
+      });
       line = afterColon;
-      if (line.length === 0) return;
+      if (line.length === 0) return nodes;
     }
 
     if (line[0].kind !== "ident") {
@@ -82,8 +92,9 @@ export function parse(tokens: Token[]): Node[] {
         op: "EQU",
         args: [{ key: symbol, value: valueTokens.join(", ") }],
         line: line[0].line,
+        file: ctx.currentFile,
       });
-      return;
+      return nodes;
     }
 
     // 通常の命令 or 疑似命令
@@ -108,8 +119,9 @@ export function parse(tokens: Token[]): Node[] {
         op: "INCLUDE",
         args: [{ value: path }],
         line: line[0].line,
+        file: ctx.currentFile,
       });
-      return;
+      return nodes;
     }
 
     // カンマで区切られた引数リストを作る
@@ -141,9 +153,21 @@ export function parse(tokens: Token[]): Node[] {
           pseudoArgs.push({ value: a.trim() });
         }
       }
-      nodes.push({ kind: "pseudo", op, args: pseudoArgs, line: line[0].line });
+      nodes.push({
+        kind: "pseudo",
+        op,
+        args: pseudoArgs,
+        line: line[0].line,
+        file: ctx.currentFile,
+      });
     } else if (isInstr(op)) {
-      nodes.push({ kind: "instr", op, args, line: line[0].line });
+      nodes.push({
+        kind: "instr",
+        op,
+        args,
+        line: line[0].line,
+        file: ctx.currentFile,
+      });
     } else {
       throw new Error(`Unknown operation '${op}' at line ${line[0].line}`);
     }

@@ -66,7 +66,7 @@ export function phaseAnalyze(inputFile: string, outputFile: string, options?: { 
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  ctx.nodes = parse(ctx.tokens);
+  ctx.nodes = parse(ctx, ctx.tokens);
   ctx.source = source;
 
   // --- PHASE: analyze ---
@@ -92,7 +92,7 @@ export function phaseEmit(inputFile: string, outputFile: string, options?: { ver
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  ctx.nodes = parse(ctx.tokens);
+  ctx.nodes = parse(ctx, ctx.tokens);
   ctx.source = source;
 
   // --- PHASE: analyze ---
