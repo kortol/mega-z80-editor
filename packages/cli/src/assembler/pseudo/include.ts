@@ -2,12 +2,12 @@ import fs from "fs";
 import path from "path";
 import { tokenize } from "../tokenizer";
 import { parse } from "../parser";
-import { AsmContext } from "../context";
+import { AsmContext, cloneSourcePos, createSourcePos } from "../context";
 import { AssemblerErrorCode, makeError } from "../errors";
 
 // 🔹 パス解決（相対／INCLUDEPATH対応）
 function resolveIncludePath(fileName: string, ctx: AsmContext): string | null {
-  const baseDir = path.dirname(ctx.currentFile);
+  const baseDir = path.dirname(ctx.currentPos.file);
   const abs1 = path.resolve(baseDir, fileName);
   if (fs.existsSync(abs1)) return abs1;
 
@@ -43,23 +43,41 @@ export function handleInclude(node: any, ctx: AsmContext): any[] {
     return [];
   }
 
+  // if (ctx.verbose) {
+  ctx.logger?.info(`ctx.currentFile:${ctx.currentPos.file}`);
+  // }
   ctx.includeCache.add(absPath);
 
   const src = fs.readFileSync(absPath, "utf8");
 
-  ctx.includeStack.push({ file: absPath, line: node.line });
+  ctx.logger?.info(`include file:${absPath}`);
+  ctx.logger?.info(`${src}`);
+  // ✅ ソースキャッシュ登録
+  if (!ctx.sourceMap) ctx.sourceMap = new Map<string, string[]>();
+  ctx.sourceMap.set(absPath, src.split(/\r?\n/));
+
+  ctx.includeStack.push({ file: absPath, lines: [node.pos.line] });
 
   try {
-    const prevFile = ctx.currentFile;
-    ctx.currentFile = absPath;
+    // ✅ 現在位置を親として、新しい SourcePos を生成
+    const parentPos = cloneSourcePos(ctx.currentPos);
+    const newPos = createSourcePos(absPath, 0, 0, parentPos);
+    ctx.currentPos = newPos;
 
-    const tokens = tokenize(src);
+    const tokens = tokenize(ctx, src);
     const subNodes = parse(ctx, tokens);
 
-    ctx.currentFile = prevFile;
+    // ✅ 子ノードの pos.parent に親を設定
+    for (const n of subNodes) {
+      if (n.pos && !n.pos.parent) {
+        n.pos.parent = parentPos;
+      }
+    }
+
+    // ✅ 親に戻す
+    ctx.currentPos = parentPos;
     return subNodes;
   } finally {
     ctx.includeStack.pop();
   }
-
 }

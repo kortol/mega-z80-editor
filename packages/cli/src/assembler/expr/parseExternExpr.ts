@@ -9,7 +9,7 @@ import { EvalContext } from "./eval";
  * extern名 + 定数 の形式を許可。
  */
 export function parseExternExpr(ctx: AsmContext, expr: string) {
-  const tokens = tokenize(expr).filter(t => t.kind !== "eol");
+  const tokens = tokenize(ctx, expr).filter(t => t.kind !== "eol");
   const e = parseExpr(tokens);
 
   // EvalContextをAssembleContextから派生

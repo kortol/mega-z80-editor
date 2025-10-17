@@ -5,16 +5,16 @@ import { AssemblerErrorCode, makeError } from "../errors";  // 既存makeError�
 
 export function handleORG(ctx: AsmContext, node: NodePseudo) {
   if (node.args.length !== 1) {
-    throw new Error(`ORG requires exactly one argument at line ${node.line}`);
+    throw new Error(`ORG requires exactly one argument at line ${node.pos.line}`);
   }
 
   const arg = node.args[0];
   const inValue = arg.value;
-  const val = resolveExpr16(ctx, inValue, node.line, true, true);
+  const val = resolveExpr16(ctx, inValue, node.pos, true, true);
 
   // 未定義シンボルはエラーにする（ORGは relocatable じゃないので）
   if (val === null) {
-    throw new Error(`ORG with unresolved symbol '${inValue}' at line ${node.line}`);
+    throw new Error(`ORG with unresolved symbol '${inValue}' at line ${node.pos.line}`);
   }
 
   // --- 🩹 フォールバック: sections未定義なら旧動作 ---
@@ -28,7 +28,7 @@ export function handleORG(ctx: AsmContext, node: NodePseudo) {
   // LC逆行禁止チェック
   if (val < sec.lc) {
     ctx.errors.push(
-      makeError(AssemblerErrorCode.OrgBackward, `ORG moved backward in section ${sec.name} (line ${node.line})`)
+      makeError(AssemblerErrorCode.OrgBackward, `ORG moved backward in section ${sec.name} (line ${node.pos.line})`)
     );
     return;
   }

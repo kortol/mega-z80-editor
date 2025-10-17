@@ -47,8 +47,8 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       dst.kind === OperandKind.REG8 && dst.raw === "A" &&
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
-      const val = resolveExpr8(ctx, src.raw, node.line);
-      emitBytes(ctx, [imm, val & 0xff], node.line);
+      const val = resolveExpr8(ctx, src.raw, node.pos);
+      emitBytes(ctx, [imm, val & 0xff], node.pos);
     },
     estimate: 2,
   });
@@ -59,8 +59,8 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       match: (ctx, [src]) =>
         src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR,
       encode(ctx, [src], node) {
-        const val = resolveExpr8(ctx, src.raw, node.line);
-        emitBytes(ctx, [imm, val & 0xff], node.line);
+        const val = resolveExpr8(ctx, src.raw, node.pos);
+        emitBytes(ctx, [imm, val & 0xff], node.pos);
       },
       estimate: 2,
     });
@@ -73,7 +73,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
       src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
       const opcode = base | regCode(src.raw);
-      emitBytes(ctx, [opcode], node.line);
+      emitBytes(ctx, [opcode], node.pos);
     },
   });
 
@@ -84,7 +84,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.REG8,
       encode(ctx, [src], node) {
         const opcode = base | regCode(src.raw);
-        emitBytes(ctx, [opcode], node.line);
+        emitBytes(ctx, [opcode], node.pos);
       },
     });
   }
@@ -97,7 +97,7 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         src.kind === OperandKind.REG16,
       encode(ctx, [dst, src], node) {
         const code = reg16Code(src.raw);
-        emitBytes(ctx, [0x09 | (code << 4)], node.line);
+        emitBytes(ctx, [0x09 | (code << 4)], node.pos);
       },
     });
   }
@@ -124,21 +124,21 @@ function encodeALU(
     dst = node.args[0]; // 拡張形: AND A,C
     src = node.args[1];
     if (dst !== "A") {
-      throw new Error(`Unsupported ${node.op} form at line ${node.line}`);
+      throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
     }
   } else {
-    throw new Error(`Unsupported ${node.op} form at line ${node.line}`);
+    throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
   }
 
   // --- レジスタ版
   if (isReg8(src)) {
     const opcode = base | regCode(src);
-    emitBytes(ctx, [opcode], node.line);
+    emitBytes(ctx, [opcode], node.pos);
     return;
   }
   // --- (HL)版
   if (src === "(HL)") {
-    emitBytes(ctx, [hlOpcode], node.line);
+    emitBytes(ctx, [hlOpcode], node.pos);
     return;
   }
   // --- 即値版
@@ -146,20 +146,20 @@ function encodeALU(
     const val = resolveValue(ctx, src);
     if (val === null) {
       // 未解決シンボル
-      emitBytes(ctx, [immOpcode, 0x00], node.line);
+      emitBytes(ctx, [immOpcode, 0x00], node.pos);
       ctx.unresolved.push({
         addr: ctx.loc + 1, symbol: src, size: 1, requester: {
           op: node.op,
           phase: "assemble",
-          line: node.line,
+          pos: node.pos,
         },
       });
     } else {
-      emitBytes(ctx, [immOpcode, val & 0xff], node.line);
+      emitBytes(ctx, [immOpcode, val & 0xff], node.pos);
     }
     return;
   }
-  throw new Error(`Unsupported ${node.op} form at line ${node.line}`);
+  throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
 }
 
 /**
@@ -173,22 +173,22 @@ function encodeADD(ctx: AsmContext, node: NodeInstr) {
   // 16bit: ADD HL,ss
   if (dst === "HL" && ["BC", "DE", "HL", "SP"].includes(src)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, HL: 0x29, SP: 0x39 };
-    emitBytes(ctx, [table[src]], node.line);
+    emitBytes(ctx, [table[src]], node.pos);
     return;
   }
   // 16bit: ADD IX,rr
   if (dst === "IX" && ["BC", "DE", "IX", "SP"].includes(src)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, IX: 0x29, SP: 0x39 };
-    emitBytes(ctx, [0xdd, table[src]], node.line);
+    emitBytes(ctx, [0xdd, table[src]], node.pos);
     return;
   }
   // 16bit: ADD IY,rr
   if (dst === "IY" && ["BC", "DE", "IY", "SP"].includes(src)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, IY: 0x29, SP: 0x39 };
-    emitBytes(ctx, [0xfd, table[src]], node.line);
+    emitBytes(ctx, [0xfd, table[src]], node.pos);
     return;
   }
-  throw new Error(`Unsupported ADD form at line ${node.line}`);
+  throw new Error(`Unsupported ADD form at line ${node.pos.line}`);
 }
 
 /**
@@ -198,7 +198,7 @@ function encodeADC(ctx: AsmContext, node: NodeInstr) {
   if (node.args[0] === "A") {
     return encodeALU(ctx, node, 0x88, 0xce, 0x8e);
   }
-  throw new Error(`Unsupported ADC form at line ${node.line}`);
+  throw new Error(`Unsupported ADC form at line ${node.pos.line}`);
 }
 
 /**
@@ -215,7 +215,7 @@ function encodeSBC(ctx: AsmContext, node: NodeInstr) {
   if (node.args[0] === "A") {
     return encodeALU(ctx, node, 0x98, 0xde, 0x9e);
   }
-  throw new Error(`Unsupported SBC form at line ${node.line}`);
+  throw new Error(`Unsupported SBC form at line ${node.pos.line}`);
 }
 
 /**

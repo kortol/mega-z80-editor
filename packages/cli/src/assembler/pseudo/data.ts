@@ -53,28 +53,28 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
     if (ext) {
       if (bytes.length) {
         // 外部シンボルは単独レコード扱い（1バイト仮確保）
-        emitBytes(ctx, bytes, node.line); // ← ここでバッファをフラッシュ
+        emitBytes(ctx, bytes, node.pos); // ← ここでバッファをフラッシュ
         bytes.length = 0;
       }
       if (ctx.phase === "emit") {
         emitFixup(ctx, ext.symbol, 1, {
           op: "DB",                     // or "DATA" depending on pseudo
           phase: "assemble",
-          line: node.line,
-        }, ext.addend, node.line);
+          pos: node.pos,
+        }, ext.addend, node.pos);
       }
       continue;
     }
 
     // --- 通常の式 (例: 1+2*3) ---
-    const val = resolveExpr8(ctx, valStr, node.line);
+    const val = resolveExpr8(ctx, valStr, node.pos);
     if (val < 0 || val > 0xff) {
-      ctx.warnings?.push?.(`DB value ${val} truncated at line ${node.line}`);
+      ctx.warnings?.push?.(`DB value ${val} truncated at line ${node.pos.line}`);
     }
     bytes.push(val & 0xFF);
   }
   if (bytes.length > 0) {
-    emitBytes(ctx, bytes, node.line);
+    emitBytes(ctx, bytes, node.pos);
   }
 }
 
@@ -110,7 +110,7 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
       if (words.length > 0) {
         const bytes: number[] = [];
         for (const w of words) bytes.push(w & 0xFF, (w >> 8) & 0xFF);
-        emitBytes(ctx, bytes, node.line);
+        emitBytes(ctx, bytes, node.pos);
         words.length = 0;
       }
       if (ctx.phase === "emit") {
@@ -118,17 +118,17 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
         emitFixup(ctx, ext.symbol, 2, {
           op: "DW",                     // or "DATA" depending on pseudo
           phase: "assemble",
-          line: node.line,
-        }, ext.addend, node.line);
+          pos: node.pos,
+        }, ext.addend, node.pos);
 
       }
       continue;
     }
 
     // --- 通常の式（Reloc禁止で評価） ---
-    const val = resolveExpr16(ctx, valStr, node.line, false, true);
+    const val = resolveExpr16(ctx, valStr, node.pos, false, true);
     if (val < -0x8000 || val > 0xffff) {
-      ctx.warnings?.push?.(`DW value ${val} truncated at line ${node.line}`);
+      ctx.warnings?.push?.(`DW value ${val} truncated at line ${node.pos.line}`);
     }
     words.push(val);
   }
@@ -136,7 +136,7 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
   if (words.length > 0) {
     const bytes: number[] = [];
     for (const w of words) bytes.push(w & 0xFF, (w >> 8) & 0xFF);
-    emitBytes(ctx, bytes, node.line);
+    emitBytes(ctx, bytes, node.pos);
   }
 }
 
@@ -153,26 +153,26 @@ export function handleDS(ctx: AsmContext, node: NodePseudo) {
       addr: getLC(ctx), symbol: ext.symbol, size: 0 as 1 | 2 | 4, addend: ext.addend, requester: {                  // ✅ 追加
         op: "DS",
         phase: "assemble",
-        line: node.line,
+        pos: node.pos,
       },
     });
     return;
   }
 
-  const n = resolveExpr16(ctx, valStr, node.line, false, /*rejectReloc*/ true); // reloc不可
+  const n = resolveExpr16(ctx, valStr, node.pos, false, /*rejectReloc*/ true); // reloc不可
 
   if (ctx.phase !== "emit") {
     advanceLC(ctx, Math.max(0, n));
     return;
   }
 
-  emitGap(ctx, Math.max(0, n), node.line);
+  emitGap(ctx, Math.max(0, n), node.pos);
 }
 
 
 export function handleWORD32(ctx: AsmContext, node: NodePseudo) {
   if (node.args.length > 0) {
-    throw new Error(`.WORD32 does not take operands at line ${node.line}`);
+    throw new Error(`.WORD32 does not take operands at line ${node.pos.line}`);
   }
   ctx.modeWord32 = true;
 }

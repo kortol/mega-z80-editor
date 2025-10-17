@@ -1,2 +1,4 @@
-0100  3A 00 00      START: LD A,(EXTVAL)
-0103  C3 00 00      JP ZERO
+;#include <test.asm>
+0100  3A 00 00        START: LD A,(EXTVAL)
+0103  C3 00 00        JP ZERO
+;#endinclude (test.asm)

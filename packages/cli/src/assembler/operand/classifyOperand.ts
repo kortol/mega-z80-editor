@@ -1,3 +1,4 @@
+import { AsmContext } from '../context';
 import { parseExpr } from '../expr/parserExpr';
 import { parseNumber, tokenize } from '../tokenizer';
 import { OperandKind } from './operandKind';
@@ -29,7 +30,7 @@ function isLabelLike(s: string): boolean {
   return /^([A-Z_][A-Z0-9_]*|\$|@[\d]+)([+\-][A-Z0-9_\$@]+)?$/i.test(s);
 }
 
-export function classifyOperand(s: string): OperandInfo {
+export function classifyOperand(ctx: AsmContext, s: string): OperandInfo {
   const t = s.trim().toUpperCase();
 
   // 特例: [HL]
@@ -99,7 +100,7 @@ export function classifyOperand(s: string): OperandInfo {
   }
   // --- EXPR ---
   try {
-    const tokens = tokenize(t).filter(t => t.kind !== "eol");
+    const tokens = tokenize(ctx, t).filter(t => t.kind !== "eol");
     const expr = parseExpr(tokens);
     // AST が生成できれば式として有効
     if (expr) {

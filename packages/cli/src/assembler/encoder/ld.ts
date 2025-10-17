@@ -27,7 +27,7 @@ export const ldInstr: InstrDef[] = [
       src.kind === OperandKind.REG8,
     encode(ctx, [dst, src], node) {
       const opcode = 0x40 | (regCode(dst.raw) << 3) | regCode(src.raw);
-      emitBytes(ctx, [opcode], node.line);
+      emitBytes(ctx, [opcode], node.pos);
     },
   },
 
@@ -39,7 +39,7 @@ export const ldInstr: InstrDef[] = [
       src.raw == "(HL)",
     encode(ctx, [dst], node) {
       const opcode = 0x46 | (regCode(dst.raw) << 3);
-      emitBytes(ctx, [opcode], node.line);
+      emitBytes(ctx, [opcode], node.pos);
     },
   },
 
@@ -51,7 +51,7 @@ export const ldInstr: InstrDef[] = [
       src.kind === OperandKind.REG8,
     encode(ctx, [, src], node) {
       const opcode = 0x70 | regCode(src.raw);
-      emitBytes(ctx, [opcode], node.line);
+      emitBytes(ctx, [opcode], node.pos);
     },
   },
 
@@ -72,7 +72,7 @@ export const ldInstr: InstrDef[] = [
         "A,I": 0x57, "A,R": 0x5f,
         "I,A": 0x47, "R,A": 0x4f,
       };
-      emitBytes(ctx, [0xed, table[`${dst.raw},${src.raw}`]], node.line);
+      emitBytes(ctx, [0xed, table[`${dst.raw},${src.raw}`]], node.pos);
     },
     estimate: 2,
   },
@@ -81,7 +81,7 @@ export const ldInstr: InstrDef[] = [
   {
     match: (ctx, [dst, src]) => dst.raw === "SP" && src.raw === "HL",
     encode(ctx, args, node) {
-      emitBytes(ctx, [0xf9], node.line);
+      emitBytes(ctx, [0xf9], node.pos);
     },
   },
 
@@ -91,8 +91,8 @@ export const ldInstr: InstrDef[] = [
       dst.kind === OperandKind.REG8 &&
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
-      const val = resolveExpr8(ctx, src.raw, node.line);
-      emitBytes(ctx, [0x06 | (regCode(dst.raw) << 3), val & 0xff], node.line);
+      const val = resolveExpr8(ctx, src.raw, node.pos);
+      emitBytes(ctx, [0x06 | (regCode(dst.raw) << 3), val & 0xff], node.pos);
     },
     estimate: 2,
   },
@@ -103,8 +103,8 @@ export const ldInstr: InstrDef[] = [
       dst.kind === OperandKind.REG16 &&
       (src.kind === OperandKind.IMM || src.kind === OperandKind.EXPR),
     encode(ctx, [dst, src], node) {
-      const val = resolveExpr16(ctx, src.raw, node.line);
-      emitBytes(ctx, [0x01 | (reg16Code(dst.raw) << 4), val & 0xff, (val >> 8) & 0xff], node.line);
+      const val = resolveExpr16(ctx, src.raw, node.pos);
+      emitBytes(ctx, [0x01 | (reg16Code(dst.raw) << 4), val & 0xff, (val >> 8) & 0xff], node.pos);
     },
     estimate: 3,
   },
@@ -118,8 +118,8 @@ export const ldInstr: InstrDef[] = [
     encode(ctx, [, src], node) {
       // ()を除去
       const _src = src.raw.slice(1, -1);
-      const val = resolveExpr16(ctx, _src, node.line);
-      emitBytes(ctx, [0x2a, val & 0xff, val >> 8], node.line);
+      const val = resolveExpr16(ctx, _src, node.pos);
+      emitBytes(ctx, [0x2a, val & 0xff, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -135,7 +135,7 @@ export const ldInstr: InstrDef[] = [
       const _src = src.raw.slice(1, -1);
 
       // 外部シンボル or 定数式 → 未解決扱いで16bit読み出し命令を擬似生成
-      const val = resolveExpr16(ctx, _src, node.line);
+      const val = resolveExpr16(ctx, _src, node.pos);
 
       // Z80には存在しないが、拡張REL生成用としてHL版に合わせる
       // 形式: LD rr,(nn) ≒ prefix(0xED) + code_table[rr] + nn nn
@@ -149,11 +149,11 @@ export const ldInstr: InstrDef[] = [
         ctx.errors.push({
           code: AssemblerErrorCode.InvalidOperand,
           message: `Unsupported LD form: ${dst.raw},(nn)`,
-          line: node.line,
+          pos: node.pos,
         });
         return;
       }
-      emitBytes(ctx, [0xed, opcode, val & 0xff, val >> 8], node.line);
+      emitBytes(ctx, [0xed, opcode, val & 0xff, val >> 8], node.pos);
     },
     estimate: 4,
   },
@@ -167,8 +167,8 @@ export const ldInstr: InstrDef[] = [
     encode(ctx, [dst], node) {
       // ()を除去
       const _dst = dst.raw.slice(1, -1);
-      const val = resolveExpr16(ctx, _dst, node.line);
-      emitBytes(ctx, [0x22, val & 0xff, val >> 8], node.line);
+      const val = resolveExpr16(ctx, _dst, node.pos);
+      emitBytes(ctx, [0x22, val & 0xff, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -182,8 +182,8 @@ export const ldInstr: InstrDef[] = [
     encode(ctx, [dst, src], node) {
       const addr = ctx.loc; // ★ 現在位置を固定
       const _src = src.raw.slice(1, -1);
-      const val = resolveExpr16({ ...ctx, loc: addr }, _src, node.line);
-      emitBytes(ctx, [0x3a, val & 0xff, val >> 8], node.line);
+      const val = resolveExpr16({ ...ctx, loc: addr }, _src, node.pos);
+      emitBytes(ctx, [0x3a, val & 0xff, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -197,8 +197,8 @@ export const ldInstr: InstrDef[] = [
     encode(ctx, [dst, src], node) {
       const addr = ctx.loc; // ★ 現在位置を固定
       const _dst = dst.raw.slice(1, -1);
-      const val = resolveExpr16({ ...ctx, loc: addr }, _dst, node.line);
-      emitBytes(ctx, [0x32, val & 0xff, val >> 8], node.line);
+      const val = resolveExpr16({ ...ctx, loc: addr }, _dst, node.pos);
+      emitBytes(ctx, [0x32, val & 0xff, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -212,7 +212,7 @@ export const ldInstr: InstrDef[] = [
       const prefix = src.raw.startsWith("(IX") ? 0xdd : 0xfd;
       const disp = (src.disp ?? 0) & 0xff;
       const opcode = 0x46 | (regCode(dst.raw) << 3);
-      emitBytes(ctx, [prefix, opcode, disp], node.line);
+      emitBytes(ctx, [prefix, opcode, disp], node.pos);
     },
     estimate: 3,
   },
@@ -226,7 +226,7 @@ export const ldInstr: InstrDef[] = [
       const prefix = dst.raw.startsWith("(IX") ? 0xdd : 0xfd;
       const disp = (dst.disp ?? 0) & 0xff;
       const opcode = 0x70 | regCode(src.raw);
-      emitBytes(ctx, [prefix, opcode, disp], node.line);
+      emitBytes(ctx, [prefix, opcode, disp], node.pos);
     },
     estimate: 3,
   },
@@ -239,7 +239,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   if (isReg8(dst)) {
     const idx = parseIndexAddr(ctx, src);
     if (idx) {
-      emitBytes(ctx, [idx.prefix, 0x46 | (regCode(dst) << 3), idx.disp], node.line)
+      emitBytes(ctx, [idx.prefix, 0x46 | (regCode(dst) << 3), idx.disp], node.pos)
       return;
     }
   }
@@ -248,7 +248,7 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   {
     const idx = parseIndexAddr(ctx, dst);
     if (idx && isReg8(src)) {
-      emitBytes(ctx, [idx.prefix, 0x70 | regCode(src), idx.disp], node.line);
+      emitBytes(ctx, [idx.prefix, 0x70 | regCode(src), idx.disp], node.pos);
       return;
     }
   }
@@ -257,10 +257,10 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
   if ((dst === "IX" || dst === "IY") && isImm16(ctx, src)) {
     const val = resolveValue(ctx, src)!;
     const prefix = dst === "IX" ? 0xdd : 0xfd;
-    emitBytes(ctx, [prefix, 0x21, val & 0xff, (val >> 8) & 0xff], node.line);
+    emitBytes(ctx, [prefix, 0x21, val & 0xff, (val >> 8) & 0xff], node.pos);
     return;
   }
 
-  throw new Error(`Unsupported LD form at line ${node.line}`);
-  // throw new Error(`Unsupported LD form at line ${node.line}: ${JSON.stringify(node)}`);
+  throw new Error(`Unsupported LD form at line ${node.pos.line}`);
+  // throw new Error(`Unsupported LD form at line ${node.pos.line}: ${JSON.stringify(node)}`);
 }

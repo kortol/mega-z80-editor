@@ -3,11 +3,11 @@ import { parse, Node } from "../parser";
 import { AsmContext, createContext } from "../context";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "TEST", currentFile: "test.asm" });
+  return createContext({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm" } });
 }
 
 function parseLines(ctx: AsmContext, src: string): Node[] {
-  return parse(ctx, tokenize(src));
+  return parse(ctx, tokenize(ctx, src));
 }
 
 describe("parser", () => {
@@ -17,7 +17,7 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "LD A,1");
     expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A", "1"], line: 1, file: "test.asm" }
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -26,8 +26,8 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "LD A,1\n; comment\nLD B,2");
     expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A", "1"], line: 1, file: "test.asm" },
-      { kind: "instr", op: "LD", args: ["B", "2"], line: 3, file: "test.asm" }
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 0 } },
+      { kind: "instr", op: "LD", args: ["B", "2"], pos: { line: 2, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -36,7 +36,7 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "START:");
     expect(nodes).toEqual([
-      { kind: "label", name: "START", line: 1, file: "test.asm" }
+      { kind: "label", name: "START", pos: { line: 0, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -45,8 +45,8 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "START: LD A,1");
     expect(nodes).toEqual([
-      { kind: "label", name: "START", line: 1, file: "test.asm" },
-      { kind: "instr", op: "LD", args: ["A", "1"], line: 1, file: "test.asm" }
+      { kind: "label", name: "START", pos: { line: 0, file: "test.asm", column: 0 } },
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 7 } }
     ]);
   });
 
@@ -55,7 +55,7 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "ORG 100H");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "ORG", args: [{ value: "100H" }], line: 1, file: "test.asm" }
+      { kind: "pseudo", op: "ORG", args: [{ value: "100H" }], pos: { line: 0, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -65,7 +65,7 @@ describe("parser", () => {
     const nodes = parseLines(ctx, "FOO EQU 10");
     // P1簡易仕様: "EQU" を疑似命令として扱い、args に残りを入れる
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], line: 1, file: "test.asm" }
+      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], pos: { line: 0, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -73,7 +73,7 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "BAR EQU 0x100+10");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: [{ key: "BAR", value: "0x100, +, 10" }], line: 1, file: "test.asm" }
+      { kind: "pseudo", op: "EQU", args: [{ key: "BAR", value: "0x100, +, 10" }], pos: { line: 0, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -82,8 +82,8 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "DB 1,2,3\nDW 100H");
     expect(nodes).toEqual([
-      { kind: "pseudo", op: "DB", args: [{ value: "1" }, { value: "2" }, { value: "3" }], line: 1, file: "test.asm" },
-      { kind: "pseudo", op: "DW", args: [{ value: "100H" }], line: 2, file: "test.asm" }
+      { kind: "pseudo", op: "DB", args: [{ value: "1" }, { value: "2" }, { value: "3" }], pos: { line: 0, file: "test.asm", column: 0 } },
+      { kind: "pseudo", op: "DW", args: [{ value: "100H" }], pos: { line: 1, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -92,8 +92,8 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "LD A,1\nCALL START");
     expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A", "1"], line: 1, file: "test.asm" },
-      { kind: "instr", op: "CALL", args: ["START"], line: 2, file: "test.asm" }
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 0 } },
+      { kind: "instr", op: "CALL", args: ["START"], pos: { line: 1, file: "test.asm", column: 0 } }
     ]);
   });
 
@@ -123,15 +123,14 @@ describe("parser", () => {
   test("parse INCLUDE directive", () => {
     const ctx = makeCtx();
     const tokens: Token[] = [
-      { kind: "ident", text: "INCLUDE", line: 1, col: 0 },
+      { kind: "ident", text: "INCLUDE", pos: { file: "test.asm", line: 1, column: 0 } },
       {
         kind: "string",
         text: '"src/assembler/__tests__/mac.inc"',
         stringValue: 'src/assembler/__tests__/mac.inc',
-        line: 1,
-        col: 8
+        pos: { file: "test.asm", line: 1, column: 8 },
       },
-      { kind: "eol", text: "\n", line: 1, col: 17 },
+      { kind: "eol", text: "\n", pos: { file: "test.asm", line: 1, column: 17 } },
     ];
     const nodes = parse(ctx, tokens);
     console.log(nodes);
@@ -140,9 +139,12 @@ describe("parser", () => {
         kind: "pseudo",
         op: "INCLUDE",
         args: [{ value: "src/assembler/__tests__/mac.inc" }],
-        line: 1,
-        file: "test.asm"
-      },
+        pos: {
+          line: 1,
+          file: "test.asm",
+          column: 0,
+        },
+      }
     ]);
   });
 
@@ -153,13 +155,17 @@ describe("parser", () => {
       kind: "pseudo",
       op: "INCLUDE",
       args: [{ value: "src/assembler/__tests__/mac.inc" }],
-      file: "test.asm",
+      pos: {
+        file: "test.asm",
+      }
     });
     expect(nodes[1]).toMatchObject({
       kind: "instr",
       op: "LD",
       args: ["A", "0"],
-      file: "test.asm",
+      pos: {
+        file: "test.asm",
+      }
     });
   });
 });

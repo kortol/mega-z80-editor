@@ -10,6 +10,7 @@ import { emitRelV2 } from "../assembler/rel/builder";
 import { initCodegen } from "../assembler/codegen/emit";
 import { setPhase } from "../assembler/phaseManager";
 import { Logger } from "../logger";
+import { writeLstFile, writeLstFileV2 } from "../assembler/output/listing";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -45,31 +46,31 @@ export function writeSymFile(ctx: AsmContext, outputFile: string) {
   fs.writeFileSync(symPath, lines.join("\n") + "\n", "utf-8");
 }
 
-// --- 追加: .lst 出力 ---
-function writeLstFile(ctx: AsmContext, outputFile: string, source: string) {
-  const lstPath = outputFile.replace(/\.rel$/i, ".lst");
-  const lines: string[] = [];
-  const srcLines = source.split(/\r?\n/);
+// // --- 追加: .lst 出力 ---
+// function writeLstFile(ctx: AsmContext, outputFile: string, source: string) {
+//   const lstPath = outputFile.replace(/\.rel$/i, ".lst");
+//   const lines: string[] = [];
+//   const srcLines = source.split(/\r?\n/);
 
-  // emit順を保証
-  const texts = [...ctx.texts].sort((a, b) => a.addr - b.addr);
+//   // emit順を保証
+//   const texts = [...ctx.texts].sort((a, b) => a.addr - b.addr);
 
-  for (const t of texts) {
-    const bytes = t.data
-      .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
-      .join(" ");
+//   for (const t of texts) {
+//     const bytes = t.data
+//       .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
+//       .join(" ");
 
-    // --- line補完（undefined対策） ---
-    const lineNo = t.line && t.line > 0 ? t.line : 1;
-    const src = srcLines[lineNo - 1]?.trim() ?? "";
+//     // --- line補完（undefined対策） ---
+//     const lineNo = t.line && t.line > 0 ? t.line : 1;
+//     const src = srcLines[lineNo - 1]?.trim() ?? "";
 
-    lines.push(
-      `${t.addr.toString(16).padStart(4, "0").toUpperCase()}  ${bytes.padEnd(12)}  ${src}`
-    );
-  }
+//     lines.push(
+//       `${t.addr.toString(16).padStart(4, "0").toUpperCase()}  ${bytes.padEnd(12)}  ${src}`
+//     );
+//   }
 
-  fs.writeFileSync(lstPath, lines.join("\n") + "\n", "utf-8");
-}
+//   fs.writeFileSync(lstPath, lines.join("\n") + "\n", "utf-8");
+// }
 
 // --- 本体 ---
 export function assemble(
@@ -92,10 +93,13 @@ export function assemble(
 
   // PASS 0 : トークン化と構文解析
   const source = fs.readFileSync(inputFile, "utf-8");
+  ctx.currentPos.file = inputFile;
+  ctx.currentPos.line = 0;
+  ctx.sourceMap.set(inputFile, source.split(/\r?\n/));
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");
-  ctx.tokens = tokenize(source);
+  ctx.tokens = tokenize(ctx, source);
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
@@ -171,9 +175,16 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
     ctx.output.generatedAt = new Date();
   }
 
-  // 共通：SYM / LST 出力
+  // SYM 出力
   writeSymFile(ctx, outputFile);
-  writeLstFile(ctx, outputFile, ctx.source ?? '');
+
+  ctx.logger?.info(`relVersion:${relVersion}`);
+  // LST 出力
+  if (relVersion === 2) {
+    writeLstFileV2(ctx, outputFile, ctx.source ?? '');
+  } else {
+    writeLstFile(ctx, outputFile, ctx.source ?? '');
+  }
 
   // ------------------------------------------------------------
   // Verbose出力
@@ -192,7 +203,7 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
     if (ctx.errors.length > 0) {
       for (const e of ctx.errors) {
         ctx.logger?.info(
-          `E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${e.line ?? "?"
+          `E${e.code ?? "----"}: ${e.message ?? "unknown"} (line ${e.pos?.line ?? "?"
           })`
         );
       }

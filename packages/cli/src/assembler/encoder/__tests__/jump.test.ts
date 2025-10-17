@@ -1,4 +1,4 @@
-import { AsmContext, createContext } from "../../context";
+import { AsmContext, createContext, SourcePos } from "../../context";
 import { NodeInstr } from "../../parser";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
@@ -10,8 +10,8 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[], line = 1, file = "test.asm"): NodeInstr {
-  return { kind: "instr", op, args, line, file };
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+  return { kind: "instr", op, args, pos };
 }
 
 describe("Jump/Call/Return", () => {
@@ -27,7 +27,7 @@ describe("Jump/Call/Return", () => {
     expect(ctx.texts[0].data).toEqual([0xcd, 0x00, 0x00]);
     expect(ctx.unresolved).toEqual([{
       addr: 1, symbol: "BDOS", size: 2, addend: 0, requester: {
-        line: 1, op: "ENCODER", phase: "assemble"
+        op: "ENCODER", phase: "assemble", pos: { line: 1, file: "test.asm" }
       }
     }]);
   });

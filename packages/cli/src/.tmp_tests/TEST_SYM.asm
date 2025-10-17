@@ -1,7 +1,0 @@
-
-    ORG 0100H
-    EXTERN EXTSYM    
-ZERO  EQU 0
-START: LD A,(EXTSYM)
-       END
-  

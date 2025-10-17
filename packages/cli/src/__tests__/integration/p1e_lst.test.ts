@@ -20,7 +20,7 @@ START: LD A,0FFH
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(asmPath, asmSrc);
     const logger = new Logger();
-    assemble(logger, asmPath, relPath, { verbose: false });
+    assemble(logger, asmPath, relPath, { verbose: false, relVersion: 2 });
   });
 
   it('should generate .lst file with address and source lines', () => {

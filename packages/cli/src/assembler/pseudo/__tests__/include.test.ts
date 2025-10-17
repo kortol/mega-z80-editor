@@ -22,9 +22,9 @@ describe("P2-D-EX-01: INCLUDE loop detection", () => {
 
   test("detect circular INCLUDE (A→B→A)", () => {
     const ctx = createContext();
-    ctx.currentFile = fileA;
+    ctx.currentPos.file = fileA;
     const src = fs.readFileSync(fileA, "utf8");
-    const tokens = tokenize(src);
+    const tokens = tokenize(ctx, src);
     console.log(ctx);
     expect(() => parse(ctx, tokens)).toThrow(
       expect.objectContaining({

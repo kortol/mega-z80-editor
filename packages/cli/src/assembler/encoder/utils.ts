@@ -11,7 +11,7 @@
  *     encode 側で必ず (HL)/(IX+d)/(IY+d) → (nn) → imm8 の順に判定すること
  */
 
-import { AsmContext, UnresolvedEntry } from "../context";
+import { AsmContext, SourcePos, UnresolvedEntry } from "../context";
 import { AssemblerErrorCode } from "../errors";
 import { evalExpr } from "../expr/eval";
 import { parseExpr } from "../expr/parserExpr";
@@ -122,20 +122,20 @@ export function parseIndexAddr(
 export function resolveExpr8(
   ctx: AsmContext,
   expr: string,
-  line: number,
+  pos: SourcePos,
   strict = false,
   rejectReloc = false,
   relative = false
 ): number {
   const prevErrCount = ctx.errors.length;
-  const tokens = tokenize(expr).filter(t => t.kind !== "eol");
+  const tokens = tokenize(ctx, expr).filter(t => t.kind !== "eol");
   const e = parseExpr(tokens);
   const res = evalExpr(e, { ...ctx, pass: 1, visiting: new Set(), externs: ctx.externs });
 
   // --- Reloc値 ---
   if (res.kind === "Reloc") {
     if (rejectReloc) {
-      throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
+      throw new Error(`Relocatable expression '${expr}' not allowed here (line ${pos.line})`);
     }
 
     // --- pass2 のときだけ記録 ---
@@ -159,12 +159,12 @@ export function resolveExpr8(
   if (newErrors.length > 0) {
     const err = ctx.errors[ctx.errors.length - 1];
     if (strict) {
-      throw new Error(`Expression error at line ${line}: ${err.message ?? err.code}`);
+      throw new Error(`Expression error at line ${pos.line}: ${err.message ?? err.code}`);
     }
     ctx.errors.push({
       code: AssemblerErrorCode.ExprNotConstant,
-      message: `Expression error at line ${line}`,
-      line,
+      message: `Expression error at line ${pos.line}`,
+      pos,
     });
     return 0;
   }
@@ -173,25 +173,25 @@ export function resolveExpr8(
   if (res.kind === "Const") {
     if (res.value < -128 || res.value > 255) {
       if (strict) {
-        throw new Error(`8bit immediate out of range: ${res.value} (line ${line})`);
+        throw new Error(`8bit immediate out of range: ${res.value} (line ${pos.line})`);
       }
       ctx.errors.push({
         code: AssemblerErrorCode.ExprNotConstant,
-        message: `8bit immediate out of range at line ${line}`,
-        line,
+        message: `8bit immediate out of range at line ${pos.line}`,
+        pos,
       });
       return 0;
     }
     return res.value & 0xFF;
   }
 
-  throw new Error(`Unexpected evalExpr result at line ${line}`);
+  throw new Error(`Unexpected evalExpr result at line ${pos.line}`);
 }
 
 
-export function resolveExpr16(ctx: AsmContext, expr: string, line: number, strict = false, rejectReloc = false): number {
+export function resolveExpr16(ctx: AsmContext, expr: string, pos: SourcePos, strict = false, rejectReloc = false): number {
   const prevErrCount = ctx.errors.length;
-  const tokens = tokenize(expr).filter(t => t.kind !== "eol");
+  const tokens = tokenize(ctx, expr).filter(t => t.kind !== "eol");
   const e = parseExpr(tokens);
   const res = evalExpr(e, { ...ctx, pass: 1, visiting: new Set(), externs: ctx.externs });
   // console.log("evalExpr");
@@ -201,7 +201,7 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
   // ---- Reloc値 ----
   if (res.kind === "Reloc") {
     if (rejectReloc) {
-      throw new Error(`Relocatable expression '${expr}' not allowed here (line ${line})`);
+      throw new Error(`Relocatable expression '${expr}' not allowed here (line ${pos.line})`);
     }
     // --- pass2 のときだけ記録 ---
     if (ctx.phase === "emit") {
@@ -213,7 +213,7 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
         requester: {                    // ✅ 追加！
           op: "ENCODER",                // 呼び出し元フェーズ
           phase: "assemble",
-          line,
+          pos,
         },
       };
 
@@ -233,12 +233,12 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
     const err = ctx.errors[ctx.errors.length - 1];
     // console.log("newErrors");
     if (strict) {
-      throw new Error(`Expression error at line ${line}: ${err.message ?? err.code}`);
+      throw new Error(`Expression error at line ${pos.line}: ${err.message ?? err.code}`);
     }
     ctx.errors.push({
       code: AssemblerErrorCode.ExprNotConstant,
-      message: `Expression error at line ${line}`,
-      line,
+      message: `Expression error at line ${pos.line}`,
+      pos,
     });
     // console.log("ExprNotConstant");
     return 0;
@@ -249,12 +249,12 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
   if (res.kind === "Const") {
     if (res.value < -32768 || res.value > 0xFFFF) {
       if (strict) {
-        throw new Error(`16bit immediate out of range: ${res.value} (line ${line})`);
+        throw new Error(`16bit immediate out of range: ${res.value} (line ${pos.line})`);
       }
       ctx.errors.push({
         code: AssemblerErrorCode.ExprNotConstant,
-        message: `16bit immediate out of range at line ${line}`,
-        line,
+        message: `16bit immediate out of range at line ${pos.line}`,
+        pos,
       });
       return 0;
     }
@@ -263,7 +263,7 @@ export function resolveExpr16(ctx: AsmContext, expr: string, line: number, stric
 
   // console.log("Unexpected");
   // ---- 想定外 ----
-  throw new Error(`Unexpected evalExpr result at line ${line}`);
+  throw new Error(`Unexpected evalExpr result at line ${pos.line}`);
 }
 
 

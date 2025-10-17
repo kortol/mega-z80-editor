@@ -27,7 +27,7 @@ import { classifyOperand } from "./operand/classifyOperand";
 // --- 命令長の見積もり ---
 export function estimateInstrSize(ctx: AsmContext, node: NodeInstr): number {
   const defs = instrTable[node.op];
-  const operand = node.args.map(classifyOperand)
+  const operand = node.args.map(s => classifyOperand(ctx, s))
   if (defs) {
     for (const def of defs) {
       if (def.match(ctx, operand)) {
@@ -44,7 +44,7 @@ export function estimateInstrSize(ctx: AsmContext, node: NodeInstr): number {
 
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   const defs = instrTable[node.op];
-  const operand = node.args.map(classifyOperand)
+  const operand = node.args.map(s => classifyOperand(ctx, s))
   // console.log(`node:${JSON.stringify(node)},operand:${JSON.stringify(operand)}`);
   if (defs) {
     for (const def of defs) {
@@ -169,7 +169,7 @@ export function encodeLegacyInstr(ctx: AsmContext, node: NodeInstr) {
 
     default:
       throw new Error(
-        `Unsupported instruction ${node.op} at line ${node.line}`
+        `Unsupported instruction ${node.op} at line ${node.pos.line}`
       );
   }
 }

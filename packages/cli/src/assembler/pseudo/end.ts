@@ -20,7 +20,7 @@ export function handleEND(ctx: AsmContext, node: Node) {
   // END expr
   // ★ EOL を除去してから parseExpr
   const exprText = node.args.map(a => a.value).join(" ");
-  const tokens: Token[] = tokenize(exprText).filter(
+  const tokens: Token[] = tokenize(ctx, exprText).filter(
     (t) => t.kind !== "eol"
   );
   const expr = parseExpr(tokens);

@@ -1,4 +1,4 @@
-import { AsmContext, createContext } from "../../context";
+import { AsmContext, createContext, SourcePos } from "../../context";
 import { NodePseudo } from "../../parser";
 import { handlePseudo } from "../../pseudo";
 import * as extern from "../../expr/parseExternExpr";
@@ -12,8 +12,8 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[] = [], line = 1, file = "test.asm"): NodePseudo {
-  return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), line, file };
+function makeNode(op: string, args: string[] = [], pos: SourcePos = { line: 1, file: "test.asm" }): NodePseudo {
+  return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), pos };
 }
 
 describe("pseudo - DB/DW", () => {

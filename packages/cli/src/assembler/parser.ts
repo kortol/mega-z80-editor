@@ -1,4 +1,4 @@
-import { AsmContext } from "./context";
+import { AsmContext, SourcePos } from "./context";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { handleInclude } from "./pseudo/include";
 import { Token } from "./tokenizer";
@@ -9,8 +9,7 @@ export interface NodeInstr {
   kind: "instr";
   op: string;
   args: string[];
-  line: number;
-  file: string;
+  pos: SourcePos;
 }
 
 export interface PseudoArg {
@@ -22,15 +21,13 @@ export interface NodePseudo {
   kind: "pseudo";
   op: string;
   args: PseudoArg[];
-  line: number;
-  file: string;
+  pos: SourcePos;
 }
 
 export interface NodeLabel {
   kind: "label";
   name: string;
-  line: number;
-  file: string;
+  pos: SourcePos;
 }
 
 export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
@@ -58,22 +55,21 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         // FOO: EQU ... → NG
         throw makeError(
           AssemblerErrorCode.InvalidEquSyntax,
-          `EQU cannot be used with label syntax at line ${line[0].line}`
+          `EQU cannot be used with label syntax at line ${line[0].pos.line}`
         );
       }
 
       nodes.push({
         kind: "label",
         name: label,
-        line: line[0].line,
-        file: ctx.currentFile
+        pos: line[0].pos
       });
       line = afterColon;
       if (line.length === 0) return nodes;
     }
 
     if (line[0].kind !== "ident") {
-      throw new Error(`Syntax error at line ${line[0].line}`);
+      throw new Error(`Syntax error at line ${line[0].pos.line}`);
     }
 
     // EQU 構文: ident EQU expr
@@ -92,8 +88,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         kind: "pseudo",
         op: "EQU",
         args: [{ key: symbol, value: valueTokens.join(", ") }],
-        line: line[0].line,
-        file: ctx.currentFile,
+        pos: line[0].pos,
       });
       return nodes;
     }
@@ -111,7 +106,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       if (argTok.kind !== "string") {
         throw makeError(
           AssemblerErrorCode.SyntaxError,
-          `INCLUDE expects a string literal at line ${argTok.line}`
+          `INCLUDE expects a string literal at line ${argTok.pos.line}`
         );
       }
       const path = argTok.stringValue ?? argTok.text.replace(/^["']|["']$/g, "");
@@ -121,8 +116,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         kind: "pseudo",
         op: "INCLUDE",
         args: [{ value: path }],
-        line: line[0].line,
-        file: ctx.currentFile,
+        pos: line[0].pos,
       };
       nodes.push(includeNode);
 
@@ -167,19 +161,17 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         kind: "pseudo",
         op,
         args: pseudoArgs,
-        line: line[0].line,
-        file: ctx.currentFile,
+        pos: line[0].pos,
       });
     } else if (isInstr(op)) {
       nodes.push({
         kind: "instr",
         op,
         args,
-        line: line[0].line,
-        file: ctx.currentFile,
+        pos: line[0].pos,
       });
     } else {
-      throw new Error(`Unknown operation '${op}' at line ${line[0].line}`);
+      throw new Error(`Unknown operation '${op}' at line ${line[0].pos.line}`);
     }
   }
 

@@ -1,4 +1,9 @@
+import { AsmContext, createContext } from "../context";
 import { tokenize, Token, parseNumber } from "../tokenizer";
+
+function makeCtx(): AsmContext {
+  return createContext({ moduleName: "TEST" });
+}
 
 function kinds(tokens: Token[]): string[] {
   return tokens.map((t) => t.kind + ":" + t.text);
@@ -7,7 +12,8 @@ function kinds(tokens: Token[]): string[] {
 describe("tokenizer", () => {
   // 1. 基本命令
   test("LD A,1", () => {
-    const toks = tokenize("LD A,1");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1");
     expect(kinds(toks)).toEqual([
       "ident:LD",
       "ident:A",
@@ -20,7 +26,8 @@ describe("tokenizer", () => {
 
   // 2. コメント削除
   test("LD A,1 ; comment", () => {
-    const toks = tokenize("LD A,1 ; comment");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1 ; comment");
     expect(kinds(toks)).toEqual([
       "ident:LD",
       "ident:A",
@@ -32,7 +39,8 @@ describe("tokenizer", () => {
 
   // 3. ラベル付き
   test("START: LD A,2", () => {
-    const toks = tokenize("START:  LD A,2");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "START:  LD A,2");
     expect(kinds(toks)).toEqual([
       "ident:START",
       "colon::",
@@ -46,7 +54,8 @@ describe("tokenizer", () => {
 
   // 4. 複数行
   test("two lines", () => {
-    const toks = tokenize("LD A,1\nLD B,2");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1\nLD B,2");
     expect(kinds(toks)).toEqual([
       "ident:LD",
       "ident:A",
@@ -63,43 +72,52 @@ describe("tokenizer", () => {
 
   // 5. 数値リテラル系
   test("hex 0x", () => {
-    const toks = tokenize("LD A,0x1F");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,0x1F");
     expect(toks[3].value).toBe(31);
   });
   test("hex $", () => {
-    const toks = tokenize("LD A,$2A");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,$2A");
     expect(toks[3].value).toBe(42);
   });
   test("hex H", () => {
-    const toks = tokenize("LD A,1FH");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1FH");
     expect(toks[3].value).toBe(31);
   });
   test("bin %", () => {
-    const toks = tokenize("LD A,%1010");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,%1010");
     expect(toks[3].value).toBe(10);
   });
   test("bin B", () => {
-    const toks = tokenize("LD A,1010B");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1010B");
     expect(toks[3].value).toBe(10);
   });
   test("decimal", () => {
-    const toks = tokenize("LD A,255");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,255");
     expect(toks[3].value).toBe(255);
   });
 
   // 6. 疑似命令系
   test("ORG", () => {
-    const toks = tokenize("ORG 100H");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "ORG 100H");
     expect(toks[1].value).toBe(0x100);
   });
   test("EQU", () => {
-    const toks = tokenize("FOO EQU 10");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "FOO EQU 10");
     expect(kinds(toks)).toEqual(["ident:FOO", "ident:EQU", "num:10", "eol:\n"]);
   });
 
   // 7. 記号（括弧）
   test("paren", () => {
-    const toks = tokenize("LD A,(1234H)");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,(1234H)");
     expect(kinds(toks)).toEqual([
       "ident:LD",
       "ident:A",
@@ -114,25 +132,30 @@ describe("tokenizer", () => {
 
   // 8. エラー系
   test("invalid char", () => {
-    expect(() => tokenize("LD A,@123")).toThrow();
+    const ctx = makeCtx();
+    expect(() => tokenize(ctx, "LD A,@123")).toThrow();
   });
   test("invalid hex", () => {
-    expect(() => tokenize("LD A,0x1G")).toThrow();
+    const ctx = makeCtx();
+    expect(() => tokenize(ctx, "LD A,0x1G")).toThrow();
   });
   test("invalid bin", () => {
-    expect(() => tokenize("LD A,10102B")).toThrow();
+    const ctx = makeCtx();
+    expect(() => tokenize(ctx, "LD A,10102B")).toThrow();
   });
 
   // 9. 空入力
   test("empty", () => {
-    const toks = tokenize("");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "");
     expect(toks).toEqual([]);
   });
 
   // 10. 複合
   test("multi with label and comment", () => {
+    const ctx = makeCtx();
     const src = "START:  LD A,0x10\n  LD B,%1010 ; comment";
-    const toks = tokenize(src);
+    const toks = tokenize(ctx, src);
     expect(kinds(toks)).toEqual([
       "ident:START",
       "colon::",
@@ -151,7 +174,8 @@ describe("tokenizer", () => {
 
   // 11. 文字リテラル
   test("char literal simple", () => {
-    const toks = tokenize("LD A,'A'");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,'A'");
     expect(toks.some((t) => t.text === "'A'")).toBe(true);
     // parseNumber で確認
     expect(parseNumber("'A'")).toBe(0x41);
@@ -173,38 +197,46 @@ describe("tokenizer", () => {
   });
 
   test("char literal simple", () => {
-    const toks = tokenize("LD A,'A'");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,'A'");
     expect(toks.find((t) => t.kind === "num")!.value).toBe(65); // 'A' = 0x41
   });
   test("char literal symbol", () => {
-    const toks = tokenize("LD A,'#'");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,'#'");
     expect(toks.find((t) => t.kind === "num")!.value).toBe(35); // '#' = 0x23
   });
   test("empty char literal error", () => {
-    expect(() => tokenize("LD A,''")).toThrow();
+    const ctx = makeCtx();
+    expect(() => tokenize(ctx, "LD A,''")).toThrow();
   });
   test("multi-char literal error", () => {
-    expect(() => tokenize("LD A,'AB'")).toThrow();
+    const ctx = makeCtx();
+    expect(() => tokenize(ctx, "LD A,'AB'")).toThrow();
   });
 
   test("whitespace tokens are skipped", () => {
-    const toks = tokenize("LD\tA ,\v1\f");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD\tA ,\v1\f");
     expect(toks.map((t) => t.text)).toEqual(["LD", "A", ",", "1", "\n"]); // whitespace tokens are skipped
   });
 
   test("CRLF and LF newlines", () => {
-    const toks = tokenize("LD A,1\r\nLD B,2\n");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1\r\nLD B,2\n");
     expect(toks.filter((t) => t.kind === "eol")).toHaveLength(2);
   });
 
   test("EOF mark 0x1A stops tokenization", () => {
-    const toks = tokenize("LD A,1\x1ALD B,2");
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "LD A,1\x1ALD B,2");
     expect(toks.map((t) => t.text)).toContain("LD");
     expect(toks.map((t) => t.text)).not.toContain("B"); // 打ち切られる
   });
 
   test("include", () => {
-    const tokens = tokenize('INCLUDE "mac.inc"');
+    const ctx = makeCtx();
+    const tokens = tokenize(ctx, 'INCLUDE "mac.inc"');
     expect(tokens[0]).toMatchObject({ kind: "ident", text: "INCLUDE" });
     expect(tokens[1]).toMatchObject({ kind: "string", stringValue: "mac.inc" });
   })

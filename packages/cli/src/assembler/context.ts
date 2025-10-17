@@ -18,8 +18,7 @@ export interface SymbolEntry {
 export interface RequesterInfo {
   op: string;
   phase: "assemble" | "link";
-  file?: string;
-  line?: number;
+  pos: SourcePos;
 }
 
 export interface UnresolvedEntry {
@@ -34,7 +33,7 @@ export interface UnresolvedEntry {
 export interface AsmText {
   addr: number;
   data: number[];
-  line?: number; // 元ソース行番号（1-based）
+  pos: SourcePos;
   sectionId?: number; // セクションID（0=TEXT, 1=DATA, 2=BSS, 3以降=CUSTOM）
 }
 
@@ -66,8 +65,18 @@ export interface OutputInfo {
 }
 
 export interface SourceFrame {
-  file: string;   // 現在のファイルパス
-  line: number;   // INCLUDE 呼び出し元行
+  file: string;             // 現在のファイルパス（絶対パス推奨）
+  lines: string[];          // ファイル内容（split済み）
+  parent?: SourceFrame;     // 呼び出し元 (INCLUDE / MACRO)
+  lineBase?: number;        // 呼び出し位置（親側の行番号）
+  macroName?: string;       // マクロ展開時のみ使用
+}
+
+export interface SourcePos {
+  file: string;           // 実際に記述されているファイル名
+  line: number;           // 行番号
+  column?: number;        // 列番号
+  parent?: SourcePos;     // include元 / マクロ呼び出し元の位置
 }
 
 export interface AsmContext {
@@ -96,8 +105,8 @@ export interface AsmContext {
   verbose: boolean;
 
   // --- 現在状態 ---
-  currentFile: string;            // 現在解析中のファイル名
-  currentLine: number;            // 現在行番号（eol更新ごと）
+
+  currentPos: SourcePos;
   currentSection: number; // 現在のセクションID（0がTEXT、1がDATA、2がBSS、3以降がCUSTOM）
 
   // --- ネスト管理 ---
@@ -110,6 +119,8 @@ export interface AsmContext {
   // --- エラー／診断 ---
   errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
   warnings: string[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
+
+  sourceMap: Map<string, string[]>; // ソースキャッシュ
 }
 
 
@@ -139,11 +150,11 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     phase: "tokenize",
     verbose: false,
     inputFile: "",
-    currentFile: "",
-    currentLine: 0,
+    currentPos: { file: "", line: 0 } as SourcePos,
     includeStack: [],
     includeCache: new Set(),
     sectionStack: [],
+    sourceMap: new Map<string, string[]>(),
   };
   return { ...defaults, ...overrides };
 }
@@ -171,4 +182,33 @@ export function defineSymbol(
   }
 
   ctx.symbols.set(name, { value, sectionId, type });
+}
+
+
+export function makeSourcePos(
+  frame: SourceFrame,
+  line: number,
+  column?: number
+): SourcePos {
+  return {
+    file: frame.file,
+    line,
+    column,
+    parent: frame.parent
+      ? makeSourcePos(frame.parent, frame.lineBase ?? 0)
+      : undefined,
+  };
+}
+
+export function cloneSourcePos(pos: SourcePos): SourcePos {
+  return {
+    file: pos?.file ?? "",
+    line: pos?.line ?? 0,
+    column: pos?.column ?? 0,
+    parent: pos?.parent ? cloneSourcePos(pos.parent) : undefined, // 再帰的コピー
+  };
+}
+
+export function createSourcePos(file: string, line: number, column: number, parent?: SourcePos): SourcePos {
+  return { file, line, column, parent };
 }

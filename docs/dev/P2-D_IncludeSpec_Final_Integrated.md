@@ -168,7 +168,7 @@ function handleInclude(node: NodePseudo, ctx: AsmContext) {
     return; // 重複読み込みスキップ
 
   ctx.includeCache.add(absPath);
-  ctx.includeStack.push({ kind:"file", name: absPath, line: node.line });
+  ctx.includeStack.push({ kind:"file", name: absPath, pos: node.pos });
   ctx.sectionStack.push(ctx.currentSection);
 
   includeFile(absPath, ctx);  // tokenize→parse→analyze 再帰呼び出し
@@ -195,7 +195,7 @@ function withSourceFrame<T>(ctx: AsmContext, node: Node, fn: () => T): T {
   const needPush = ctx.includeStack.at(-1)?.name !== file;
 
   if (needPush) {
-    ctx.includeStack.push({ kind:"file", name:file, line:node.line });
+    ctx.includeStack.push({ kind:"file", name:file, line:node.pos.line });
     ctx.currentFile = file;
   }
   ctx.nodeStack.push({ node, file });

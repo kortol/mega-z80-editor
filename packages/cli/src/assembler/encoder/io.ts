@@ -20,18 +20,18 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     const portExpr = args[1].slice(1, -1);
     const port = resolveValue(ctx, portExpr);
     if (port === null) {
-      emitBytes(ctx, [0xdb, 0x00], node.line);
+      emitBytes(ctx, [0xdb, 0x00], node.pos);
       ctx.unresolved.push({
         addr: ctx.loc + 1, symbol: portExpr, size: 1, requester: {
           op: node.op,
           phase: "assemble",
-          line: node.line,
+          pos: node.pos,
         }
       });
     } else {
       if (port < 0 || port > 0xff)
         throw new Error(`Port number out of range: ${args[1]}`);
-      emitBytes(ctx, [0xdb, port & 0xff], node.line);
+      emitBytes(ctx, [0xdb, port & 0xff], node.pos);
     }
     return;
   }
@@ -46,18 +46,18 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     const portExpr = args[0].slice(1, -1);
     const port = resolveValue(ctx, portExpr);
     if (port === null) {
-      emitBytes(ctx, [0xd3, 0x00], node.line);
+      emitBytes(ctx, [0xd3, 0x00], node.pos);
       ctx.unresolved.push({
         addr: ctx.loc + 1, symbol: portExpr, size: 1, requester: {
           op: node.op,
           phase: "assemble",
-          line: node.line,
+          pos: node.pos,
         },
       });
     } else {
       if (port < 0 || port > 0xff)
         throw new Error(`Port number out of range: ${args[0]}`);
-      emitBytes(ctx, [0xd3, port & 0xff], node.line);
+      emitBytes(ctx, [0xd3, port & 0xff], node.pos);
     }
     return;
   }
@@ -70,7 +70,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     isReg8(args[0])
   ) {
     const code = 0x40 | (regCode(args[0]) << 3);
-    emitBytes(ctx, [0xed, code], node.line);
+    emitBytes(ctx, [0xed, code], node.pos);
     return;
   }
 
@@ -82,7 +82,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     isReg8(args[1])
   ) {
     const code = 0x41 | (regCode(args[1]) << 3);
-    emitBytes(ctx, [0xed, code], node.line);
+    emitBytes(ctx, [0xed, code], node.pos);
     return;
   }
 
@@ -92,7 +92,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     ((args.length === 1 && args[0] === "(C)") ||
       (args.length === 2 && args[0] === "F" && args[1] === "(C)"))
   ) {
-    emitBytes(ctx, [0xed, 0x70], node.line);
+    emitBytes(ctx, [0xed, 0x70], node.pos);
     return;
   }
 
@@ -103,7 +103,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     args[0] === "(C)" &&
     args[1] === "0"
   ) {
-    emitBytes(ctx, [0xed, 0x71], node.line);
+    emitBytes(ctx, [0xed, 0x71], node.pos);
     return;
   }
 

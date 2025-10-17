@@ -20,7 +20,7 @@ export function encodeED(ctx: AsmContext, node: NodeInstr) {
   };
 
   if (op in table && args.length === 0) {
-    emitBytes(ctx, [0xED, table[op]], node.line);
+    emitBytes(ctx, [0xED, table[op]], node.pos);
     return;
   }
 
@@ -33,7 +33,7 @@ export function encodeED(ctx: AsmContext, node: NodeInstr) {
   };
   const key = [op, ...args].join(" ");
   if (ldTable[key]) {
-    emitBytes(ctx, [0xED, ldTable[op]], node.line);
+    emitBytes(ctx, [0xED, ldTable[op]], node.pos);
     return;
   }
 
@@ -45,7 +45,7 @@ export function encodeED(ctx: AsmContext, node: NodeInstr) {
     if (isNaN(mode) || mode < 0 || mode > 2) {
       throw new Error(`Invalid IM mode: ${args[0]}`);
     }
-    emitBytes(ctx, [0xED, codes[mode]], node.line);
+    emitBytes(ctx, [0xED, codes[mode]], node.pos);
     return;
   }
 

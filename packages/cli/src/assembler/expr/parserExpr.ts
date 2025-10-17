@@ -25,7 +25,7 @@ export function parseExpr(tokens: Token[]): Expr {
   function expect(kind: string, text?: string): Token {
     const tok = consume();
     if (tok.kind !== kind || (text && tok.text !== text)) {
-      throw new Error(`Syntax error at line ${tok.line}, col ${tok.col}`);
+      throw new Error(`Syntax error at line ${tok.pos.line}, col ${tok.pos.column}`);
     }
     return tok;
   }
@@ -50,7 +50,7 @@ export function parseExpr(tokens: Token[]): Expr {
       expect("rparen");
       return e;
     }
-    throw new Error(`Syntax error at line ${tok.line}, col ${tok.col}`);
+    throw new Error(`Syntax error at line ${tok.pos.line}, col ${tok.pos.column}`);
   }
 
   function parseUnary(): Expr {

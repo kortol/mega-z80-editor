@@ -1,5 +1,5 @@
 // src/assembler/codegen/emit.ts
-import { AsmContext, RequesterInfo, SectionState } from "../context";
+import { AsmContext, RequesterInfo, SectionState, SourcePos } from "../context";
 
 /**
  * Codegen/Emit API
@@ -40,7 +40,7 @@ export function initCodegen(ctx: AsmContext, options?: { withDefaultSections?: b
 /* ---------------------------------------------------------
  * 🧩 基本出力: バイト列を書き込む
  * -------------------------------------------------------*/
-export function emitBytes(ctx: AsmContext, data: number[], line?: number) {
+export function emitBytes(ctx: AsmContext, data: number[], pos: SourcePos) {
   const sec = ctx.sections.get(ctx.currentSection);
   if (!sec) throw new Error(`emitBytes: invalid section (id=${ctx.currentSection})`);
 
@@ -49,7 +49,12 @@ export function emitBytes(ctx: AsmContext, data: number[], line?: number) {
   sec.lc += data.length;
   sec.size = Math.max(sec.size, sec.lc);
 
-  ctx.texts.push({ addr, data, line, sectionId: ctx.currentSection });
+  ctx.texts.push({
+    addr,
+    data,
+    pos,
+    sectionId: ctx.currentSection
+  });
   ctx.loc = sec.lc;
   // console.log(ctx.phase, ctx.loc, ctx.sections?.get?.(ctx.currentSection)?.lc, data);
 }
@@ -57,24 +62,24 @@ export function emitBytes(ctx: AsmContext, data: number[], line?: number) {
 /* ---------------------------------------------------------
  * 🧩 16bit即値を出力（小端）
  * -------------------------------------------------------*/
-export function emitWord(ctx: AsmContext, value: number, line?: number) {
+export function emitWord(ctx: AsmContext, value: number, pos: SourcePos) {
   const lo = value & 0xff;
   const hi = (value >> 8) & 0xff;
-  emitBytes(ctx, [lo, hi], line);
+  emitBytes(ctx, [lo, hi], pos);
   // console.log(ctx.phase, ctx.loc, ctx.sections?.get?.(ctx.currentSection)?.lc, value);
 }
 
 /* ---------------------------------------------------------
  * 🧩 未解決シンボルをFixupとして登録（Relocatable参照）
  * -------------------------------------------------------*/
-export function emitFixup(ctx: AsmContext, symbol: string, size: 1 | 2 | 4 = 2, requester: RequesterInfo, addend = 0, line?: number) {
+export function emitFixup(ctx: AsmContext, symbol: string, size: 1 | 2 | 4 = 2, requester: RequesterInfo, addend = 0, pos: SourcePos) {
   const sec = ctx.sections.get(ctx.currentSection);
 
   if (!sec) throw new Error(`emitFixup: invalid section`);
   const addr = sec.lc;
 
   // 仮バイト列（0埋め）
-  emitBytes(ctx, new Array(size).fill(0x00), line);
+  emitBytes(ctx, new Array(size).fill(0x00), pos);
 
   ctx.unresolved.push({
     addr,
@@ -137,15 +142,15 @@ export function emitSection(
 /* ---------------------------------------------------------
  * 🧩 ゼロ埋め（ALIGN, DS対応）
  * -------------------------------------------------------*/
-export function emitGap(ctx: AsmContext, count: number, line?: number) {
+export function emitGap(ctx: AsmContext, count: number, pos: SourcePos) {
   if (count <= 0) return;
-  emitBytes(ctx, new Array(count).fill(0x00), line);
+  emitBytes(ctx, new Array(count).fill(0x00), pos);
 }
 
 /* ---------------------------------------------------------
  * 🧩 ALIGN制御: LCを境界に揃える
  * -------------------------------------------------------*/
-export function emitAlign(ctx: AsmContext, align: number) {
+export function emitAlign(ctx: AsmContext, align: number, pos: SourcePos) {
   if (align <= 0 || (align & (align - 1)) !== 0)
     throw new Error(`ALIGN must be power of two`);
 
@@ -154,7 +159,7 @@ export function emitAlign(ctx: AsmContext, align: number) {
   const mask = align - 1;
   if (sec.lc & mask) {
     const pad = align - (sec.lc & mask);
-    emitGap(ctx, pad);
+    emitGap(ctx, pad, pos);
   }
 }
 
@@ -178,8 +183,8 @@ export function setLC(ctx: AsmContext, newLC: number) {
 /* ---------------------------------------------------------
  * 🧩 DS命令（定義済み領域確保＋ゼロ埋め）
  * -------------------------------------------------------*/
-export function emitStorage(ctx: AsmContext, count: number) {
-  emitGap(ctx, count);
+export function emitStorage(ctx: AsmContext, count: number, pos: SourcePos) {
+  emitGap(ctx, count, pos);
 }
 
 

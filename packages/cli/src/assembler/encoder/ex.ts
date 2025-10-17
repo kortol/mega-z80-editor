@@ -10,33 +10,33 @@ export function encodeEX(ctx: AsmContext, node: NodeInstr) {
 
   // EX AF,AF'
   if ((op1 === "AF" && op2 === "AF'") || (op1 === "AF'" && op2 === "AF")) {
-    emitBytes(ctx, [0x08], node.line);
+    emitBytes(ctx, [0x08], node.pos);
     return;
   }
 
   // EX DE,HL
   if ((op1 === "DE" && op2 === "HL") || (op1 === "HL" && op2 === "DE")) {
-    emitBytes(ctx, [0xEB], node.line);
+    emitBytes(ctx, [0xEB], node.pos);
     return;
   }
 
   // EX (SP),HL
   if ((op1 === "(SP)" && op2 === "HL") || (op1 === "HL" && op2 === "(SP)")) {
-    emitBytes(ctx, [0xE3], node.line);
+    emitBytes(ctx, [0xE3], node.pos);
     return;
   }
 
   // EX (SP),IX
   if ((op1 === "(SP)" && op2 === "IX") || (op1 === "IX" && op2 === "(SP)")) {
-    emitBytes(ctx, [0xDD, 0xE3], node.line);
+    emitBytes(ctx, [0xDD, 0xE3], node.pos);
     return;
   }
 
   // EX (SP),IY
   if ((op1 === "(SP)" && op2 === "IY") || (op1 === "IY" && op2 === "(SP)")) {
-    emitBytes(ctx, [0xFD, 0xE3], node.line);
+    emitBytes(ctx, [0xFD, 0xE3], node.pos);
     return;
   }
 
-  throw new Error(`Unsupported EX form at line ${node.line}`);
+  throw new Error(`Unsupported EX form at line ${node.pos.line}`);
 }

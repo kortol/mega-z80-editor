@@ -9,7 +9,7 @@ export function handleEXTERN(ctx: AsmContext, node: NodePseudo) {
     ctx.errors.push({
       code: AssemblerErrorCode.ExternMissingSymbol,
       message: "EXTERN requires a symbol",
-      line: node.line,
+      pos: node.pos,
     });
     return;
   }

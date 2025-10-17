@@ -5,7 +5,7 @@ import { parseNumber } from "../tokenizer";
 
 export function handleEQU(ctx: AsmContext, node: NodePseudo) {
   if (node.args.length !== 1) {
-    throw new Error(`EQU requires two arguments at line ${node.line}`);
+    throw new Error(`EQU requires two arguments at line ${node.pos.line}`);
   }
 
   // PseudoArg形式: { key: "FOO", value: "10" }
@@ -13,7 +13,7 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
   const valStr = node.args[0].value ?? "";
 
   if (!key) {
-    throw new Error(`EQU missing symbol name at line ${node.line}`);
+    throw new Error(`EQU missing symbol name at line ${node.pos.line}`);
   }
   // 大文字小文字処理
   let sym = ctx.caseInsensitive ? key.toUpperCase() : key;
@@ -32,10 +32,10 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
       ctx.errors.push(
         makeError(
           AssemblerErrorCode.RedefSymbol,
-          `Redefinition of symbol '${sym}' at line ${node.line}`
+          `Redefinition of symbol '${sym}' at line ${node.pos.line}`
         )
       );
-      throw new Error(`Symbol '${sym}' redefined at line ${node.line}`);
+      throw new Error(`Symbol '${sym}' redefined at line ${node.pos.line}`);
     }
   }
 

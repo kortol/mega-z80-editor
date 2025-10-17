@@ -27,5 +27,5 @@ export function encodeMisc(ctx: AsmContext, node: NodeInstr) {
     throw new Error(`Unsupported misc instruction ${node.op}`);
   }
 
-  emitBytes(ctx, [opcode], node.line);
+  emitBytes(ctx, [opcode], node.pos);
 }

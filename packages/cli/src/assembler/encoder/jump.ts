@@ -32,9 +32,9 @@ export const JPInstrDefs: InstrDef[] = [
     encode(ctx, args, node) {
       // console.log("JP (HL)");
       const t = args[0].raw.toUpperCase();
-      if (t === "(HL)") emitBytes(ctx, [0xE9], node.line);
-      else if (t === "(IX)") emitBytes(ctx, [0xDD, 0xE9], node.line);
-      else emitBytes(ctx, [0xFD, 0xE9]), node.line;
+      if (t === "(HL)") emitBytes(ctx, [0xE9], node.pos);
+      else if (t === "(IX)") emitBytes(ctx, [0xDD, 0xE9], node.pos);
+      else emitBytes(ctx, [0xFD, 0xE9], node.pos);
       ctx.loc += ctx.texts.at(-1)!.data.length;
     },
     estimate: (ctx, args) => (args[0].raw.toUpperCase() === "(HL)" ? 1 : 2),
@@ -45,9 +45,9 @@ export const JPInstrDefs: InstrDef[] = [
       args.length === 2 && condCodes.hasOwnProperty(args[0].raw.toUpperCase()),
     encode(ctx, args, node) {
       const cond = args[0].raw.toUpperCase();
-      const val = resolveExpr16(ctx, args[1].raw, node.line, true);
+      const val = resolveExpr16(ctx, args[1].raw, node.pos, true);
       const opcode = 0xC2 | condCodes[cond];
-      emitBytes(ctx, [opcode, val & 0xFF, val >> 8], node.line);
+      emitBytes(ctx, [opcode, val & 0xFF, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -56,8 +56,8 @@ export const JPInstrDefs: InstrDef[] = [
     match: (ctx, args) => args.length === 1,
     encode(ctx, args, node) {
       // console.log("JP NN");
-      const val = resolveExpr16(ctx, args[0].raw, node.line, true);
-      emitBytes(ctx, [0xC3, val & 0xFF, val >> 8], node.line);
+      const val = resolveExpr16(ctx, args[0].raw, node.pos, true);
+      emitBytes(ctx, [0xC3, val & 0xFF, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -76,7 +76,7 @@ export const JRInstrDefs: InstrDef[] = [
       const target = args[1].raw;
 
       // ★ 16bit絶対値として評価（$含む式OK）
-      const val = resolveExpr16(ctx, target, node.line, false, false);
+      const val = resolveExpr16(ctx, target, node.pos, false, false);
       if (ctx.errors.length > 0) return;
 
       // ★ offset計算（target - (loc + 2)）
@@ -86,14 +86,14 @@ export const JRInstrDefs: InstrDef[] = [
       if (offset < -128 || offset > 127) {
         ctx.errors.push({
           code: AssemblerErrorCode.ExprNotConstant,
-          message: `JR target out of range (${offset}) at line ${node.line}`,
-          line: node.line,
+          message: `JR target out of range (${offset}) at line ${node.pos.line}`,
+          pos: node.pos,
         });
         return;
       }
 
       const opcode = { NZ: 0x20, Z: 0x28, NC: 0x30, C: 0x38 }[cond];
-      emitBytes(ctx, [opcode ?? 0, offset & 0xff], node.line);
+      emitBytes(ctx, [opcode ?? 0, offset & 0xff], node.pos);
     },
     estimate: 2,
   },
@@ -103,7 +103,7 @@ export const JRInstrDefs: InstrDef[] = [
     encode(ctx, args, node) {
       const target = args[0].raw;
 
-      const val = resolveExpr16(ctx, target, node.line, false, false);
+      const val = resolveExpr16(ctx, target, node.pos, false, false);
       if (ctx.errors.length > 0) return;
 
       const offset = val - (ctx.loc + 2);
@@ -111,13 +111,13 @@ export const JRInstrDefs: InstrDef[] = [
       if (offset < -128 || offset > 127) {
         ctx.errors.push({
           code: AssemblerErrorCode.ExprNotConstant,
-          message: `JR target out of range (${offset}) at line ${node.line}`,
-          line: node.line,
+          message: `JR target out of range (${offset}) at line ${node.pos.line}`,
+          pos: node.pos,
         });
         return;
       }
 
-      emitBytes(ctx, [0x18, offset & 0xff], node.line);
+      emitBytes(ctx, [0x18, offset & 0xff], node.pos);
     },
     estimate: 2,
   },
@@ -133,9 +133,9 @@ export const CALLInstrDefs: InstrDef[] = [
       args.length === 2 && condCodes.hasOwnProperty(args[0].raw.toUpperCase()),
     encode(ctx, args, node) {
       const cond = args[0].raw.toUpperCase();
-      const val = resolveExpr16(ctx, args[1].raw, node.line, true);
+      const val = resolveExpr16(ctx, args[1].raw, node.pos, true);
       const opcode = 0xC4 | condCodes[cond];
-      emitBytes(ctx, [opcode, val & 0xFF, val >> 8], node.line);
+      emitBytes(ctx, [opcode, val & 0xFF, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -143,8 +143,8 @@ export const CALLInstrDefs: InstrDef[] = [
   {
     match: (ctx, args) => args.length === 1,
     encode(ctx, args, node) {
-      const val = resolveExpr16(ctx, args[0].raw, node.line, true);
-      emitBytes(ctx, [0xCD, val & 0xFF, val >> 8], node.line);
+      const val = resolveExpr16(ctx, args[0].raw, node.pos, true);
+      emitBytes(ctx, [0xCD, val & 0xFF, val >> 8], node.pos);
     },
     estimate: 3,
   },
@@ -160,14 +160,14 @@ export const RETInstrDefs: InstrDef[] = [
       args.length === 1 && condCodes.hasOwnProperty(args[0].raw.toUpperCase()),
     encode(ctx, args, node) {
       const cond = args[0].raw.toUpperCase();
-      emitBytes(ctx, [0xC0 | condCodes[cond]], node.line);
+      emitBytes(ctx, [0xC0 | condCodes[cond]], node.pos);
     },
   },
   // RET
   {
     match: (ctx, args) => args.length === 0,
     encode(ctx, args, node) {
-      emitBytes(ctx, [0xC9], node.line);
+      emitBytes(ctx, [0xC9], node.pos);
     },
   },
 ];
@@ -176,10 +176,10 @@ export const RSTInstrDefs: InstrDef[] = [
   {
     match: (ctx, args) => args.length === 1,
     encode(ctx, args, node) {
-      const val = resolveExpr8(ctx, args[0].raw, node.line, true);
+      const val = resolveExpr8(ctx, args[0].raw, node.pos, true);
       if (val % 8 !== 0 || val < 0 || val > 0x38)
         throw new Error(`Invalid RST vector ${val}`);
-      emitBytes(ctx, [0xC7 + val], node.line);
+      emitBytes(ctx, [0xC7 + val], node.pos);
     },
   },
 ];
@@ -191,7 +191,7 @@ export const DJNZInstrDefs: InstrDef[] = [
       const target = args[0].raw;
 
       // ★ 16bit絶対値として評価（$もOK）
-      const val = resolveExpr16(ctx, target, node.line, false, false);
+      const val = resolveExpr16(ctx, target, node.pos, false, false);
       if (ctx.errors.length > 0) return;
 
       // ★ offset計算（target - (loc + 2)）
@@ -201,13 +201,13 @@ export const DJNZInstrDefs: InstrDef[] = [
       if (offset < -128 || offset > 127) {
         ctx.errors.push({
           code: AssemblerErrorCode.ExprNotConstant,
-          message: `DJNZ target out of range (${offset}) at line ${node.line}`,
-          line: node.line,
+          message: `DJNZ target out of range (${offset}) at line ${node.pos.line}`,
+          pos: node.pos,
         });
         return;
       }
 
-      emitBytes(ctx, [0x10, offset & 0xff], node.line);
+      emitBytes(ctx, [0x10, offset & 0xff], node.pos);
     },
     estimate: 2,
   },

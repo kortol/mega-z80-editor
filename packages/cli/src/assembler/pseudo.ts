@@ -42,7 +42,10 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       const align = Number(node.args?.[0]?.value) || 1;
       return handleALIGN(ctx, align);
     }
+    case "INCLUDE":
+      // SKIP?
+      break;
     default:
-      throw new Error(`Unknown pseudo op ${node.op} at line ${node.line}`);
+      throw new Error(`Unknown pseudo op ${node.op} at line ${node.pos.line}`);
   }
 }

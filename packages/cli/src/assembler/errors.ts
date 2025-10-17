@@ -1,4 +1,4 @@
-import { SourceFrame } from "./context";
+import { SourceFrame, SourcePos } from "./context";
 
 // エラーコードをまとめた列挙型
 export enum AssemblerErrorCode {
@@ -49,10 +49,8 @@ export enum AssemblerErrorCode {
 export interface AssemblerError {
   code: AssemblerErrorCode;
   message: string;
-  line?: number;
-  column?: number;
   symbol?: string;
-  file?: string;
+  pos?: SourcePos;
   /** INCLUDE / MACRO 呼び出しなどのスタック情報 */
   frame?: SourceFrame;
   /** ネストした呼び出しトレース（INCLUDEスタックなど） */

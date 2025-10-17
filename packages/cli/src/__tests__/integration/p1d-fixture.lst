@@ -1,16 +1,16 @@
-0100  18 04         JR      NEXT            ; PC-relative forward
-0102  06 03         LD      B, 3
-0104  10 FE         DJLOOP: DJNZ    DJLOOP          ; PC-relative backward
-0106  18 00         JR      $+2             ; skip next NOP
-0108  00            NOP
-0109  DD 7E 05      LD      A,(IX+5)
-010C  FD 70 FD      LD      (IY-3),B
-010F  87            ADD     A,(IX+1)
-0110  DD 77 00      LD      (IX+0),A        ; zero displacement explicitly allowed
-0113  2A 22 01      LD      HL,(TABLE)      ; 16-bit absolute load
-0116  32 22 01      LD      (TABLE),A       ; 16-bit absolute store
-0119  ED 5B 00 00   LD      DE,(EXT16)      ; external symbol -> 16-bit reloc expected
-011D  DB 00         IN      A,(PORT_BASE)       ; 0x20
-011F  D3 00         OUT     (PORT_BASE+0x10),A  ; 0x30
-0121  11 2B 01      LD      DE,$+10
-0124  00 00 AA 55   TABLE:  DB      0x00,0x00,0xAA,0x55
+0100  18 04         ; JR forward, DJNZ backward
+0102  06 03         JR      NEXT            ; PC-relative forward
+0104  10 FE         LD      B, 3
+0106  18 00         ; Self-skip using $ (current address)
+0108  00            JR      $+2             ; skip next NOP
+0109  DD 7E 05      ; ----- IX/IY indexed addressing (positive / negative / zero disp) -----
+010C  FD 70 FD      LD      A,(IX+5)
+010F  87            LD      (IY-3),B
+0110  DD 77 00      ADD     A,(IX+1)
+0113  2A 22 01      ; ----- Absolute indirect (nn) -----
+0116  32 22 01      LD      HL,(TABLE)      ; 16-bit absolute load
+0119  ED 5B 00 00   LD      (TABLE),A       ; 16-bit absolute store
+011D  DB 00         ; ----- I/O port immediate (8-bit unsigned) -----
+011F  D3 00         IN      A,(PORT_BASE)       ; 0x20
+0121  11 2B 01      ; ----- Current address in expression -----
+0124  00 00 AA 55   ; ----- Data region -----

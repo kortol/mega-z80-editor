@@ -1,20 +1,22 @@
 // src/assembler/rel/__tests__/builder.test.ts
 import { buildRelFile, RelBuilder } from "../builder";
 import { TextRelAdapter } from "../adapter";
-import { AsmContext, createContext, defineSymbol } from "../../context";
+import { AsmContext, createContext, defineSymbol, SourcePos } from "../../context";
+
+const pos: SourcePos = { file: "", line: 0 };
 
 function makeCtx(): AsmContext {
   const ctx = createContext({
     moduleName: "TESTMOD",
     texts: [
-      { addr: 0x1000, data: [0x3E, 0x01] },   // LD A,1
-      { addr: 0x1002, data: [0xC3, 0x00, 0x10] } // JP 1000H
+      { addr: 0x1000, data: [0x3E, 0x01], pos },   // LD A,1
+      { addr: 0x1002, data: [0xC3, 0x00, 0x10], pos } // JP 1000H
     ],
     unresolved: [{
       addr: 0x1002, symbol: "START", size: 2, requester: {
         op: "JP",                     // or "DATA" depending on pseudo
         phase: "assemble",
-        line: 0,
+        pos,
       }
     }],
     entry: 0x1000

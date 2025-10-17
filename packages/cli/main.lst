@@ -1,0 +1,5 @@
+;#include <main.asm>
+0000  3E 03         INCLUDE "sub1.inc"
+0002  3E 02         LD A,1
+0004  3E 01         LD A,1
+;#endinclude  (main.asm)

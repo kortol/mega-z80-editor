@@ -271,7 +271,7 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
       sectionId: t.sectionId ?? ctx.currentSection ?? 0,
       addr: t.addr,
       data: t.data,
-      line: t.line,
+      line: t.pos.line,
     })),
     entry: ctx.entry, // undefinedなら未指定
     data,

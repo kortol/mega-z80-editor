@@ -1,14 +1,19 @@
+import { AsmContext, createContext } from "../../context";
 import { tokenize } from "../../tokenizer";
 import { EvalContext, evalExpr } from "../eval";
 import { parseExpr } from "../parserExpr";
 import { Expr } from "../types";
 
-function parseE(src: string): Expr {
-  const toks = tokenize(src).filter((t) => t.kind !== "eol");
+function parseE(ctx: AsmContext, src: string): Expr {
+  const toks = tokenize(ctx, src).filter((t) => t.kind !== "eol");
   return parseExpr(toks);
 }
 
-function makeCtx(): EvalContext {
+function makeCtx() {
+  return createContext({ moduleName: "TEST" });
+}
+
+function makeEvalCtx(): EvalContext {
   return {
     symbols: new Map([]),
     externs: new Set(),
@@ -21,7 +26,8 @@ function makeCtx(): EvalContext {
 
 describe("parserExpr", () => {
   test("1+2*3", () => {
-    const e = parseE("1+2*3");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "1+2*3");
     expect(e).toEqual({
       kind: "Binary",
       op: "+",
@@ -33,11 +39,12 @@ describe("parserExpr", () => {
         right: { kind: "Const", value: 3 },
       },
     });
-    expect(evalExpr(e, makeCtx())).toEqual({ kind: "Const", value: 7 });
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: 7 });
   });
 
   test("1*2+3", () => {
-    const e = parseE("1*2+3");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "1*2+3");
     expect(e).toEqual({
       kind: "Binary",
       op: "+",
@@ -49,11 +56,12 @@ describe("parserExpr", () => {
       },
       right: { kind: "Const", value: 3 },
     });
-    expect(evalExpr(e, makeCtx())).toEqual({ kind: "Const", value: 5 });
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: 5 });
   });
 
   test("-(1+2)", () => {
-    const e = parseE("-(1+2)");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "-(1+2)");
     expect(e).toEqual({
       kind: "Unary",
       op: "-",
@@ -64,29 +72,31 @@ describe("parserExpr", () => {
         right: { kind: "Const", value: 2 },
       },
     });
-    expect(evalExpr(e, makeCtx())).toEqual({ kind: "Const", value: -3 });
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: -3 });
   });
 
   test("101%5", () => {
-    const e = parseE("101%5");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "101%5");
     expect(e).toEqual({
       kind: "Binary",
       op: "%",
       left: { kind: "Const", value: 101 },
       right: { kind: "Const", value: 5 },
     });
-    expect(evalExpr(e, makeCtx())).toEqual({ kind: "Const", value: 1 });
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: 1 });
   });
 
   test("FOO+10", () => {
-    const e = parseE("FOO+10");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "FOO+10");
     expect(e).toEqual({
       kind: "Binary",
       op: "+",
       left: { kind: "Symbol", name: "FOO" },
       right: { kind: "Const", value: 10 },
     });
-    expect(evalExpr(e, makeCtx())).toEqual({
+    expect(evalExpr(e, makeEvalCtx())).toEqual({
       kind: "Reloc",
       sym: "FOO",
       addend: 10,
@@ -94,7 +104,8 @@ describe("parserExpr", () => {
   });
 
   test("nested precedence: (1+2)*3", () => {
-    const e = parseE("(1+2)*3");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "(1+2)*3");
     expect(e).toEqual({
       kind: "Binary",
       op: "*",
@@ -109,7 +120,8 @@ describe("parserExpr", () => {
   });
 
   test("unary plus", () => {
-    const e = parseE("+5");
+    const ctx = makeCtx();
+    const e = parseE(ctx, "+5");
     expect(e).toEqual({
       kind: "Unary",
       op: "+",
@@ -118,10 +130,12 @@ describe("parserExpr", () => {
   });
 
   test("invalid: 1+", () => {
-    expect(() => parseE("1+")).toThrow(/Unexpected/);
+    const ctx = makeCtx();
+    expect(() => parseE(ctx, "1+")).toThrow(/Unexpected/);
   });
 
   test("invalid: )", () => {
-    expect(() => parseE(")")).toThrow(/Syntax error/);
+    const ctx = makeCtx();
+    expect(() => parseE(ctx, ")")).toThrow(/Syntax error/);
   });
 });

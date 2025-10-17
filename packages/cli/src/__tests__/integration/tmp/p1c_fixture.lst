@@ -1,10 +1,10 @@
-0120  3E 07         START:  LD A,1+2*3              ; 7
-0122  21 35 01      LD HL,L1+10
-0125  C6 32         ADD A,100/2             ; 50
-0127  EE 07         XOR 1+2+4               ; 7
-0129  D6 00         SUB 300                 ; overflow -> low 8 bits (0x2C) [assembler warns A2001]
-012B  03 0C         L1:     DB 1+2,3*4              ; 3,12
-012D  78 00 96 00   DW 100+20,200-50        ; 120,150
-0131  64 00         DW FOO-BAR              ; 100 (same-module absolute)
-2000  00            DB EXT+1                ; R(size=1, addend=+1) at 0x2000
-2001  00 00         DW EXT-1                ; R(size=2, addend=-1) at 0x2001
+0120  3E 07         
+0122  21 35 01      START:  LD A,1+2*3              ; 7
+0125  C6 32         LD HL,L1+10
+0127  EE 07         ADD A,100/2             ; 50
+0129  D6 00         XOR 1+2+4               ; 7
+012B  03 0C         
+012D  78 00 96 00   L1:     DB 1+2,3*4              ; 3,12
+0131  64 00         BAR     EQU 100
+2000  00            ORG 0x2000
+2001  00 00         DB EXT+1                ; R(size=1, addend=+1) at 0x2000

@@ -97,7 +97,7 @@ export interface UnresolvedEntry {
 emitFixup(ctx, "EXTVAL", 2, {
   op: "EQU",
   phase: "link",
-  line: node.line
+  pos: node.pos
 }, 4);
 ```
 

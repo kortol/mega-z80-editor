@@ -17,7 +17,7 @@ describe("rel emitter", () => {
 
   test("T record with data", () => {
     const ctx = makeCtx();
-    ctx.texts.push({ addr: 0x0100, data: [0x3E, 0x41] }); // LD A,'A'
+    ctx.texts.push({ addr: 0x0100, data: [0x3E, 0x41], pos: { line: 0, file: "test.asm" } }); // LD A,'A'
     const rel = emitRel(ctx).split("\n");
     expect(rel).toContain("H HELLO");
     expect(rel).toContain("T 0100 3E 41");
@@ -36,7 +36,7 @@ describe("rel emitter", () => {
       addr: 0x0200, symbol: "BDOS", size: 2, requester: {
         op: "ENCODER",
         phase: "assemble",
-        line: 1,
+        pos: { line: 0, file: "test.asm" }
       },
     });
     const rel = emitRel(ctx).split("\n");
@@ -52,13 +52,13 @@ describe("rel emitter", () => {
 
   test("combined case", () => {
     const ctx = makeCtx();
-    ctx.texts.push({ addr: 0x0000, data: [0xCD, 0x05, 0x00] }); // CALL 0005h
+    ctx.texts.push({ addr: 0x0000, data: [0xCD, 0x05, 0x00], pos: { line: 0, file: "test.asm" } }); // CALL 0005h
     defineSymbol(ctx, "START", 0x0000, "LABEL");
     ctx.unresolved.push({
       addr: 0x0001, symbol: "BDOS", size: 2, requester: {
         op: "ENCODER",
         phase: "assemble",
-        line: 1,
+        pos: { line: 0, file: "test.asm" }
       },
     });
     ctx.entry = 0x0000;

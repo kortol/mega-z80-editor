@@ -26,7 +26,7 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
     if (args.length !== 1) throw new Error(`${op} requires 1 operand`);
     const r = args[0];
     const reg = regCode(r);
-    emitBytes(ctx, [0xCB, rotMap[op] | reg], node.line);
+    emitBytes(ctx, [0xCB, rotMap[op] | reg], node.pos);
     return;
   }
 
@@ -40,9 +40,9 @@ export function encodeCB(ctx: AsmContext, node: NodeInstr) {
     const r = args[1];
     const reg = regCode(r);
     const base = op === "BIT" ? 0x40 : op === "RES" ? 0x80 : 0xC0; // SET
-    emitBytes(ctx, [0xCB, base | (bit << 3) | reg], node.line);
+    emitBytes(ctx, [0xCB, base | (bit << 3) | reg], node.pos);
     return;
   }
 
-  throw new Error(`Unsupported CB instruction ${op} at line ${node.line}`);
+  throw new Error(`Unsupported CB instruction ${op} at line ${node.pos.line}`);
 }

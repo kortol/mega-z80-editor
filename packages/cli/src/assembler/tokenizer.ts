@@ -1,3 +1,5 @@
+import { AsmContext, cloneSourcePos, SourcePos } from "./context";
+
 export type TokenKind =
   | "ident"
   | "num"
@@ -14,11 +16,10 @@ export interface Token {
   text: string;
   value?: number;        // 数値リテラル（従来どおり）
   stringValue?: string;  // 文字列リテラル用（例: "mac.inc"）
-  line: number;
-  col: number;
+  pos: SourcePos;
 }
 
-export function tokenize(src: string): Token[] {
+export function tokenize(ctx: AsmContext, src: string): Token[] {
   if (!src || src.trim() === "") return [];
 
   // --- CP/M EOF (0x1A) で打ち切り ---
@@ -36,6 +37,7 @@ export function tokenize(src: string): Token[] {
   }
 
   for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+    ctx.currentPos.line = lineNo;
     let line = lines[lineNo];
 
     // --- 最終行が空文字なら無視 ---
@@ -47,13 +49,13 @@ export function tokenize(src: string): Token[] {
     const commentIdx = line.indexOf(";");
     if (commentIdx >= 0) line = line.substring(0, commentIdx);
 
-    let col = 0;
-    while (col < line.length) {
-      const rest = line.slice(col);
+    ctx.currentPos.column = 0;
+    while (ctx.currentPos.column < line.length) {
+      const rest = line.slice(ctx.currentPos.column);
 
       // 空白スキップ
       if (/^\s+/.test(rest)) {
-        col += rest.match(/^\s+/)![0].length;
+        ctx.currentPos.column += rest.match(/^\s+/)![0].length;
         continue;
       }
 
@@ -83,8 +85,8 @@ export function tokenize(src: string): Token[] {
           default:
             throw new Error(`Unhandled symbol ${ch}`);
         }
-        tokens.push({ kind, text: ch, line: lineNo + 1, col });
-        col += 1;
+        tokens.push({ kind, text: ch, pos: cloneSourcePos(ctx.currentPos) });
+        ctx.currentPos.column += 1;
         continue;
       }
 
@@ -93,18 +95,18 @@ export function tokenize(src: string): Token[] {
         if (/^'.'/.test(rest) && rest.length >= 3 && rest[2] === "'") {
           const text = rest.slice(0, 3); // 'A'
           const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
-          col += 3;
+          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
+          ctx.currentPos.column += 3;
           continue;
         } else if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
           const text = rest.slice(0, 4); // '\n' とか '\''
           const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
-          col += 4;
+          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
+          ctx.currentPos.column += 4;
           continue;
         } else {
           throw new Error(
-            `Tokenizer error at line ${lineNo + 1}, col ${col}: '${rest[0]}'`
+            `Tokenizer error at line ${lineNo + 1}, col ${ctx.currentPos.column}: '${rest[0]}'`
           );
         }
       }
@@ -116,7 +118,7 @@ export function tokenize(src: string): Token[] {
         const strMatch = rest.match(new RegExp(`^${quote}([^${quote}]*)${quote}`));
         if (!strMatch) {
           throw new Error(
-            `Tokenizer error at line ${lineNo + 1}, col ${col}: unterminated string literal`
+            `Tokenizer error at line ${lineNo + 1}, col ${ctx.currentPos.column}: unterminated string literal`
           );
         }
         const text = strMatch[0];
@@ -125,10 +127,9 @@ export function tokenize(src: string): Token[] {
           kind: "string",
           text,
           stringValue,
-          line: lineNo + 1,
-          col,
+          pos: cloneSourcePos(ctx.currentPos),
         });
-        col += text.length;
+        ctx.currentPos.column += text.length;
         continue;
       }
 
@@ -139,12 +140,12 @@ export function tokenize(src: string): Token[] {
         if (m) {
           const text = m[1];
           const value = parseNumber(text); // parseNumber が throw する場合は即エラー
-          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
-          col += text.length;
+          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
+          ctx.currentPos.column += text.length;
           continue;
         } else {
-          tokens.push({ kind: "op", text: "%", line: lineNo + 1, col });
-          col += 1;
+          tokens.push({ kind: "op", text: "%", pos: cloneSourcePos(ctx.currentPos) });
+          ctx.currentPos.column += 1;
           continue;
         }
       }
@@ -155,36 +156,37 @@ export function tokenize(src: string): Token[] {
         const text = m[1];
         if (text === "$") {
           // 現在アドレス → 特殊記号なので ident 扱い
-          tokens.push({ kind: "ident", text, line: lineNo + 1, col });
+          tokens.push({ kind: "ident", text, pos: cloneSourcePos(ctx.currentPos) });
         } else if (/^(0X|[0-9]|[$])/.test(text)) {
           // 数値リテラルの可能性がある場合は厳格チェック
           const value = parseNumber(text); // parseNumber が throw する場合は即エラー
-          tokens.push({ kind: "num", text, value, line: lineNo + 1, col });
+          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
         } else {
-          tokens.push({ kind: "ident", text, line: lineNo + 1, col });
+          tokens.push({ kind: "ident", text, pos: cloneSourcePos(ctx.currentPos) });
         }
-        col += text.length;
+        ctx.currentPos.column += text.length;
         continue;
       }
 
       throw new Error(
-        `Tokenizer error at line ${lineNo + 1}, col ${col}: '${rest[0]}'`
+        `Tokenizer error at line ${lineNo + 1}, col ${ctx.currentPos.column}: '${rest[0]}'`
       );
     }
+    ctx.currentPos.column = line.length;
     tokens.push({
       kind: "eol",
       text: "\n",
-      line: lineNo + 1,
-      col: line.length,
+      pos: cloneSourcePos(ctx.currentPos)
     });
   }
   // 🔽 最終行が改行で終わらなかった場合も eol を保証
+  ctx.currentPos.line = lines.length;
+  ctx.currentPos.column = lines[lines.length - 1].length;
   if (tokens.length === 0 || tokens[tokens.length - 1].kind !== "eol") {
     tokens.push({
       kind: "eol",
       text: "\n",
-      line: lines.length,
-      col: lines[lines.length - 1].length,
+      pos: cloneSourcePos(ctx.currentPos)
     });
   }
 

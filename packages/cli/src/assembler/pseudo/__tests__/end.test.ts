@@ -12,7 +12,7 @@ function makeCtx(): AsmContext {
 
 
 function assemble(ctx: AsmContext, src: string) {
-  const tokens = tokenize(src);
+  const tokens = tokenize(ctx, src);
   const nodes = parse(ctx, tokens);
   for (const node of nodes) {
     if (node.kind === "pseudo" && node.op === "END") {
@@ -25,7 +25,7 @@ function assemble(ctx: AsmContext, src: string) {
 describe("END pseudo", () => {
   test("END無し → Eレコードなし", () => {
     const ctx = makeCtx();
-    ctx.texts.push({ addr: 0x100, data: [0x3E, 0x01] });
+    ctx.texts.push({ addr: 0x100, data: [0x3E, 0x01], pos: { line: 1, file: "test.asm" } });
     const file = buildRelFile(ctx);
     const out = new TextRelAdapter().write(file);
     expect(out).not.toMatch(/^E/);

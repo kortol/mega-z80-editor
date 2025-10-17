@@ -1,4 +1,4 @@
-import { AsmContext, createContext } from "../../context";
+import { AsmContext, createContext, SourcePos } from "../../context";
 import { NodeInstr } from "../../parser";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
@@ -9,8 +9,8 @@ function makeCtx(): AsmContext {
   return ctx;
 }
 
-function makeNode(op: string, args: string[], line = 1, file = "test.asm"): NodeInstr {
-  return { kind: "instr", op, args, line, file };
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+  return { kind: "instr", op, args, pos };
 }
 
 describe("Arithmetic and Logic", () => {
