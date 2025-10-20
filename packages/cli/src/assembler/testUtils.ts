@@ -8,6 +8,7 @@ import { setPhase } from "./phaseManager";
 import { tokenize } from "./tokenizer";
 import { parse } from "./parser";
 import { runAnalyze } from "./analyze";
+import { expandMacros } from "./macro";
 
 /**
  * 簡易アセンブル関数。
@@ -70,6 +71,10 @@ export function phaseAnalyze(inputFile: string, outputFile: string, options?: { 
   ctx.nodes = parse(ctx, ctx.tokens);
   ctx.source = source;
 
+  // --- 🧩 PHASE: macro-expand ---
+  setPhase(ctx, "macroExpand");
+  expandMacros(ctx);
+
   // --- PHASE: analyze ---
   setPhase(ctx, "analyze");
   runAnalyze(ctx);
@@ -99,6 +104,15 @@ export function phaseEmit(inputFile: string, outputFile: string, options?: { ver
   // --- PHASE: analyze ---
   setPhase(ctx, "analyze");
   runAnalyze(ctx);
+
+  // --- 🧩 PHASE: macro-expand ---
+  setPhase(ctx, "macroExpand");
+  expandMacros(ctx);
+
+  console.log(ctx);
+  for (let n of ctx.nodes) {
+    console.log(n);
+  }
 
   // --- PHASE: emit ---
   setPhase(ctx, "emit");

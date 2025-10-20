@@ -53,6 +53,7 @@ export interface SectionState {
 // マクロ定義構造体
 export interface MacroDef {
   name: string;
+  params: string[];
   bodyTokens: Token[];
   defPos: SourcePos;
 }

@@ -261,6 +261,13 @@ export function encodeLD(ctx: AsmContext, node: NodeInstr) {
     return;
   }
 
-  throw new Error(`Unsupported LD form at line ${node.pos.line}`);
+  // --- LD (HL),n --- ←★ここを追加
+  if (dst === "(HL)" && (isImm16(ctx, src) || typeof src === "string" && /^\d+$/.test(src))) {
+    const val = resolveValue(ctx, src)! & 0xff;
+    emitBytes(ctx, [0x36, val], node.pos);
+    return;
+  }
+
+  throw new Error(`Unsupported LD form at line ${node.pos.line} :${JSON.stringify(node)}`);
   // throw new Error(`Unsupported LD form at line ${node.pos.line}: ${JSON.stringify(node)}`);
 }

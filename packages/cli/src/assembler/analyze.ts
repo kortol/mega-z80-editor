@@ -29,6 +29,7 @@ export function runAnalyze(ctx: AsmContext) {
 
         ctx.macroTable.set(name, {
           name,
+          params: node.params ?? [],
           bodyTokens: node.bodyTokens,
           defPos: node.pos,
         });

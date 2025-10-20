@@ -47,6 +47,10 @@ export enum AssemblerErrorCode {
   MacroGarbageAfterEndm = "A7003",    // ENDM の後に余分なトークン
   MacroRedefined = "A7004",           // 同名マクロの再定義（Stage2以降で利用予定）
 
+  MacroArgCountMismatch = "A7102", // 実引数数が定義と異なる
+  MacroInvalidParamName = "A7103", // 不正なパラメタ名
+  MacroLocalNameClash = "A7104", // ローカルラベル衝突
+
   // Branch 系
   OutOfRange8 = "A8000",
   OutOfRangeRel = "A8001",

@@ -35,4 +35,5 @@ export function setPhase(ctx: AsmContext, next: AsmPhase): void {
   }
   ctx.phase = next;
   ctx.logger?.debug?.(`[Phase] ${ctx.phase}`);
+  console.log(`[Phase] ${ctx.phase}`);
 }

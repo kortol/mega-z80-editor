@@ -38,6 +38,7 @@ export interface NodeLabel {
 export interface NodeMacroDef {
   kind: "macroDef";
   name: string;
+  params: string[];
   bodyTokens: Token[];
   startPos: SourcePos;
   endPos: SourcePos;
@@ -47,6 +48,7 @@ export interface NodeMacroDef {
 export interface NodeMacroInvoke {
   kind: "macroInvoke";
   name: string;
+  args: string[];
   pos: SourcePos;
 }
 
@@ -54,6 +56,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 
   const nodes: Node[] = [];
   let line: Token[] = [];
+  let skipUntil: SourcePos | null = null;
 
   function flushLine() {
     if (line.length === 0) return nodes;
@@ -61,6 +64,14 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
     // --- ENDM行は無視（MACRO定義の終端なので通常命令扱いしない） ---
     if (line.length === 1 && line[0].kind === "ident" && line[0].text.toUpperCase() === "ENDM") {
       return nodes;
+    }
+
+    // --- MACRO 本体スキップ中なら無視 ---
+    if (skipUntil) {
+      const pos = line[0].pos;
+      if (pos.file === skipUntil.file && pos.line <= skipUntil.line) {
+        return nodes; // ENDM までスキップ
+      }
     }
 
     // ラベル（ident + colon）
@@ -103,6 +114,22 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       const macroName = line[0].text;
       const startPos = line[0].pos;
 
+      const params: string[] = [];
+      // 残りトークンをカンマ区切りでパラメタ抽出
+      const rawParams = line.slice(2).map(t => t.text).join(" ");
+      if (rawParams.trim().length > 0) {
+        for (const p of rawParams.split(",").map(s => s.trim())) {
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p)) {
+            throw makeError(
+              AssemblerErrorCode.MacroInvalidParamName,
+              `Invalid macro parameter name: ${p}`,
+              { pos: line[0].pos }
+            );
+          }
+          params.push(p);
+        }
+      }
+
       const bodyTokens: Token[] = [];
       let foundEndm = false;
 
@@ -124,6 +151,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
           nodes.push({
             kind: "macroDef",
             name: macroName,
+            params,
             bodyTokens,
             startPos,
             endPos,
@@ -131,6 +159,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
           });
           // ENDMまで読み飛ばし
           // → tokens配列の処理ポインタを ENDM 位置までスキップ
+          skipUntil = endPos
           // flushLine用のlineを空にして復帰
           line = [];
           return nodes;
@@ -265,17 +294,17 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
     ) as NodeMacroDef | undefined;
 
     if (definedMacro) {
-      // Stage1: 引数禁止。オペランドが付いていたらエラーにする
-      if (line.length > 1) {
-        throw makeError(
-          AssemblerErrorCode.SyntaxError,
-          `Macro '${definedMacro.name}' does not take arguments (Stage 1)`,
-          { pos: line[0].pos }
-        );
-      }
+      const args = line
+        .slice(1)
+        .map(t => t.text)
+        .join(" ")
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean);
       nodes.push({
         kind: "macroInvoke",
         name: definedMacro.name,
+        args,
         pos: line[0].pos,
       });
       return nodes;
