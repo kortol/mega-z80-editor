@@ -3,6 +3,7 @@ import { Logger } from "../logger";
 import { AssemblerError } from "./errors";
 import { Node } from "./parser";
 import { AsmPhase } from "./phaseManager";
+import { RelocEntry } from "./rel/types";
 import { Token } from "./tokenizer";
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
@@ -47,6 +48,13 @@ export interface SectionState {
   lc: number;
   size: number;
   bytes: number[];
+}
+
+// マクロ定義構造体
+export interface MacroDef {
+  name: string;
+  bodyTokens: Token[];
+  defPos: SourcePos;
 }
 
 export interface OutputInfo {
@@ -104,6 +112,8 @@ export interface AsmContext {
   logger?: Logger; // ロガー
   verbose: boolean;
 
+  relocs: RelocEntry[]; // ✅ 再配置エントリ (Rレコード用)
+
   // --- 現在状態 ---
 
   currentPos: SourcePos;
@@ -115,6 +125,10 @@ export interface AsmContext {
 
   // --- セクション管理 ---
   sectionStack: string[];         // INCLUDE中のSECTION復帰用
+
+  // --- マクロ管理 ---
+  macroTable: Map<string, MacroDef>;
+  expansionStack: string[]; // マクロ展開スタック（循環検知）
 
   // --- エラー／診断 ---
   errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
@@ -132,28 +146,31 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
   const defaults: AsmContext = {
     loc: 0,
     moduleName: "NONAME",
-    symbols: new Map(),
+    symbols: new Map<string, SymbolEntry>(),
     unresolved: [],
     modeWord32: false,
     modeSymLen: 6,
     caseInsensitive: true,
     texts: [],
     errors: [],
-    externs: new Set(),
+    externs: new Set<string>(),
     warnings: [],
     sourceLines: [],
     currentSection: 0,
-    sections: new Map(),
+    sections: new Map<number, SectionState>(),
     output: {
       relVersion: 1,
     },
     phase: "tokenize",
     verbose: false,
     inputFile: "",
+    relocs: [],
     currentPos: { file: "", line: 0 } as SourcePos,
     includeStack: [],
-    includeCache: new Set(),
+    includeCache: new Set<string>(),
     sectionStack: [],
+    macroTable: new Map<string, MacroDef>(),
+    expansionStack: [],
     sourceMap: new Map<string, string[]>(),
   };
   return { ...defaults, ...overrides };

@@ -1,12 +1,13 @@
 // packages/cli/src/assembler/testUtils.ts
 import fs from "fs";
 import path from "path";
-import { assemble, runAnalyze, runEmit } from "../cli/mz80-as";
+import { assemble, runEmit } from "../cli/mz80-as";
 import { createContext, type AsmContext } from "./context";
 import { initCodegen } from "./codegen/emit";
 import { setPhase } from "./phaseManager";
 import { tokenize } from "./tokenizer";
 import { parse } from "./parser";
+import { runAnalyze } from "./analyze";
 
 /**
  * 簡易アセンブル関数。

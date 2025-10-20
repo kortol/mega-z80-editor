@@ -22,6 +22,13 @@ export interface RelAdapter {
   write(file: RelFile): string | Buffer;
 }
 
+export interface RelocEntry {
+  addr: number;
+  symbol: string;
+  size: number;
+  addend?: number;
+}
+
 // ================================================================
 // 🧩 v2 Relocation Format (multi-section)
 // ================================================================

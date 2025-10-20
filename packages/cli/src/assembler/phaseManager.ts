@@ -5,7 +5,7 @@ export type AsmPhase =
   | "tokenize"
   | "parse"
   | "analyze"
-  | "macro"
+  | "macroExpand"
   | "emit"
   | "optimize"
   | "link";
@@ -16,9 +16,9 @@ export type AsmPhase =
  */
 export const validTransitions: Record<AsmPhase, AsmPhase[]> = {
   tokenize: ["parse", "tokenize"], // tokenize -> tokenize
-  parse: ["analyze"],
-  analyze: ["macro", "emit"],
-  macro: ["analyze", "emit"],
+  parse: ["macroExpand", "analyze"],
+  analyze: ["macroExpand", "emit"],
+  macroExpand: ["analyze", "emit"],
   emit: ["optimize", "link"], // pass emit -> link
   optimize: ["link", "emit"],
   link: [],

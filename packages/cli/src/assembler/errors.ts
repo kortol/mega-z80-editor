@@ -40,6 +40,13 @@ export enum AssemblerErrorCode {
   // Section 系
   OrgBackward = "A6000",    // ORGが後退
 
+  // --- Macro 系 ---
+  MacroMissingName = "A7000",         // MACRO の前にラベルがない
+  MacroNestedNotAllowed = "A7001",    // ネストした MACRO 定義
+  MacroEndmMissing = "A7002",         // ENDM が見つからない
+  MacroGarbageAfterEndm = "A7003",    // ENDM の後に余分なトークン
+  MacroRedefined = "A7004",           // 同名マクロの再定義（Stage2以降で利用予定）
+
   // Branch 系
   OutOfRange8 = "A8000",
   OutOfRangeRel = "A8001",

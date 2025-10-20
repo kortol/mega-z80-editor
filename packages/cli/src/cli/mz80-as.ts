@@ -11,6 +11,8 @@ import { initCodegen } from "../assembler/codegen/emit";
 import { setPhase } from "../assembler/phaseManager";
 import { Logger } from "../logger";
 import { writeLstFile, writeLstFileV2 } from "../assembler/output/listing";
+import { runAnalyze } from "../assembler/analyze";
+import { expandMacros } from "../assembler/macro";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -106,6 +108,10 @@ export function assemble(
   ctx.nodes = parse(ctx, ctx.tokens);
   ctx.source = source;
 
+  // --- 🧩 PHASE: macro-expand (P2-E-03) ---
+  setPhase(ctx, "macroExpand");
+  expandMacros(ctx);             // ← ここを追加！
+
   // --- PHASE: analyze ---
   setPhase(ctx, "analyze");
   runAnalyze(ctx);
@@ -121,25 +127,27 @@ export function assemble(
   return ctx;
 }
 
-export function runAnalyze(ctx: AsmContext) {
-  ctx.loc = 0;
-  for (const node of ctx.nodes ?? []) {
-    switch (node.kind) {
-      case "label":
-        defineSymbol(ctx, node.name, ctx.loc, "LABEL");
-        break;
-      case "pseudo":
-        handlePseudo(ctx, node);  // EQU などはここで確定
-        break;
-      case "instr":
-        ctx.loc += estimateInstrSize(ctx, node);
-        break;
-    }
-  }
-}
+// export function runAnalyze(ctx: AsmContext) {
+//   ctx.loc = 0;
+//   for (const node of ctx.nodes ?? []) {
+//     switch (node.kind) {
+//       case "label":
+//         defineSymbol(ctx, node.name, ctx.loc, "LABEL");
+//         break;
+//       case "pseudo":
+//         handlePseudo(ctx, node);  // EQU などはここで確定
+//         break;
+//       case "instr":
+//         ctx.loc += estimateInstrSize(ctx, node);
+//         break;
+//     }
+//   }
+// }
 
 export function runEmit(ctx: AsmContext) {
   ctx.loc = 0;
+  ctx.relocs = [];
+  ctx.unresolved = [];
   for (const sec of ctx.sections.values()) {
     sec.lc = 0;
     sec.bytes = [];

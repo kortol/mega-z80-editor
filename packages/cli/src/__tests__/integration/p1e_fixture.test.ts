@@ -6,7 +6,6 @@ import { initCodegen } from "../../assembler/codegen/emit";
 import { setPhase } from "../../assembler/phaseManager";
 import { tokenize } from "../../assembler/tokenizer";
 import { parse } from "../../assembler/parser";
-import { runAnalyze } from "../../cli/mz80-as";
 
 describe("P1-E Fixture Integration", () => {
   it("should generate correct number of R records", () => {

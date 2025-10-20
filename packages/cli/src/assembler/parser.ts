@@ -3,7 +3,12 @@ import { AssemblerErrorCode, makeError } from "./errors";
 import { handleInclude } from "./pseudo/include";
 import { Token } from "./tokenizer";
 
-export type Node = NodeInstr | NodePseudo | NodeLabel;
+export type Node =
+  NodeInstr |
+  NodePseudo |
+  NodeLabel |
+  NodeMacroDef |
+  NodeMacroInvoke;
 
 export interface NodeInstr {
   kind: "instr";
@@ -30,6 +35,21 @@ export interface NodeLabel {
   pos: SourcePos;
 }
 
+export interface NodeMacroDef {
+  kind: "macroDef";
+  name: string;
+  bodyTokens: Token[];
+  startPos: SourcePos;
+  endPos: SourcePos;
+  pos: SourcePos;
+}
+
+export interface NodeMacroInvoke {
+  kind: "macroInvoke";
+  name: string;
+  pos: SourcePos;
+}
+
 export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 
   const nodes: Node[] = [];
@@ -37,6 +57,11 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 
   function flushLine() {
     if (line.length === 0) return nodes;
+
+    // --- ENDM行は無視（MACRO定義の終端なので通常命令扱いしない） ---
+    if (line.length === 1 && line[0].kind === "ident" && line[0].text.toUpperCase() === "ENDM") {
+      return nodes;
+    }
 
     // ラベル（ident + colon）
     if (
@@ -66,6 +91,61 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       });
       line = afterColon;
       if (line.length === 0) return nodes;
+    }
+
+    // --- MACRO / ENDM 構文解析 (Stage 1: 引数なし, ネストなし) ---
+    if (
+      line.length >= 2 &&
+      line[0].kind === "ident" &&
+      line[1].kind === "ident" &&
+      line[1].text.toUpperCase() === "MACRO"
+    ) {
+      const macroName = line[0].text;
+      const startPos = line[0].pos;
+
+      const bodyTokens: Token[] = [];
+      let foundEndm = false;
+
+      // flushLine()の外側のtokens配列を使って
+      // 残り行をスキャンする
+      for (let i = tokens.indexOf(line[line.length - 1]) + 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.kind === "ident" && t.text.toUpperCase() === "MACRO") {
+          // ネスト禁止
+          throw makeError(
+            AssemblerErrorCode.MacroNestedNotAllowed,
+            `Nested MACRO not allowed (inside ${macroName})`,
+            { pos: t.pos }
+          );
+        }
+        if (t.kind === "ident" && t.text.toUpperCase() === "ENDM") {
+          foundEndm = true;
+          const endPos = t.pos;
+          nodes.push({
+            kind: "macroDef",
+            name: macroName,
+            bodyTokens,
+            startPos,
+            endPos,
+            pos: startPos,
+          });
+          // ENDMまで読み飛ばし
+          // → tokens配列の処理ポインタを ENDM 位置までスキップ
+          // flushLine用のlineを空にして復帰
+          line = [];
+          return nodes;
+        }
+        bodyTokens.push(t);
+      }
+
+      // EOFまでENDMが見つからなかった場合
+      if (!foundEndm) {
+        throw makeError(
+          AssemblerErrorCode.MacroEndmMissing,
+          `Missing ENDM for macro '${macroName}'`,
+          { pos: startPos }
+        );
+      }
     }
 
     if (line[0].kind !== "ident") {
@@ -163,6 +243,9 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         args: pseudoArgs,
         pos: line[0].pos,
       });
+
+      // 🟩 疑似命令はここで処理完了なので return する！
+      return nodes;
     } else if (isInstr(op)) {
       nodes.push({
         kind: "instr",
@@ -170,9 +253,36 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
         args,
         pos: line[0].pos,
       });
-    } else {
-      throw new Error(`Unknown operation '${op}' at line ${line[0].pos.line}`);
+      // 🟩 疑似命令はここで処理完了なので return する！
+      return nodes;
     }
+
+    // --- マクロ呼び出し（定義は先行している前提 / 引数なし） ---
+    const definedMacro = nodes.find(
+      (n) => n.kind === "macroDef" && (ctx.caseInsensitive
+        ? (n as NodeMacroDef).name.toUpperCase() === op
+        : (n as NodeMacroDef).name === line[0].text)
+    ) as NodeMacroDef | undefined;
+
+    if (definedMacro) {
+      // Stage1: 引数禁止。オペランドが付いていたらエラーにする
+      if (line.length > 1) {
+        throw makeError(
+          AssemblerErrorCode.SyntaxError,
+          `Macro '${definedMacro.name}' does not take arguments (Stage 1)`,
+          { pos: line[0].pos }
+        );
+      }
+      nodes.push({
+        kind: "macroInvoke",
+        name: definedMacro.name,
+        pos: line[0].pos,
+      });
+      return nodes;
+    }
+
+    throw new Error(`Unknown operation '${op}' at line ${line[0].pos.line}`);
+
   }
 
   for (const tok of tokens) {
@@ -236,7 +346,6 @@ function isPseudo(op: string): boolean {
     "EQU",
     ".WORD32",
     ".SYMLEN",
-    "END",
     "EXTERN",
     "SECTION",
     "INCLUDE",

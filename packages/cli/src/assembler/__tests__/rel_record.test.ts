@@ -11,9 +11,12 @@ describe("P1-E: Relocation Record Generation", () => {
       END
     `;
     const ctx = assembleSource(phaseEmit, src);
+    // console.log(ctx);
 
     const rel = buildRelFile(ctx);
+    // console.log(rel);
     const rRecords = rel.records.filter(r => r.kind === "R");
+    // console.log(rRecords);
 
     // ✅ Rレコードが1件あること
     expect(rRecords.length).toBe(1);

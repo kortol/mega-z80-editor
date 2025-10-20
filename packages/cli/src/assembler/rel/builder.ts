@@ -63,6 +63,11 @@ export function buildRelFile(ctx: AsmContext): RelFile {
     records.push({ kind: "T", addr: t.addr, bytes: t.data });
   }
 
+  // // R
+  // for (const r of ctx.relocs) {
+  //   records.push({ kind: "R", addr: r.addr, sym: r.sym, size: r.size });
+  // }
+
   // S
   for (const [sym, entry] of ctx.symbols.entries()) {
     const addr = typeof entry === "number" ? entry : entry.value;

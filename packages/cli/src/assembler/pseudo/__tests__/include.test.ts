@@ -25,12 +25,12 @@ describe("P2-D-EX-01: INCLUDE loop detection", () => {
     ctx.currentPos.file = fileA;
     const src = fs.readFileSync(fileA, "utf8");
     const tokens = tokenize(ctx, src);
-    console.log(ctx);
+    // console.log(ctx);
     expect(() => parse(ctx, tokens)).toThrow(
       expect.objectContaining({
         code: AssemblerErrorCode.IncludeLoop,
       }));
-    console.log(ctx);
+    // console.log(ctx);
     expect(ctx.includeStack.length).toBe(0); // stack 復帰確認
   });
 });
