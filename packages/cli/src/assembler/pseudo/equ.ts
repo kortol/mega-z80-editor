@@ -1,6 +1,6 @@
 import { AsmContext, defineSymbol } from "../context";
 import { NodePseudo } from "../parser";
-import { makeError, AssemblerErrorCode } from "../errors";
+import { makeError, AssemblerErrorCode, makeWarning } from "../errors";
 import { parseNumber } from "../tokenizer";
 
 export function handleEQU(ctx: AsmContext, node: NodePseudo) {
@@ -20,7 +20,13 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
   // シンボル長制限
   if (sym.length > ctx.modeSymLen) {
     const truncated = sym.substring(0, ctx.modeSymLen);
-    ctx.warnings?.push?.(`Symbol '${sym}' truncated to '${truncated}'`);
+    ctx.warnings.push(
+      makeWarning(
+        AssemblerErrorCode.ExprOutRange,
+        `Symbol '${sym}' truncated to '${truncated}'`,
+        { pos: ctx.currentPos }
+      )
+    );
     sym = truncated; // ← 登録キーを更新
   }
   // 即値を評価（EQUは式を許可しない）

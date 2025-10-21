@@ -10,33 +10,37 @@ export function runAnalyze(ctx: AsmContext) {
 
   for (const node of ctx.nodes ?? []) {
     switch (node.kind) {
-      // --- 🧩 マクロ定義登録 (P2-E-02) ---
-      case "macroDef": {
-        const name = ctx.caseInsensitive
-          ? node.name.toUpperCase()
-          : node.name;
+      // // --- 🧩 マクロ定義登録 (P2-E-02) ---
+      // case "macroDef": {
+      //   const name = ctx.caseInsensitive
+      //     ? node.name.toUpperCase()
+      //     : node.name;
 
-        if (ctx.macroTable.has(name)) {
-          ctx.errors.push(
-            makeError(
-              AssemblerErrorCode.MacroRedefined,
-              `Macro '${name}' already defined`,
-              { pos: node.pos }
-            )
-          );
-          break;
-        }
+      //   if (ctx.macroTable.has(name)) {
+      //     ctx.errors.push(
+      //       makeError(
+      //         AssemblerErrorCode.MacroRedefined,
+      //         `Macro '${name}' already defined`,
+      //         { pos: node.pos }
+      //       )
+      //     );
+      //     break;
+      //   }
 
-        ctx.macroTable.set(name, {
-          name,
-          params: node.params ?? [],
-          bodyTokens: node.bodyTokens,
-          defPos: node.pos,
-        });
+      //   ctx.macroTable.set(name, {
+      //     name,
+      //     params: node.params ?? [],
+      //     bodyTokens: node.bodyTokens,
+      //     defPos: node.pos,
+      //   });
 
-        if (ctx.verbose) ctx.logger?.info?.(`Registered macro: ${name}`);
+      //   if (ctx.verbose) ctx.logger?.info?.(`Registered macro: ${name}`);
+      //   break;
+      // }
+      // --- 🧩 マクロ定義は macroExpand フェーズで処理する ---
+      case "macroDef":
+        // ここでは登録せずスキップ
         break;
-      }
 
       // --- 既存処理 ---
       case "label":

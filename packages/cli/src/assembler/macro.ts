@@ -1,7 +1,8 @@
-import { AsmContext, SourcePos } from "./context";
+import { AsmContext, canon, SourcePos } from "./context";
 import { Node, NodeMacroDef, NodeMacroInvoke, parse } from "./parser";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { Token } from "./tokenizer";
+import { defineMacro } from "./macro/defineMacro";
 
 /** pos.parent を付与してトークンを複製 */
 function cloneTokensWithParent(tokens: Token[], parent: SourcePos): Token[] {
@@ -59,6 +60,37 @@ function rewriteTokensForMacro(
 
 export function expandMacros(ctx: AsmContext): void {
   if (!ctx.nodes) return;
+
+  // --- 🧩 1. マクロ定義ノードを登録（未登録のみ） ---
+  for (const n of ctx.nodes) {
+    if (n.kind === "macroDef") {
+      const def = n as NodeMacroDef;
+      const key = canon(def.name, ctx);
+
+      // 既存登録の有無にかかわらず defineMacro() を呼ぶ
+      // → defineMacro() 内で再定義を検出（A7004）する      
+      defineMacro(def.name, def.params, def.bodyTokens, ctx, def.pos);
+    }
+  }
+
+  // --- 🧩 2. M80互換モード: 命令ノードがマクロ名と一致する場合、マクロ呼び出しとして扱う ---
+  if (!ctx.options.strictMacro) {
+    for (let i = 0; i < ctx.nodes.length; i++) {
+      const n = ctx.nodes[i];
+      if (n.kind === "instr") {
+        const key = canon(n.op, ctx);
+        if (ctx.macroTable?.has(key)) {
+          const def = ctx.macroTable.get(key)!;
+          ctx.nodes[i] = {
+            kind: "macroInvoke",
+            name: def.name,
+            args: n.args ?? [],
+            pos: n.pos,
+          } as NodeMacroInvoke;
+        }
+      }
+    }
+  }
 
   const out: Node[] = [];
   ctx.expansionStack ??= [];

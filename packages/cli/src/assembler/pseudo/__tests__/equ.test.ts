@@ -54,6 +54,6 @@ describe("pseudo - EQU", () => {
         // シンボルは先頭4文字に切り捨て
         expect(ctx.symbols.get("TOOL")?.value).toBe(1);
         // 警告が残っていることを確認
-        expect(ctx.warnings?.[0]).toMatch(/truncated/i);
+        expect(ctx.warnings[0].message).toMatch(/truncated/i);
     });
 });

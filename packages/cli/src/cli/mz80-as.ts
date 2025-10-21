@@ -3,7 +3,7 @@ import { parse } from "../assembler/parser";
 import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
-import { AsmContext, createContext, defineSymbol } from "../assembler/context";
+import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
@@ -79,12 +79,12 @@ export function assemble(
   logger: Logger,
   inputFile: string,
   outputFile: string,
-  options?: { verbose?: boolean; relVersion?: number }
+  options: AsmOptions,
 ): AsmContext {
-  const verbose = options?.verbose ?? false;
+  const verbose = options.verbose ?? false;
   const ctx = createContext({
     moduleName: path.basename(inputFile).replace(/\..*$/, "").toUpperCase(),
-    output: { relVersion: options?.relVersion ?? 1 },
+    output: { relVersion: options.relVersion ?? 1 },
     verbose,
     inputFile,
     logger,

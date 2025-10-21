@@ -1,3 +1,4 @@
+// src/assembler/tokenizer.ts
 import { AsmContext, cloneSourcePos, SourcePos } from "./context";
 
 export type TokenKind =
@@ -135,20 +136,53 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
 
 
       // %の場合、%(0|1)+は数値でそれ以外はoperator
+      // if (rest[0] === "%") {
+      //   const m = /^(%[01]+)/.exec(rest);
+      //   if (m) {
+      //     const text = m[1];
+      //     const value = parseNumber(text); // parseNumber が throw する場合は即エラー
+      //     tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
+      //     ctx.currentPos.column += text.length;
+      //     continue;
+      //   } else {
+      //     tokens.push({ kind: "op", text: "%", pos: cloneSourcePos(ctx.currentPos) });
+      //     ctx.currentPos.column += 1;
+      //     continue;
+      //   }
+      // }
+      // --- % の特別処理 ---
       if (rest[0] === "%") {
-        const m = /^(%[01]+)/.exec(rest);
-        if (m) {
-          const text = m[1];
-          const value = parseNumber(text); // parseNumber が throw する場合は即エラー
+        // 連続する %（%%...）はローカルラベル識別子として扱う
+        const percents = rest.match(/^%+/)?.[0] ?? "";
+        const after = rest.slice(percents.length);
+
+        // case1: %%で始まるローカルラベル
+        if (percents.length >= 2 && /^[A-Za-z_]/.test(after)) {
+          const labelMatch = rest.match(/^%+[A-Za-z0-9_]+/);
+          if (labelMatch) {
+            const text = labelMatch[0];
+            tokens.push({ kind: "ident", text, pos: cloneSourcePos(ctx.currentPos) });
+            ctx.currentPos.column += text.length;
+            continue;
+          }
+        }
+
+        // case2: %0101（二進数）
+        const binMatch = /^(%[01]+)/.exec(rest);
+        if (binMatch) {
+          const text = binMatch[1];
+          const value = parseNumber(text);
           tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
           ctx.currentPos.column += text.length;
           continue;
-        } else {
-          tokens.push({ kind: "op", text: "%", pos: cloneSourcePos(ctx.currentPos) });
-          ctx.currentPos.column += 1;
-          continue;
         }
+
+        // その他は演算子として扱う
+        tokens.push({ kind: "op", text: "%", pos: cloneSourcePos(ctx.currentPos) });
+        ctx.currentPos.column += 1;
+        continue;
       }
+
 
       // --- 数値または識別子（$,%含む） ---
       const m = /^([A-Za-z0-9_\$][A-Za-z0-9_.]*)/.exec(rest);

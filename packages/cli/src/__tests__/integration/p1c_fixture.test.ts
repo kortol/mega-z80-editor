@@ -22,7 +22,7 @@ describe("P1-C integration fixture", () => {
 
   test("assemble fixture to .rel", () => {
     const logger = new Logger();
-    assemble(logger, asmFile, relFile);
+    assemble(logger, asmFile, relFile, {});
     const relText = readFileText(relFile);
     // console.log(relText);
 

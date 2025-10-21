@@ -35,9 +35,11 @@ ENDM
     const tokens = tokenize(ctx, src);
     const nodes = parse(ctx, tokens);
     ctx.nodes = nodes;
-    expandMacros(ctx);   // ★ ここで展開
-    runAnalyze(ctx);
+
+    expandMacros(ctx);   // 登録と再定義チェックがここで発生
+    console.log(ctx);
+
     const err = ctx.errors.find(e => e.code === "A7004");
-    expect(err).toBeTruthy();
+    expect(err).toBeTruthy();  // defineMacro内で検出    
   });
 });

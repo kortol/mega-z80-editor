@@ -57,6 +57,15 @@ export function encodeInstr(ctx: AsmContext, node: NodeInstr) {
   return encodeLegacyInstr(ctx, node);
 }
 
+export function getZ80OpcodeTable(): Map<string, any> {
+  const table = new Map<string, any>();
+  const keys = Object.keys(instrTable);
+  for (const key of keys) {
+    table.set(key.toUpperCase(), instrTable[key]);
+  }
+  return table;
+}
+
 export function encodeLegacyInstr(ctx: AsmContext, node: NodeInstr) {
   switch (node.op) {
     case "LD":

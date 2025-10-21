@@ -15,9 +15,9 @@ FILLZ MACRO COUNT,VAL
 FILLZ 10,0
 `;
     const ctx = assembleSource(phaseEmit, src);
-    console.log(ctx);
+    // console.log(ctx);
     const txt = ctx.texts.map(t => t.data).flat();
-    console.log(txt);
+    // console.log(txt);
     expect(txt).toContain(0x06); // LD B,n
     expect(txt).toContain(0x36); // LD (HL),n
   });

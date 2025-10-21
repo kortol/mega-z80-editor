@@ -3,7 +3,7 @@ import path from "path";
 import { tokenize } from "../tokenizer";
 import { parse } from "../parser";
 import { AsmContext, cloneSourcePos, createSourcePos } from "../context";
-import { AssemblerErrorCode, makeError } from "../errors";
+import { AssemblerErrorCode, makeError, makeWarning } from "../errors";
 
 // 🔹 パス解決（相対／INCLUDEPATH対応）
 function resolveIncludePath(fileName: string, ctx: AsmContext): string | null {
@@ -39,7 +39,13 @@ export function handleInclude(node: any, ctx: AsmContext): any[] {
 
   // 重複防止
   if (ctx.includeCache.has(absPath)) {
-    ctx.warnings.push(`Duplicate include skipped: ${absPath}`);
+    ctx.warnings.push(
+      makeWarning(
+        AssemblerErrorCode.IncludeDuplicate,
+        `Duplicate include skipped: ${absPath}`,
+        { pos: ctx.currentPos }
+      )
+    );
     return [];
   }
 

@@ -2,6 +2,7 @@
 import { advanceLC, emitBytes, emitFixup, emitGap, emitWord, getLC } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { resolveExpr16, resolveExpr8 } from "../encoder/utils";
+import { AssemblerErrorCode, makeWarning } from "../errors";
 import { parseExternExpr } from "../expr/parseExternExpr";
 import { NodePseudo } from "../parser";
 
@@ -69,7 +70,12 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
     // --- 通常の式 (例: 1+2*3) ---
     const val = resolveExpr8(ctx, valStr, node.pos);
     if (val < 0 || val > 0xff) {
-      ctx.warnings?.push?.(`DB value ${val} truncated at line ${node.pos.line}`);
+      ctx.warnings.push(
+        makeWarning(
+          AssemblerErrorCode.ExprOutRange,
+          `DB value ${val} truncated at line ${node.pos.line}`,
+          { pos: ctx.currentPos })
+      );
     }
     bytes.push(val & 0xFF);
   }
@@ -128,7 +134,12 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
     // --- 通常の式（Reloc禁止で評価） ---
     const val = resolveExpr16(ctx, valStr, node.pos, false, true);
     if (val < -0x8000 || val > 0xffff) {
-      ctx.warnings?.push?.(`DW value ${val} truncated at line ${node.pos.line}`);
+      ctx.warnings.push(
+        makeWarning(
+          AssemblerErrorCode.ExprOutRange,
+          `DW value ${val} truncated at line ${node.pos.line}`,
+          { pos: ctx.currentPos })
+      );
     }
     words.push(val);
   }

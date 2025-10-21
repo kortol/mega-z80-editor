@@ -1,10 +1,19 @@
 // packages\cli\src\assembler\context.ts
 import { Logger } from "../logger";
-import { AssemblerError } from "./errors";
+import { getZ80OpcodeTable } from "./encoder";
+import { AssemblerError, AssemblerErrorCode, makeWarning } from "./errors";
 import { Node } from "./parser";
 import { AsmPhase } from "./phaseManager";
 import { RelocEntry } from "./rel/types";
 import { Token } from "./tokenizer";
+
+export type AsmOptions = {
+  caseSensitive?: boolean;   // 既定 false
+  strictMacro?: boolean;     // 既定 false（M80互換: マクロ優先）
+  // ...他既存
+  relVersion?: number;       // Relファイルバージョン
+  verbose?: boolean;         // verboseフラグ
+};
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
 export interface SymbolEntry {
@@ -58,6 +67,13 @@ export interface MacroDef {
   defPos: SourcePos;
 }
 
+// 命令定義テーブル型（省略でも可）
+export type OpcodeDef = {
+  mnemonic: string;
+  encode: Function;
+  bytes?: number[];
+};
+
 export interface OutputInfo {
   /** 出力フォーマットバージョン (1=旧, 2=multi-section) */
   relVersion: number;
@@ -102,7 +118,7 @@ export interface AsmContext {
   maxSymbolLen?: number; // 許可されるシンボル名の最大長 (未設定なら無制限扱い)
   entry?: number; // エントリポイント (END 疑似命令で指定された場合に設定)
   externs: Set<string>; // EXTERN 宣言された外部シンボル一覧 (リンカで解決する対象)
-  options?: { verbose?: boolean }; // アセンブル時オプション
+  options: AsmOptions; // アセンブル時オプション
   sourceLines?: string[]; // 元ソース行を保持（.lst生成用）
   sections: Map<number, SectionState>; // セクションIDをキーとしたセクション状態のマップ
   output: OutputInfo;
@@ -131,9 +147,12 @@ export interface AsmContext {
   macroTable: Map<string, MacroDef>;
   expansionStack: string[]; // マクロ展開スタック（循環検知）
 
+  // --- 命令定義テーブル ---
+  opcodes: Map<string, OpcodeDef>,
+
   // --- エラー／診断 ---
   errors: AssemblerError[]; // エラーメッセージのリスト (コンパイル中に収集)
-  warnings: string[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
+  warnings: AssemblerError[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
 
   sourceMap: Map<string, string[]>; // ソースキャッシュ
 }
@@ -172,7 +191,9 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     sectionStack: [],
     macroTable: new Map<string, MacroDef>(),
     expansionStack: [],
+    opcodes: getZ80OpcodeTable(),
     sourceMap: new Map<string, string[]>(),
+    options: {},
   };
   return { ...defaults, ...overrides };
 }
@@ -192,10 +213,14 @@ export function defineSymbol(
   const existing = ctx.symbols.get(name);
 
   if (existing) {
-    ctx.warnings?.push?.(
-      `Symbol redefined: ${name} (old=${existing.value.toString(
-        16
-      )}, new=${value.toString(16)})`
+    ctx.warnings.push(
+      makeWarning(
+        AssemblerErrorCode.RedefSymbol,
+        `Symbol redefined: ${name} (old=${existing.value.toString(
+          16
+        )}, new=${value.toString(16)})`,
+        { pos: ctx.currentPos },
+      )
     );
   }
 
@@ -230,3 +255,7 @@ export function cloneSourcePos(pos: SourcePos): SourcePos {
 export function createSourcePos(file: string, line: number, column: number, parent?: SourcePos): SourcePos {
   return { file, line, column, parent };
 }
+
+// 共通のキー正規化
+export const canon = (s: string, ctx: AsmContext) =>
+  ctx.options.caseSensitive ? s : s.toUpperCase();
