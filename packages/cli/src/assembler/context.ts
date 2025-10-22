@@ -1,7 +1,7 @@
 // packages\cli\src\assembler\context.ts
 import { Logger } from "../logger";
 import { getZ80OpcodeTable } from "./encoder";
-import { AssemblerError, AssemblerErrorCode, makeWarning } from "./errors";
+import { AssemblerError, AssemblerErrorCode, makeError, makeWarning } from "./errors";
 import { Node } from "./parser";
 import { AsmPhase } from "./phaseManager";
 import { RelocEntry } from "./rel/types";
@@ -145,6 +145,7 @@ export interface AsmContext {
 
   // --- マクロ管理 ---
   macroTable: Map<string, MacroDef>;
+  macroTableStack: Map<string, MacroDef>[];
   expansionStack: string[]; // マクロ展開スタック（循環検知）
 
   // --- 命令定義テーブル ---
@@ -163,6 +164,7 @@ export interface AsmContext {
  * オプション指定した項目のみ上書き可能。
  */
 export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
+  const base = new Map<string, MacroDef>();
   const defaults: AsmContext = {
     loc: 0,
     moduleName: "NONAME",
@@ -189,7 +191,8 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     includeStack: [],
     includeCache: new Set<string>(),
     sectionStack: [],
-    macroTable: new Map<string, MacroDef>(),
+    macroTable: base,
+    macroTableStack: [base],
     expansionStack: [],
     opcodes: getZ80OpcodeTable(),
     sourceMap: new Map<string, string[]>(),
@@ -259,3 +262,30 @@ export function createSourcePos(file: string, line: number, column: number, pare
 // 共通のキー正規化
 export const canon = (s: string, ctx: AsmContext) =>
   ctx.options.caseSensitive ? s : s.toUpperCase();
+
+// --- ヘルパ ---
+export function pushMacroScope(ctx: AsmContext) {
+  const newScope = new Map<string, MacroDef>();
+  ctx.macroTableStack.push(newScope);
+  ctx.macroTable = newScope;
+}
+
+export function popMacroScope(ctx: AsmContext, promote: boolean) {
+  if (ctx.macroTableStack.length <= 1) return;
+  const top = ctx.macroTableStack.pop()!;
+  const parent = ctx.macroTableStack.at(-1)!;
+  if (promote) {
+    for (const [k, def] of top.entries()) {
+      if (parent.has(k)) {
+        ctx.errors.push(makeError(
+          AssemblerErrorCode.MacroRedefined,
+          `Macro '${def.name}' already defined`,
+          { pos: def.defPos }
+        ));
+        continue;
+      }
+      parent.set(k, def);
+    }
+  }
+  ctx.macroTable = parent;
+}

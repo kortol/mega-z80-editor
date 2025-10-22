@@ -1,4 +1,4 @@
-import { AsmContext, canon, SourcePos } from "./context";
+import { AsmContext, canon, MacroDef, SourcePos } from "./context";
 import { Node, NodeMacroDef, NodeMacroInvoke, parse } from "./parser";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { Token } from "./tokenizer";
@@ -14,7 +14,7 @@ function cloneTokensWithParent(tokens: Token[], parent: SourcePos): Token[] {
 
 /** 引数とローカルラベルを置換したトークン列を生成 */
 function rewriteTokensForMacro(
-  def: NodeMacroDef,
+  def: MacroDef,
   inv: NodeMacroInvoke
 ): Token[] {
   const argMap = new Map<string, string>();
@@ -106,6 +106,15 @@ export function expandMacros(ctx: AsmContext): void {
     ) as NodeMacroDef | undefined;
   };
 
+  function getDefByName(ctx: AsmContext, name: string): MacroDef | undefined {
+    const key = canon(name, ctx);
+    for (let i = ctx.macroTableStack.length - 1; i >= 0; i--) {
+      const def = ctx.macroTableStack[i].get(key);
+      if (def) return def;
+    }
+    return undefined;
+  }
+
   for (const n of ctx.nodes) {
     if (n.kind !== "macroInvoke") {
       out.push(n);
@@ -113,7 +122,7 @@ export function expandMacros(ctx: AsmContext): void {
     }
 
     const inv = n as NodeMacroInvoke;
-    const def = getDef(inv.name);
+    const def = getDefByName(ctx, inv.name);
     if (!def) {
       ctx.errors.push(
         makeError(
