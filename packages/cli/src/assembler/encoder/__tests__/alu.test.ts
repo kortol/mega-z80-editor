@@ -9,7 +9,7 @@ function makeCtx(): AsmContext {
   return ctx;
 }
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 

@@ -25,7 +25,7 @@ function assemble(ctx: AsmContext, src: string) {
 describe("END pseudo", () => {
   test("END無し → Eレコードなし", () => {
     const ctx = makeCtx();
-    ctx.texts.push({ addr: 0x100, data: [0x3E, 0x01], pos: { line: 1, file: "test.asm" } });
+    ctx.texts.push({ addr: 0x100, data: [0x3E, 0x01], pos: { line: 1, file: "test.asm", phase: "emit" } });
     const file = buildRelFile(ctx);
     const out = new TextRelAdapter().write(file);
     expect(out).not.toMatch(/^E/);

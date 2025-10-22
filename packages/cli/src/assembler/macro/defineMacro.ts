@@ -2,7 +2,14 @@ import { AssemblerErrorCode, makeWarning } from "../errors";
 import { AsmContext, canon, SourcePos } from "../context";
 import { Token } from "../tokenizer";
 
-export function defineMacro(name: string, params: string[], bodyTokens: Token[], ctx: AsmContext, defPos: SourcePos) {
+export function defineMacro(
+  name: string,
+  params: string[],
+  bodyTokens: Token[],
+  ctx: AsmContext,
+  defPos: SourcePos,
+  isLocal = false,
+) {
   const key = canon(name, ctx);
 
   // --- すでに登録済みならスキップ（同一位置は二重登録とみなさない） ---
@@ -25,7 +32,7 @@ export function defineMacro(name: string, params: string[], bodyTokens: Token[],
     return;
   }
 
-  // 命令と衝突
+  // --- 命令名衝突チェック ---
   if (ctx.opcodes.has(key)) {
     if (ctx.options.strictMacro) {
       ctx.errors.push({
@@ -45,5 +52,5 @@ export function defineMacro(name: string, params: string[], bodyTokens: Token[],
     }
   }
 
-  ctx.macroTable.set(key, { name, params, bodyTokens, defPos });
+  ctx.macroTable.set(key, { name, params, bodyTokens, defPos, isLocal });
 }

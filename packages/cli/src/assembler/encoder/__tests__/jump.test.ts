@@ -10,7 +10,7 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -27,7 +27,7 @@ describe("Jump/Call/Return", () => {
     expect(ctx.texts[0].data).toEqual([0xcd, 0x00, 0x00]);
     expect(ctx.unresolved).toEqual([{
       addr: 1, symbol: "BDOS", size: 2, addend: 0, requester: {
-        op: "ENCODER", phase: "assemble", pos: { line: 1, file: "test.asm" }
+        op: "ENCODER", phase: "assemble", pos: { line: 1, file: "test.asm", phase: "analyze" }
       }
     }]);
   });

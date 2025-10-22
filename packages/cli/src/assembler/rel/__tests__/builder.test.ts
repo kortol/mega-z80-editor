@@ -3,7 +3,7 @@ import { buildRelFile, RelBuilder } from "../builder";
 import { TextRelAdapter } from "../adapter";
 import { AsmContext, createContext, defineSymbol, SourcePos } from "../../context";
 
-const pos: SourcePos = { file: "", line: 0 };
+const pos: SourcePos = { file: "", line: 0, phase: "emit" };
 
 function makeCtx(): AsmContext {
   const ctx = createContext({

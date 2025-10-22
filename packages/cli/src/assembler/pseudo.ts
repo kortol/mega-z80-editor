@@ -66,7 +66,7 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
 
       // --- 🧩 既存の include 機構を利用 ---
       const includeNode = { kind: "pseudo", op: "INCLUDE", args: node.args, pos: node.pos } as NodePseudo;
-      const includedNodes = handleInclude(includeNode, ctx);
+      const includedNodes = handleInclude(ctx, includeNode);
 
       // --- 🧩 INCLUDE内部をマクロ展開・解析 ---
       const savedNodes = ctx.nodes ?? [];

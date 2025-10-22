@@ -43,6 +43,7 @@ export interface NodeMacroDef {
   startPos: SourcePos;
   endPos: SourcePos;
   pos: SourcePos;
+  isLocal?: boolean;
 }
 
 export interface NodeMacroInvoke {
@@ -104,16 +105,38 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       if (line.length === 0) return nodes;
     }
 
-    // --- MACRO / ENDM 構文解析 (Stage 1: 引数なし, ネストなし) ---
+    console.log("[flushLine:before]", line.map(t => t.text));
+    // --- MACRO / LOCALMACRO 構文解析 (Stage 2) ---
     if (
       line.length >= 2 &&
-      line[0].kind === "ident" &&
-      line[1].kind === "ident" &&
-      line[1].text.toUpperCase() === "MACRO"
+      (
+        (
+          line[0].kind === "ident" &&
+          line[1].kind === "ident" &&
+          line[1].text.toUpperCase() === "MACRO"
+        ) || (
+          line[0].kind === "ident" &&
+          line[0].text.toUpperCase() === "LOCALMACRO" &&
+          line[1].kind === "ident"
+        )
+      )
     ) {
-      const macroName = line[0].text;
+      const isLocal = line[0].text.toUpperCase() === "LOCALMACRO";
+      const macroName = isLocal ? line[1].text : line[0].text;
+      const identPos = isLocal ? 0 : 1;
       const startPos = line[0].pos;
 
+      // 🟩 修正：LOCALMACROはbodyTokensに残すだけで定義ノードをここで作らない
+      if (isLocal) {
+        // 外側マクロのbody内で現れたローカル定義は
+        // ここではパースしない（ENDMまで読むのはexpandMacrosで行う）
+        for (const tok of line) {
+          nodes.push(tok as any); // or ignore; depends on how tokens are aggregated
+        }
+        return nodes;
+      }
+
+      console.log(`[parser] define macro start: ${macroName} local=${isLocal}`);
       const params: string[] = [];
       // 残りトークンをカンマ区切りでパラメタ抽出
       const rawParams = line.slice(2).map(t => t.text).join(" ");
@@ -123,7 +146,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
             throw makeError(
               AssemblerErrorCode.MacroInvalidParamName,
               `Invalid macro parameter name: ${p}`,
-              { pos: line[0].pos }
+              { pos: line[identPos].pos }
             );
           }
           params.push(p);
@@ -132,38 +155,43 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 
       const bodyTokens: Token[] = [];
       let foundEndm = false;
+      let macroDepth = 0;
 
       // flushLine()の外側のtokens配列を使って
       // 残り行をスキャンする
       for (let i = tokens.indexOf(line[line.length - 1]) + 1; i < tokens.length; i++) {
         const t = tokens[i];
-        if (t.kind === "ident" && t.text.toUpperCase() === "MACRO") {
-          // ネスト禁止
-          throw makeError(
-            AssemblerErrorCode.MacroNestedNotAllowed,
-            `Nested MACRO not allowed (inside ${macroName})`,
-            { pos: t.pos }
-          );
+        console.log(`[macro inner] token:${JSON.stringify(t)}`);
+        if (t.kind === "ident") {
+          const text = t.text.toUpperCase();
+
+          if (text === "MACRO" || text === "LOCALMACRO") {
+            macroDepth++;
+          }
+          else if (text === "ENDM") {
+            if (macroDepth === 0) {
+              foundEndm = true;
+              const endPos = t.pos;
+              nodes.push({
+                kind: "macroDef",
+                name: macroName,
+                params,
+                bodyTokens,
+                startPos,
+                endPos,
+                pos: startPos,
+                isLocal,
+              });
+              console.log(`[parser] define macro: ${macroName} local=${isLocal}`);
+              skipUntil = endPos;
+              line = [];
+              return nodes;
+            } else {
+              macroDepth--;
+            }
+          }
         }
-        if (t.kind === "ident" && t.text.toUpperCase() === "ENDM") {
-          foundEndm = true;
-          const endPos = t.pos;
-          nodes.push({
-            kind: "macroDef",
-            name: macroName,
-            params,
-            bodyTokens,
-            startPos,
-            endPos,
-            pos: startPos,
-          });
-          // ENDMまで読み飛ばし
-          // → tokens配列の処理ポインタを ENDM 位置までスキップ
-          skipUntil = endPos
-          // flushLine用のlineを空にして復帰
-          line = [];
-          return nodes;
-        }
+
         bodyTokens.push(t);
       }
 
@@ -230,7 +258,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       nodes.push(includeNode);
 
       // --- 🔹 INCLUDE即時展開 ---
-      const subNodes = handleInclude(includeNode, ctx);
+      const subNodes = handleInclude(ctx, includeNode);
 
       // 展開結果を現在のnodesに統合
       nodes.push(...subNodes);
@@ -286,32 +314,33 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       return nodes;
     }
 
-    // --- マクロ呼び出し（定義は先行している前提 / 引数なし） ---
-    const definedMacro = nodes.find(
-      (n) => n.kind === "macroDef" && (ctx.caseInsensitive
-        ? (n as NodeMacroDef).name.toUpperCase() === op
-        : (n as NodeMacroDef).name === line[0].text)
-    ) as NodeMacroDef | undefined;
+    console.log('nodes:', nodes);
 
-    if (definedMacro) {
-      const args = line
-        .slice(1)
-        .map(t => t.text)
-        .join(" ")
-        .split(",")
-        .map(s => s.trim())
-        .filter(Boolean);
-      nodes.push({
-        kind: "macroInvoke",
-        name: definedMacro.name,
-        args,
-        pos: line[0].pos,
-      });
-      return nodes;
-    }
+    // // --- マクロ呼び出し（定義は先行している前提 / 引数なし） ---
+    // const definedMacro = nodes.find(
+    //   (n) => n.kind === "macroDef" && (ctx.caseInsensitive
+    //     ? (n as NodeMacroDef).name.toUpperCase() === op
+    //     : (n as NodeMacroDef).name === line[0].text)
+    // ) as NodeMacroDef | undefined;
 
-    throw new Error(`Unknown operation '${op}' at line ${line[0].pos.line}`);
+    // if (definedMacro) {
+    const macroArgs = line
+      .slice(1)
+      .map(t => t.text)
+      .join(" ")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+    nodes.push({
+      kind: "macroInvoke",
+      name: line[0].text,
+      args: macroArgs,
+      pos: line[0].pos,
+    });
+    return nodes;
+    // }
 
+    // throw new Error(`Unknown operation '${op}' at line ${line[0].pos.line}`);
   }
 
   for (const tok of tokens) {

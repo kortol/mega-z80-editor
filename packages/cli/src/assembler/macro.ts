@@ -1,4 +1,4 @@
-import { AsmContext, canon, MacroDef, SourcePos } from "./context";
+import { AsmContext, canon, MacroDef, popMacroScope, pushMacroScope, SourcePos } from "./context";
 import { Node, NodeMacroDef, NodeMacroInvoke, parse } from "./parser";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { Token } from "./tokenizer";
@@ -65,11 +65,13 @@ export function expandMacros(ctx: AsmContext): void {
   for (const n of ctx.nodes) {
     if (n.kind === "macroDef") {
       const def = n as NodeMacroDef;
+      if (def.isLocal) continue; // local は展開時登録のみ
       const key = canon(def.name, ctx);
 
-      // 既存登録の有無にかかわらず defineMacro() を呼ぶ
-      // → defineMacro() 内で再定義を検出（A7004）する      
-      defineMacro(def.name, def.params, def.bodyTokens, ctx, def.pos);
+      // 🟩 既に登録済みならスキップ（INCLUDE二重定義防止）
+      if (ctx.macroTable.has(key)) continue;
+
+      defineMacro(def.name, def.params, def.bodyTokens, ctx, def.pos, def.isLocal ?? false);
     }
   }
 
@@ -94,17 +96,6 @@ export function expandMacros(ctx: AsmContext): void {
 
   const out: Node[] = [];
   ctx.expansionStack ??= [];
-
-  const getDef = (name: string): NodeMacroDef | undefined => {
-    const key = ctx.caseInsensitive ? name.toUpperCase() : name;
-    return ctx.nodes!.find(
-      n =>
-        n.kind === "macroDef" &&
-        (ctx.caseInsensitive
-          ? (n as NodeMacroDef).name.toUpperCase() === key
-          : (n as NodeMacroDef).name === name)
-    ) as NodeMacroDef | undefined;
-  };
 
   function getDefByName(ctx: AsmContext, name: string): MacroDef | undefined {
     const key = canon(name, ctx);
@@ -134,20 +125,29 @@ export function expandMacros(ctx: AsmContext): void {
       continue;
     }
 
-    // 循環検知
-    const key = ctx.caseInsensitive ? def.name.toUpperCase() : def.name;
-    if (ctx.expansionStack.includes(key)) {
-      ctx.errors.push(
-        makeError(
-          AssemblerErrorCode.ExprCircularRef,
-          `Recursive macro expansion detected: ${def.name}`,
-          { pos: inv.pos }
-        )
-      );
-      continue;
+    // --- 🟩 ローカルマクロを有効化 ---
+    console.log(`[macroExpand] expanding ${def.name}, local=${def.isLocal}`);
+    pushMacroScope(ctx);
+    console.log(`[macroExpand] scopeDepth=${ctx.macroTableStack.length}`);
+
+    // --- 🟩 外側マクロ展開時、bodyTokensからLOCALMACROを登録 ---
+    if (!def.isLocal && def.bodyTokens) {
+      // def.bodyTokens 内をパースして、ローカルマクロを登録
+      const localDefs = parse(ctx, def.bodyTokens)
+        .filter(n => n.kind === "macroDef" && (n as any).isLocal);
+      for (const m of localDefs) {
+        console.log(`[macro expand] mdef:${JSON.stringify(m)}`);
+        ctx.macroTableStack[ctx.macroTableStack.length - 1]
+          .set(canon((m as any).name, ctx), {
+            name: (m as any).name,
+            params: (m as any).params,
+            bodyTokens: (m as any).bodyTokens,
+            defPos: (m as any).pos,
+            isLocal: true
+          });
+      }
     }
 
-    ctx.expansionStack.push(key);
     try {
       // ★ 引数とローカルラベルの置換を適用
       const rewritten = rewriteTokensForMacro(def, inv);
@@ -157,11 +157,15 @@ export function expandMacros(ctx: AsmContext): void {
 
       // 再パースして展開
       const expanded = parse(ctx, cloned);
+      console.log(`[macroExpand] expanded ${def.name}, nodes=${expanded.length}`);
       out.push(...expanded);
+
     } catch (e: any) {
       ctx.errors.push(e);
     } finally {
-      ctx.expansionStack.pop();
+      // --- 🧩 ローカルマクロスコープ終了 ---
+      popMacroScope(ctx, false);
+      console.log(`[macroExpand] popScope → depth=${ctx.macroTableStack.length}`);
     }
   }
 

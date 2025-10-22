@@ -13,6 +13,8 @@ export type AsmOptions = {
   // ...他既存
   relVersion?: number;       // Relファイルバージョン
   verbose?: boolean;         // verboseフラグ
+  /** 🔹 仮想ファイルキャッシュ（INCLUDE単体テスト用） */
+  virtualFiles?: Map<string, string>;
 };
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
@@ -65,6 +67,7 @@ export interface MacroDef {
   params: string[];
   bodyTokens: Token[];
   defPos: SourcePos;
+  isLocal?: boolean;
 }
 
 // 命令定義テーブル型（省略でも可）
@@ -102,6 +105,7 @@ export interface SourcePos {
   line: number;           // 行番号
   column?: number;        // 列番号
   parent?: SourcePos;     // include元 / マクロ呼び出し元の位置
+  phase: AsmPhase;        // フェーズ
 }
 
 export interface AsmContext {
@@ -234,15 +238,17 @@ export function defineSymbol(
 export function makeSourcePos(
   frame: SourceFrame,
   line: number,
-  column?: number
+  phase: AsmPhase,
+  column?: number,
 ): SourcePos {
   return {
     file: frame.file,
     line,
     column,
     parent: frame.parent
-      ? makeSourcePos(frame.parent, frame.lineBase ?? 0)
+      ? makeSourcePos(frame.parent, frame.lineBase ?? 0, phase)
       : undefined,
+    phase,
   };
 }
 
@@ -252,11 +258,12 @@ export function cloneSourcePos(pos: SourcePos): SourcePos {
     line: pos?.line ?? 0,
     column: pos?.column ?? 0,
     parent: pos?.parent ? cloneSourcePos(pos.parent) : undefined, // 再帰的コピー
+    phase: pos.phase ?? "",
   };
 }
 
-export function createSourcePos(file: string, line: number, column: number, parent?: SourcePos): SourcePos {
-  return { file, line, column, parent };
+export function createSourcePos(file: string, line: number, column: number, phase: AsmPhase, parent?: SourcePos): SourcePos {
+  return { file, line, column, parent, phase };
 }
 
 // 共通のキー正規化

@@ -60,6 +60,21 @@ export function assembleSource(assemble: (
   return ctx;
 }
 
+export function assembleSourceMulti(phase: any, files: Record<string, string>, options?: any): AsmContext {
+  // 🔹 仮想ファイルマップを作成
+  const virtualFiles = new Map(Object.entries(files));
+
+  // 🔹 起点ファイル（main.asm）を取得
+  const mainSrc = files["main.asm"];
+  if (!mainSrc) {
+    throw new Error("assembleSourceMulti: missing entry 'main.asm'");
+  }
+
+  const ctx = assembleSource(phase, mainSrc, { ...options, virtualFiles });
+
+  return ctx;
+}
+
 export function phaseAnalyze(inputFile: string, outputFile: string, options?: AsmOptions) {
   const ctx = createContext({
     moduleName: "TEST",

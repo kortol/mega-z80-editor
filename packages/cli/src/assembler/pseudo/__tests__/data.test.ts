@@ -12,7 +12,7 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[] = [], pos: SourcePos = { line: 1, file: "test.asm" }): NodePseudo {
+function makeNode(op: string, args: string[] = [], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodePseudo {
   return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), pos };
 }
 
