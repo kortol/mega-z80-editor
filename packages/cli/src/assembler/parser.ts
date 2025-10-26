@@ -1,5 +1,6 @@
 import { AsmContext, SourcePos } from "./context";
 import { AssemblerErrorCode, makeError } from "./errors";
+import { getDefByName } from "./macro";
 import { handleInclude } from "./pseudo/include";
 import { Token } from "./tokenizer";
 
@@ -43,7 +44,7 @@ export interface NodeMacroDef {
   startPos: SourcePos;
   endPos: SourcePos;
   pos: SourcePos;
-  isLocal?: boolean;
+  isLocal: boolean;
 }
 
 export interface NodeMacroInvoke {
@@ -126,15 +127,8 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       const identPos = isLocal ? 0 : 1;
       const startPos = line[0].pos;
 
-      // 🟩 修正：LOCALMACROはbodyTokensに残すだけで定義ノードをここで作らない
-      if (isLocal) {
-        // 外側マクロのbody内で現れたローカル定義は
-        // ここではパースしない（ENDMまで読むのはexpandMacrosで行う）
-        for (const tok of line) {
-          nodes.push(tok as any); // or ignore; depends on how tokens are aggregated
-        }
-        return nodes;
-      }
+      // 🟩 LOCALMACROは isLocal = true の macroDef ノードとして登録（ENDMまで読む）
+      // （※ defineMacro() は expandMacros() 側で呼び出す）
 
       console.log(`[parser] define macro start: ${macroName} local=${isLocal}`);
       const params: string[] = [];
@@ -208,6 +202,24 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
     if (line[0].kind !== "ident") {
       throw new Error(`Syntax error at line ${line[0].pos.line}`);
     }
+
+    // --- マクロ呼び出しの検出（LOCALMACROも含む） ---
+    if (line.length >= 1 && line[0].kind === "ident") {
+      const name = line[0].text;
+      const def = getDefByName(ctx, name);  // ← ★ ローカルも見える！
+      if (def) {
+        console.log(`[parser] macro invoke detected: ${name}`);
+        nodes.push({
+          kind: "macroInvoke",
+          name,
+          args: [], // 引数対応は後続（P2-Kで）
+          pos: line[0].pos,
+        });
+        return nodes;
+      }
+    }
+
+
 
     // EQU 構文: ident EQU expr
     if (

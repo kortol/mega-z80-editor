@@ -48,6 +48,7 @@ export enum AssemblerErrorCode {
   MacroEndmMissing = "A7002",          // ENDM が見つからない
   MacroGarbageAfterEndm = "A7003",     // ENDM の後に余分なトークン
   MacroRedefined = "A7004",            // 同名マクロの再定義
+  MacroRecursionLimit = "A7005",      // マクロ展開の再帰上限超過
 
   // --- P2-G Stage 2: 引数展開／命令衝突対応 ---
   MacroArgTooFew = "A7100",            // 実引数不足

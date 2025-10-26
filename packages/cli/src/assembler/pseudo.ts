@@ -1,4 +1,4 @@
-import { AsmContext, popMacroScope, pushMacroScope } from "./context";
+import { AsmContext } from "./context";
 import { NodePseudo } from "./parser";
 import { handleORG } from "./pseudo/org";
 import { handleEND } from "./pseudo/end";
@@ -8,7 +8,7 @@ import { handleEXTERN } from "./pseudo/extern";
 import { handleSECTION } from "./pseudo/section";
 import { handleALIGN } from "./pseudo/align";
 import { setPhase } from "./phaseManager";
-import { expandMacros } from "./macro";
+import { expandMacros, popMacroScope, pushMacroScope } from "./macro";
 import { runAnalyze } from "./analyze";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { handleInclude } from "./pseudo/include";
@@ -84,7 +84,7 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       }
 
       // --- 🧩 スコープ戻し（promote=true で昇格） ---
-      popMacroScope(ctx, true);
+      popMacroScope(ctx);
 
       // --- 🧩 ノード結合 ---
       ctx.nodes = savedNodes.concat(includedNodes);

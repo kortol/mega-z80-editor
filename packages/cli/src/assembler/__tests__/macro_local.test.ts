@@ -119,4 +119,17 @@ ENDM
     const hex = bin.map(b => b.toString(16).padStart(2, "0")).join(" ");
     expect(hex).toMatch(/3e 02/i); // LD A,2（MAC1呼び出し）
   });
+
+  test("多段展開検出: 15回超でエラー", () => {
+    const src = `
+  RECUR MACRO
+    RECUR
+  ENDM
+
+    RECUR
+  `;
+    const ctx = assembleSource(phaseEmit, src);
+    const err = ctx.errors.find(e => /exceeded/i);
+    expect(err?.code).toBe(AssemblerErrorCode.MacroRecursionLimit);
+  });
 });

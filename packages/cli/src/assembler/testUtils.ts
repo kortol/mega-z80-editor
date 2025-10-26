@@ -17,11 +17,12 @@ import { console } from "inspector";
  *
  * デフォルト ("TEST") の場合は出力先も一時ディレクトリにリダイレクトする。
  */
-export function assembleSource(assemble: (
-  inputFile: string,
-  outputFile: string,
-  options?: AsmOptions,
-) => AsmContext,
+export function assembleSource(
+  assemble: (
+    inputFile: string,
+    outputFile: string,
+    options?: AsmOptions
+  ) => AsmContext,
   source: string,
   options?: AsmOptions,
   outfile: string = "TEST"
@@ -37,9 +38,7 @@ export function assembleSource(assemble: (
   // 出力ファイル名を決定
   // outfile が "TEST" の場合は一時RELを使用
   const actualOutfile =
-    outfile === "TEST"
-      ? path.join(tmpDir, `${outfile}.rel`)
-      : outfile;
+    outfile === "TEST" ? path.join(tmpDir, `${outfile}.rel`) : outfile;
 
   console.log(options);
 
@@ -60,7 +59,11 @@ export function assembleSource(assemble: (
   return ctx;
 }
 
-export function assembleSourceMulti(phase: any, files: Record<string, string>, options?: any): AsmContext {
+export function assembleSourceMulti(
+  phase: any,
+  files: Record<string, string>,
+  options?: any
+): AsmContext {
   // 🔹 仮想ファイルマップを作成
   const virtualFiles = new Map(Object.entries(files));
 
@@ -75,7 +78,11 @@ export function assembleSourceMulti(phase: any, files: Record<string, string>, o
   return ctx;
 }
 
-export function phaseAnalyze(inputFile: string, outputFile: string, options?: AsmOptions) {
+export function phaseAnalyze(
+  inputFile: string,
+  outputFile: string,
+  options?: AsmOptions
+) {
   const ctx = createContext({
     moduleName: "TEST",
     output: { relVersion: options?.relVersion ?? 1 },
@@ -106,7 +113,11 @@ export function phaseAnalyze(inputFile: string, outputFile: string, options?: As
   return ctx;
 }
 
-export function phaseEmit(inputFile: string, outputFile: string, options?: AsmOptions) {
+export function phaseEmit(
+  inputFile: string,
+  outputFile: string,
+  options?: AsmOptions
+) {
   const ctx = createContext({
     moduleName: "TEST",
     output: { relVersion: options?.relVersion ?? 1 },
@@ -115,7 +126,9 @@ export function phaseEmit(inputFile: string, outputFile: string, options?: AsmOp
   });
   initCodegen(ctx, { withDefaultSections: true });
   // PASS 0 : トークン化と構文解析
-  const source = fs.readFileSync(inputFile, "utf-8");
+  const source = fs.existsSync(inputFile)
+    ? fs.readFileSync(inputFile, "utf-8")
+    : ctx.options.virtualFiles?.get(inputFile) ?? "";
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");

@@ -2,7 +2,8 @@
 import { Logger } from "../logger";
 import { getZ80OpcodeTable } from "./encoder";
 import { AssemblerError, AssemblerErrorCode, makeError, makeWarning } from "./errors";
-import { Node } from "./parser";
+import { MacroScope } from "./macro";
+import { Node, NodeMacroDef } from "./parser";
 import { AsmPhase } from "./phaseManager";
 import { RelocEntry } from "./rel/types";
 import { Token } from "./tokenizer";
@@ -59,15 +60,6 @@ export interface SectionState {
   lc: number;
   size: number;
   bytes: number[];
-}
-
-// マクロ定義構造体
-export interface MacroDef {
-  name: string;
-  params: string[];
-  bodyTokens: Token[];
-  defPos: SourcePos;
-  isLocal?: boolean;
 }
 
 // 命令定義テーブル型（省略でも可）
@@ -148,9 +140,10 @@ export interface AsmContext {
   sectionStack: string[];         // INCLUDE中のSECTION復帰用
 
   // --- マクロ管理 ---
-  macroTable: Map<string, MacroDef>;
-  macroTableStack: Map<string, MacroDef>[];
+  macroTable: Map<string, NodeMacroDef>;
+  macroTableStack: Map<string, NodeMacroDef>[];
   expansionStack: string[]; // マクロ展開スタック（循環検知）
+  localMacroStack?: MacroScope[]; // ✨ ローカルスコープ管理スタック
 
   // --- 命令定義テーブル ---
   opcodes: Map<string, OpcodeDef>,
@@ -160,6 +153,12 @@ export interface AsmContext {
   warnings: AssemblerError[]; // 警告メッセージの収集 (範囲外定数の切り捨てなど)
 
   sourceMap: Map<string, string[]>; // ソースキャッシュ
+
+  /** フェーズを跨いでも同一マクロ定義サイトを一意識別するためのキャッシュ */
+  seenMacroSites?: Set<string>;
+
+  /** マクロ展開済みフラグ（二重展開防止用） */
+  didExpand?: boolean;
 }
 
 
@@ -168,7 +167,7 @@ export interface AsmContext {
  * オプション指定した項目のみ上書き可能。
  */
 export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
-  const base = new Map<string, MacroDef>();
+  const base = new Map<string, NodeMacroDef>();
   const defaults: AsmContext = {
     loc: 0,
     moduleName: "NONAME",
@@ -196,11 +195,13 @@ export function createContext(overrides: Partial<AsmContext> = {}): AsmContext {
     includeCache: new Set<string>(),
     sectionStack: [],
     macroTable: base,
-    macroTableStack: [base],
+    macroTableStack: [],
     expansionStack: [],
     opcodes: getZ80OpcodeTable(),
     sourceMap: new Map<string, string[]>(),
     options: {},
+    seenMacroSites: new Set<string>(),
+    localMacroStack: [],
   };
   return { ...defaults, ...overrides };
 }
@@ -270,29 +271,3 @@ export function createSourcePos(file: string, line: number, column: number, phas
 export const canon = (s: string, ctx: AsmContext) =>
   ctx.options.caseSensitive ? s : s.toUpperCase();
 
-// --- ヘルパ ---
-export function pushMacroScope(ctx: AsmContext) {
-  const newScope = new Map<string, MacroDef>();
-  ctx.macroTableStack.push(newScope);
-  ctx.macroTable = newScope;
-}
-
-export function popMacroScope(ctx: AsmContext, promote: boolean) {
-  if (ctx.macroTableStack.length <= 1) return;
-  const top = ctx.macroTableStack.pop()!;
-  const parent = ctx.macroTableStack.at(-1)!;
-  if (promote) {
-    for (const [k, def] of top.entries()) {
-      if (parent.has(k)) {
-        ctx.errors.push(makeError(
-          AssemblerErrorCode.MacroRedefined,
-          `Macro '${def.name}' already defined`,
-          { pos: def.defPos }
-        ));
-        continue;
-      }
-      parent.set(k, def);
-    }
-  }
-  ctx.macroTable = parent;
-}
