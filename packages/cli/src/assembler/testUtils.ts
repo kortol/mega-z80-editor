@@ -10,6 +10,7 @@ import { parse } from "./parser";
 import { runAnalyze } from "./analyze";
 import { expandMacros } from "./macro";
 import { console } from "inspector";
+import { randomUUID } from "crypto";
 
 /**
  * 簡易アセンブル関数。
@@ -28,7 +29,7 @@ export function assembleSource(
   outfile: string = "TEST"
 ): AsmContext {
   // 一時ディレクトリを確保
-  const tmpDir = path.join(process.cwd(), ".tmp_tests");
+  const tmpDir = path.join(process.cwd(), ".tmp_tests." + randomUUID());
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
   // 入力用一時ASMファイル

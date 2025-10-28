@@ -3,11 +3,12 @@ import { Command } from "commander";
 import fs from "fs";
 import path from "path";
 import yaml from "yaml";
-import { Logger } from "./logger";
+import { createLogger } from "./logger";
 
 // P1 assembler / linker を import
 import { assemble } from "./cli/mz80-as";
 import { link } from "./cli/mz80-link";
+import { Console } from "./console";
 
 const program = new Command();
 
@@ -32,10 +33,10 @@ program
       : opts.verbose
         ? "verbose"
         : "normal";
-    const logger = new Logger(logLevel);
+    const logger = createLogger(logLevel);
 
     const configPath = path.resolve(process.cwd(), opts.config);
-    logger.verbose(`Using config path: ${configPath}`);
+    logger.debug(`Using config path: ${configPath}`);
 
     if (!fs.existsSync(configPath)) {
       const msg = `Config file not found: ${configPath}`;
@@ -71,14 +72,16 @@ program
       : opts.verbose
         ? "verbose"
         : "normal";
-    const logger = new Logger(logLevel);
+    const logger = createLogger(logLevel);
     const relVersion = opts.relVersion === "2" ? 2 : 1;
+
+    const out = new Console(opts.verbose);
 
     try {
       assemble(logger, input, output, { verbose: !!opts.verbose, relVersion });
-      logger.info(`✅ Assembled: ${input} → ${output}`);
+      out.success(`Assembled: ${input} → ${output}`);
     } catch (err: any) {
-      logger.error(`❌ Assembly failed: ${err.message}`);
+      out.error(`Assembly failed: ${err.message}`);
       process.exit(1);
     }
   });
@@ -112,7 +115,7 @@ program
       : opts.verbose
         ? "verbose"
         : "normal";
-    const logger = new Logger(logLevel);
+    const logger = createLogger(logLevel);
 
     logger.info("🔨 [build] Stub: build process not implemented yet.");
     if (opts.json) {
@@ -131,7 +134,7 @@ program
       : opts.verbose
         ? "verbose"
         : "normal";
-    const logger = new Logger(logLevel);
+    const logger = createLogger(logLevel);
 
     logger.info("▶️ [run] Stub: run process not implemented yet.");
     if (opts.json) {

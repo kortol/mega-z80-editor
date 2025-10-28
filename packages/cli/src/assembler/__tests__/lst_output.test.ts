@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Logger } from "../../logger";
+import { createLogger } from "../../logger";
 import { assemble } from "../../cli/mz80-as";
 
 describe("P2-D-EX-02: INCLUDE trace in listing", () => {
@@ -25,7 +25,7 @@ describe("P2-D-EX-02: INCLUDE trace in listing", () => {
   });
 
   test("generate LST with include trace", () => {
-    const logger = new Logger();
+    const logger = createLogger("verbose");
     const ctx = assemble(logger, fileA, outRel, { verbose: false, relVersion: 2 });
 
     expect(fs.existsSync(outLst)).toBe(true);

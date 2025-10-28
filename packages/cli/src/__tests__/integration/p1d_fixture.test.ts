@@ -8,7 +8,7 @@
 import { assemble } from '../../../src/cli/mz80-as';
 import fs from 'fs';
 import path from 'path';
-import { Logger } from '../../logger';
+import { createLogger } from '../../logger';
 
 describe('P1-D integration fixture', () => {
   const relDir = path.resolve(__dirname, './');
@@ -16,7 +16,7 @@ describe('P1-D integration fixture', () => {
   const outPath = path.join(relDir, 'p1d-fixture.rel');
 
   test('assemble fixture-p1d.asm (verbose mode)', () => {
-    const logger = new Logger();
+    const logger = createLogger("verbose");
     const ctx = assemble(logger, asmPath, outPath, { verbose: true });
 
     expect(fs.existsSync(outPath)).toBe(true);

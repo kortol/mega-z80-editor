@@ -1,39 +1,33 @@
+import pino from "pino";
+
 export type LogLevel = "quiet" | "normal" | "verbose";
 
-export class Logger {
-  private level: LogLevel;
-  private debugMode: boolean;
+export function createLogger(level: LogLevel = "normal", ctxId?: string) {
+  const map = { quiet: "silent", normal: "info", verbose: "debug" } as const;
 
-  constructor(level: LogLevel = "normal", debug = false) {
-    this.level = level;
-    this.debugMode = debug;
-  }
+  // Jest / CI 環境では pretty を無効化
+  const isPretty =
+    process.env.NODE_ENV !== "production" &&
+    !process.env.JEST_WORKER_ID &&
+    process.stdout.isTTY;
 
-  setDebugMode(debug: boolean) {
-    this.debugMode = debug;
-  }
+  const base = pino({
+    level: map[level],
+    ...(isPretty
+      ? {
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "SYS:standard",
+            ignore: "pid,hostname",
+          },
+        },
+      }
+      : {}),
+  });
 
-  debug(msg: string) {
-    if (this.debugMode) {
-      console.log("[DEBUG]", msg);
-    }
-  }
-
-  info(msg: string) {
-    if (this.level !== "quiet") {
-      console.log(msg);
-    }
-  }
-
-  verbose(msg: string) {
-    if (this.level === "verbose") {
-      console.log("[VERBOSE]", msg);
-    }
-  }
-
-  error(msg: string) {
-    if (this.level !== "quiet") {
-      console.error("❌ " + msg);
-    }
-  }
+  return ctxId ? base.child({ ctxId }) : base;
 }
+
+export type Logger = ReturnType<typeof createLogger>;

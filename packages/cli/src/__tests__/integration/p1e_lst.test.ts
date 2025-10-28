@@ -1,7 +1,7 @@
 import { assemble } from '../../../src/cli/mz80-as';
 import fs from 'fs';
 import path from 'path';
-import { Logger } from '../../logger';
+import { createLogger } from '../../logger';
 
 describe('P1-E: LST file generation', () => {
   const asmSrc = `
@@ -19,7 +19,7 @@ START: LD A,0FFH
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(asmPath, asmSrc);
-    const logger = new Logger();
+    const logger = createLogger("verbose");
     assemble(logger, asmPath, relPath, { verbose: false, relVersion: 2 });
   });
 

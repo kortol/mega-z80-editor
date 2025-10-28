@@ -90,8 +90,6 @@ export function assemble(
     logger,
   });
   initCodegen(ctx, { withDefaultSections: true });
-  // とりあえずデバッグモード
-  ctx.logger?.setDebugMode(verbose);
 
   // PASS 0 : トークン化と構文解析
   const source = fs.readFileSync(inputFile, "utf-8");
