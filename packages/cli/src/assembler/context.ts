@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createLogger, Logger } from "../logger";
 import { getZ80OpcodeTable } from "./encoder";
-import { AssemblerError, AssemblerErrorCode, makeWarning } from "./errors";
+import { AssemblerError, AssemblerErrorCode, makeError, makeWarning } from "./errors";
 import { MacroScope } from "./macro";
 import { Node, NodeMacroDef } from "./parser";
 import { AsmPhase } from "./phaseManager";
@@ -178,6 +178,10 @@ export interface AsmContext {
   sourceMap: Map<string, string[]>;
   seenMacroSites?: Set<string>;  // マクロ定義サイト一意識別
   didExpand?: boolean;           // 二重展開防止フラグ
+
+  // --- ループマクロ ---
+  loopStack: LoopFrame[];
+  loopSeq: number;
 }
 
 /* =====================================================================================
@@ -292,6 +296,9 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     warnings: [],
 
     sourceMap: new Map<string, string[]>(),
+
+    loopSeq: 0,
+    loopStack: [],
   };
 
   // deepMerge で overrides を取り込み（Map/Set/Array を複製して採用）
@@ -393,3 +400,159 @@ export function createSourcePos(
 /** 共通のキー正規化（caseSensitive が false のとき大文字化） */
 export const canon = (s: string, ctx: AsmContext) =>
   ctx.options.caseSensitive ? s : s.toUpperCase();
+
+
+// =====================================================================================
+// 🧩 LoopFrame モデル (P3-B 拡張)
+// =====================================================================================
+
+export type LoopKind = "REPT" | "IRP" | "IRPC" | "WHILE" | "ENDW" | "ENDM";
+
+/**
+ * 各ループフレームのメタ情報
+ */
+export interface LoopFrameMeta {
+  file: string;
+  line: number;
+  level: number;      // ネスト階層（1=最外層）
+  exprText?: string;  // WHILEなど条件式テキスト
+}
+
+/**
+ * ループ展開状態を表すコンテキストフレーム
+ * - REPT/WHILE/IRP/IRPC 全対応
+ */
+export interface LoopFrame {
+  id: number;                     // 一意ID
+  kind: LoopKind;                 // ループ種別
+  index: number;                  // 現在の反復インデックス（0-based）
+  maxIndex: number;               // ループの最大インデックス値（count-1）
+  total?: number;                 // 総回数（REPT系）
+  parent?: LoopFrame;             // 外側フレーム
+  locals: Map<string, any>;       // IRP/IRPC ローカル変数束縛
+  meta: LoopFrameMeta;            // 位置・式情報など
+  breakFlag?: boolean;            // BREAK/EXITM制御用
+  continueFlag?: boolean;         // CONTINUE制御用
+}
+
+/**
+ * LoopFrame スタック操作用のヘルパ
+ */
+export interface LoopContext {
+  loopStack: LoopFrame[];
+  loopSeq: number;
+}
+
+/**
+ * 新しい LoopFrame を push する
+ */
+export function pushLoop(
+  ctx: AsmContext,
+  kind: LoopKind,
+  meta: LoopFrameMeta,
+  total?: number
+): LoopFrame {
+  const level = (ctx.loopStack?.length ?? 0) + 1;
+  const frame: LoopFrame = {
+    id: ++ctx.loopSeq,
+    kind,
+    index: 0,
+    maxIndex: (total ?? 1) - 1,
+    total,
+    parent: ctx.loopStack.at(-1),
+    locals: new Map(),
+    meta: { ...meta, level },
+  };
+
+  if (!ctx.loopStack) ctx.loopStack = [];
+  ctx.loopStack.push(frame);
+  return frame;
+}
+
+/**
+ * LoopFrame を pop する
+ */
+export function popLoop(ctx: AsmContext): LoopFrame | undefined {
+  if (!ctx.loopStack?.length) return undefined;
+  return ctx.loopStack.pop();
+}
+
+/**
+ * 現在の最内層 LoopFrame を取得
+ */
+export function currentLoop(ctx: AsmContext): LoopFrame | undefined {
+  return ctx.loopStack?.at(-1);
+}
+
+/**
+ * 外層レベル指定で LoopFrame を取得 (0=最内層)
+ */
+export function getLoop(ctx: AsmContext, level: number): LoopFrame | undefined {
+  if (!ctx.loopStack?.length) return undefined;
+  return ctx.loopStack.at(-(level + 1));
+}
+
+/**
+ * \# / \##n / \##MAX を整数リテラルに解決する
+ */
+export function resolveCounterToken(str: string, ctx: AsmContext): string {
+  const m = str.match(/^\\#(MAX|[0-9]*)$/);
+  if (!m) return str;
+
+  const { loopStack } = ctx;
+  if (!loopStack?.length) {
+    throw makeError(
+      AssemblerErrorCode.LoopCounterOutside,
+      "Loop counter used outside any loop."
+    );
+  }
+
+  const level =
+    m[1] === "MAX" ? loopStack.length - 1 : Number(m[1] || 0);
+  const frame = loopStack.at(-(level + 1));
+  if (!frame) {
+    throw makeError(
+      AssemblerErrorCode.LoopCounterOutOfScope,
+      `No outer loop level #${level} to reference.`
+    );
+  }
+
+  return String(frame.index);
+}
+
+/**
+ * 現在の loopStack を LST トレース用にフォーマットする
+ */
+export function traceLoopStack(ctx: AsmContext): string {
+  if (!ctx.loopStack?.length) return "";
+  return ctx.loopStack
+    .map(
+      (f) =>
+        `[${f.kind.toUpperCase()} i=${f.index}/${f.total ?? "?"
+        } lvl=${f.meta.level} id=${f.id}]`
+    )
+    .join(" > ");
+}
+
+/**
+ * locals 変数を検索 (IRP/IRPC)
+ */
+export function getLocalValue(ctx: AsmContext, name: string): any | undefined {
+  const frame = ctx.loopStack?.at(-1);
+  return frame?.locals?.get(name);
+}
+
+// =====================================================================================
+// AsmContext への統合 (拡張プロパティ)
+// =====================================================================================
+
+declare module "./context" {
+  interface AsmContext {
+  }
+}
+
+// createAsmContext() に初期値を追加するため、末尾で再定義補助
+export function attachLoopContext(ctx: AsmContext) {
+  if (!ctx.loopStack) ctx.loopStack = [];
+  if (typeof ctx.loopSeq !== "number") ctx.loopSeq = 0;
+}

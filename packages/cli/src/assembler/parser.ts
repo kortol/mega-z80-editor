@@ -1,4 +1,4 @@
-import { AsmContext, SourcePos } from "./context";
+import { AsmContext, LoopKind, SourcePos } from "./context";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { getDefByName } from "./macro";
 import { handleInclude } from "./pseudo/include";
@@ -9,7 +9,8 @@ export type Node =
   NodePseudo |
   NodeLabel |
   NodeMacroDef |
-  NodeMacroInvoke;
+  NodeMacroInvoke |
+  NodeLoopBase;
 
 export interface NodeInstr {
   kind: "instr";
@@ -53,6 +54,28 @@ export interface NodeMacroInvoke {
   args: string[];
   pos: SourcePos;
 }
+
+/**
+ * NodeLoopBase: REPT / WHILE / IRP / IRPC を共通で表すノード型
+ */
+export interface NodeLoopBase {
+  kind: "macroLoop";
+  op: LoopKind;
+  bodyTokens: any[];
+  pos: any;
+  countExpr?: any;
+  condExpr?: any;
+  args?: any[];
+  strLiteral?: string;
+  symbolName?: string;
+}
+
+// TODO: replace with actual parser.parseTokens
+export function parseTokens(tokens: any[], ctx: AsmContext, opts?: any): Node[] {
+  // 🔧 実際にパースしてNode配列を返す
+  return parse(ctx, tokens);
+}
+
 
 export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 
@@ -104,6 +127,77 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       });
       line = afterColon;
       if (line.length === 0) return nodes;
+    }
+
+    // --- 🟩 ループマクロ命令 (REPT / IRP / IRPC / WHILE / ENDW / ENDM) ---
+    const loopOps = ["REPT", "IRP", "IRPC", "WHILE", "ENDW", "ENDM"];
+    // ループマクロ（REPT/IRP/IRPC/WHILE）
+    if (line[0].kind === "ident" && loopOps.includes(line[0].text.toUpperCase())) {
+      const op = line[0].text.toUpperCase() as LoopKind;
+      const args = line.slice(1).map((t) => t.text);
+
+      // 追加: REPT のときは 1トークン目を countExpr に入れる
+      let countExpr: any | undefined;
+      let condExpr: any | undefined;
+
+      console.log(`[parse] op:${JSON.stringify(op)} line.length >= 2:${line.length >= 2}`);
+      if ((op === "REPT" || op === "IRP" || op === "IRPC") && line.length >= 2) {
+        const countTok = line[1]; // "3" トークン
+        console.log(`[parse] countTok:${JSON.stringify(countTok)}`);
+        // 既存の evalConst が参照できる程度の簡易 Expr をセット（text と pos）
+        countExpr =
+          countTok.kind === "num"
+            ? { kind: "Expr", value: countTok.value, text: countTok.text, pos: countTok.pos }
+            : { kind: "Expr", text: countTok.text, pos: countTok.pos };
+      } else if (op === "WHILE" && line.length >= 2) {
+        // WHILE 条件は 2トークン目以降をまとめて
+        const condText = line.slice(1).map(t => t.text).join(" ");
+        console.log(`[parse] condText:${JSON.stringify(condText)}`);
+        condExpr = { text: condText, pos: line[1].pos };
+      }
+      console.log(`[parse] countExpr:${JSON.stringify(countExpr)} condExpr:${JSON.stringify(condExpr)}`);
+
+      const bodyTokens: Token[] = [];
+      let endPos: SourcePos | null = null;
+
+      // 終端語：WHILEはENDW、他はENDM
+      const terminator = op === "WHILE" ? "ENDW" : "ENDM";
+
+      // 現在行の最後のトークン位置から先を走査して本文収集
+      const startIdx = tokens.indexOf(line[line.length - 1]) + 1;
+      for (let i = startIdx; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.kind === "ident" && t.text.toUpperCase() === terminator) {
+          endPos = t.pos;
+          break;
+        }
+        bodyTokens.push(t);
+      }
+
+      // 終端が見つからないのはエラー
+      if (!endPos) {
+        throw makeError(
+          AssemblerErrorCode.SyntaxError,
+          `Missing ${terminator} for ${op}`,
+          { pos: line[0].pos }
+        );
+      }
+
+      // ノード化
+      nodes.push({
+        kind: "macroLoop",
+        op,
+        args,
+        pos: line[0].pos,
+        countExpr,
+        condExpr,
+        bodyTokens,
+      });
+      console.log(`[parse] nodes:${JSON.stringify(nodes)}`);
+
+      // ← 終端までパースしない
+      skipUntil = endPos;
+      return nodes;
     }
 
     console.log("[flushLine:before]", line.map(t => t.text));

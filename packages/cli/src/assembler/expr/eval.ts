@@ -24,6 +24,15 @@ export function makeEvalCtx(ac: AsmContext): EvalContext {
   };
 }
 
+// TODO: remove after actual expr/eval.ts exports evalConst
+export function evalConst(expr: any, ctx: AsmContext): number {
+  console.log(`[evalConst] start expr:${JSON.stringify(expr)}`);
+  if (typeof expr === "number") return expr;
+  if (typeof expr?.value === "number") return expr.value;
+  if (typeof expr?.value === "function") return expr.value();  // ✅関数なら実行
+  return 0;
+}
+
 // evalExpr: 式を評価し Const か Reloc を返す（Error は返さない）
 // - $ は Const(ctx.loc)
 // - 未定義/外部はエラーにせず Reloc(sym, addend)

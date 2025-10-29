@@ -20,6 +20,11 @@ export interface Token {
   pos: SourcePos;
 }
 
+// TODO: replace with actual tokenizer.cloneTokens
+export function cloneTokens(tokens: any[]): any[] {
+  return tokens.map((t) => ({ ...t }));
+}
+
 export function tokenize(ctx: AsmContext, src: string): Token[] {
   if (!src || src.trim() === "") return [];
 
@@ -181,6 +186,26 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
         tokens.push({ kind: "op", text: "%", pos: cloneSourcePos(ctx.currentPos) });
         ctx.currentPos.column += 1;
         continue;
+      }
+
+      // --- バックスラッシュ始まり (\# / \##n / \VAR) ---
+      if (rest[0] === "\\") {
+        const match = /^\\[A-Za-z0-9_#]+/.exec(rest);
+        if (match) {
+          const text = match[0];
+          tokens.push({
+            kind: "ident",
+            text,
+            pos: cloneSourcePos(ctx.currentPos),
+          });
+          ctx.currentPos.column += text.length;
+          continue;
+        } else {
+          // 孤立した '\' は構文エラー
+          throw new Error(
+            `Tokenizer error at line ${lineNo + 1}, col ${ctx.currentPos.column}: '${rest[0]}'`
+          );
+        }
       }
 
 

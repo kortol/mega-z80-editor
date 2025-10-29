@@ -161,3 +161,12 @@ export function phaseEmit(
 
   return ctx;
 }
+
+// 🔧 bytes 取得ヘルパ（他のマクロテストに合わせる）
+export function getBytes(ctx: AsmContext): number[] {
+  let bytes: number[] = [];
+  for (const t of ctx.texts ?? []) {
+    bytes = bytes.concat(t.data);
+  }
+  return bytes;
+}

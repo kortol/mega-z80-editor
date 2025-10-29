@@ -4,6 +4,7 @@ import { Node, NodeMacroDef, NodeMacroInvoke, parse } from "./parser";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { Token } from "./tokenizer";
 import { defineMacro } from "./macro/defineMacro";
+import { expandLoopCore } from "./macro/expandLoopCore";
 
 // マクロ展開の最大深度（無限ループ防止）
 const MAX_MACRO_EXPAND_DEPTH = 15;
@@ -164,7 +165,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       )
     );
     return;
-  }  
+  }
 
   ctx.logger?.debug(`[expandMacros] start, nodes=${ctx.nodes?.length ?? 0}`);
 
@@ -213,12 +214,37 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
 
   // スタック優先で解決（無ければグローバルへ）
   for (const n of ctx.nodes) {
-    ctx.logger?.debug(`[expandMacros] iter=${n}, in=${ctx.nodes.length}`);
+    ctx.logger?.debug(`[expandMacros] iter=${n}, in=${ctx.nodes?.length}`);
+
+    // 🟩 1️⃣ ループマクロ（REPT / IRP / WHILE 等）
+    if (n.kind === "macroLoop") {
+
+      ctx.logger?.debug(`[expandMacros] expand loop macro: ${(n as any).op}`);
+      // A. ループ展開
+      const nodes = expandLoopCore(n as any, ctx);
+      console.log(`[expandMacros] expandLoopCore nodes:${nodes}`);
+      // D. 内側に更なる macroInvoke / macroLoop があれば再帰展開
+      if (nodes.some(x => x.kind === "macroInvoke" || x.kind === "macroLoop")) {
+        const savedNodes: Node[] = ctx.nodes;
+        const savedStack = [...ctx.macroTableStack];
+        ctx.nodes = nodes;
+        expandMacros(ctx, depth + 1);
+        nodes.splice(0, nodes.length, ...ctx.nodes);
+        ctx.macroTableStack = savedStack;
+        ctx.nodes = savedNodes;
+      }
+      console.log(`[expandMacros] macroLoop nodes:${JSON.stringify(nodes)}`);
+      out.push(...nodes);
+      continue;
+    }
+
+    // 🟩 2️⃣ 通常のマクロ呼び出し
     if (n.kind !== "macroInvoke") {
       out.push(n);
       continue;
     }
 
+    // 🟩 3️⃣ 通常マクロ展開処理（既存のコード）
     const inv = n as NodeMacroInvoke;
     ctx.logger?.debug(`[expandMacros] invoke: ${inv.name} @${inv.pos.file}:${inv.pos.line}`);
     const def = getDefByName(ctx, inv.name);
@@ -267,7 +293,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
 
       // 2️⃣ LOCALMACRO ブロックを削除
       ctx.logger?.debug("[rewrite] stripLocalMacroBlocks...");
-        // 2) 本文から LOCALMACRO〜ENDM ブロックを除去して展開対象にする
+      // 2) 本文から LOCALMACRO〜ENDM ブロックを除去して展開対象にする
       const workingBody = stripLocalMacroBlocks(def.bodyTokens);
       ctx.logger?.debug(`[locals] stripped body length: ${workingBody.length}`);
 
@@ -283,14 +309,14 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       // 5️⃣ ネストしたマクロを再展開
       if (expanded.some(n => n.kind === "macroInvoke")) {
         ctx.logger?.debug(`[expandMacros] nested expand inside ${def.name}`);
-        const savedNodes: Node[] | undefined  = ctx.nodes;
+        const savedNodes: Node[] | undefined = ctx.nodes;
         const savedStack = [...ctx.macroTableStack];
         ctx.nodes = expanded;
         expandMacros(ctx, depth + 1);
         expanded.splice(0, expanded.length, ...ctx.nodes);
         ctx.macroTableStack = savedStack;
         ctx.nodes = savedNodes;
-      }      
+      }
 
       out.push(...expanded);
 
@@ -312,7 +338,9 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
   ctx.didExpand = true;
 
   // 🟩 ネストされたマクロ呼び出しを再帰展開する（再帰的に呼ぶ）
-  const hasMore = ctx.nodes.some(n => n.kind === "macroInvoke");
+  const hasMore = ctx.nodes.some(n =>
+    n.kind === "macroInvoke" || n.kind === "macroLoop"
+  );
   ctx.logger?.debug(`[expandMacros] hasMore=${hasMore}`);
   if (hasMore) {
     ctx.logger?.debug(`[expandMacros] recursive expand...`);

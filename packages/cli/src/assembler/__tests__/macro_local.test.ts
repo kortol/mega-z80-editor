@@ -1,15 +1,6 @@
 import { AssemblerErrorCode } from "../errors";
-import { assembleSource, assembleSourceMulti, phaseEmit } from "../testUtils";
+import { assembleSource, assembleSourceMulti, getBytes, phaseEmit } from "../testUtils";
 import { AsmContext } from "../context";
-
-// 🔧 bytes 取得ヘルパ（他のマクロテストに合わせる）
-function getBytes(ctx: AsmContext): number[] {
-  let bytes: number[] = [];
-  for (const t of ctx.texts ?? []) {
-    bytes = bytes.concat(t.data);
-  }
-  return bytes;
-}
 
 describe("P2-J: Local Macro scope handling", () => {
   test("LOCALMACRO: defined but not callable outside its scope", () => {
