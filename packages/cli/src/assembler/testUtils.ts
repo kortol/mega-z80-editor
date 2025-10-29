@@ -53,6 +53,8 @@ export function assembleSource(
     if (outfile === "TEST" && fs.existsSync(actualOutfile)) {
       fs.unlinkSync(actualOutfile);
     }
+    // 一時ディレクトリも削除
+    fs.rmdirSync(tmpDir);
   } catch {
     /* ignore */
   }

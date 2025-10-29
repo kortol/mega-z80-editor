@@ -127,7 +127,7 @@ export function getDefByName(ctx: AsmContext, name: string): NodeMacroDef | unde
     const scope = ctx.macroTableStack[i];
     const local = scope.get(key);
     if (local) {
-      console.log(`[lookup] '${name}' -> found in LOCAL (stack idx=${i})`);
+      ctx.logger?.debug(`[lookup] '${name}' -> found in LOCAL (stack idx=${i})`);
       return local;
     }
   }
@@ -135,17 +135,17 @@ export function getDefByName(ctx: AsmContext, name: string): NodeMacroDef | unde
   // --- 🔹 2. グローバルスコープ ---
   const global = ctx.macroTable.get(key);
   if (global) {
-    console.log(`[lookup] '${name}' -> found in GLOBAL`);
+    ctx.logger?.debug(`[lookup] '${name}' -> found in GLOBAL`);
     return global;
   }
 
   // --- 🔹 3. M80互換モード：命令上書きマクロを再確認 ---
   if (!ctx.options.strictMacro && ctx.macroTable.has(key)) {
-    console.log(`[lookup] '${name}' -> found in OVERRIDE`);
+    ctx.logger?.debug(`[lookup] '${name}' -> found in OVERRIDE`);
     return ctx.macroTable.get(key);
   }
 
-  console.log(`[lookup] '${name}' -> NOT FOUND`);
+  ctx.logger?.debug(`[lookup] '${name}' -> NOT FOUND`);
   return undefined;
 }
 
@@ -166,13 +166,13 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
     return;
   }  
 
-  console.log(`[expandMacros] start, nodes=${ctx.nodes?.length ?? 0}`);
+  ctx.logger?.debug(`[expandMacros] start, nodes=${ctx.nodes?.length ?? 0}`);
 
   function dumpTables(where: string) {
     const globalKeys = Array.from(ctx.macroTable.keys());
     const stackDepth = ctx.macroTableStack?.length ?? 0;
     const topKeys = stackDepth ? Array.from(ctx.macroTableStack[stackDepth - 1].keys()) : [];
-    console.log(`[tables@${where}] global=${JSON.stringify(globalKeys)} stackDepth=${stackDepth} top=${JSON.stringify(topKeys)}`);
+    ctx.logger?.debug(`[tables@${where}] global=${JSON.stringify(globalKeys)} stackDepth=${stackDepth} top=${JSON.stringify(topKeys)}`);
   }
   dumpTables("before");
 
@@ -195,7 +195,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       if (n.kind === "instr") {
         const key = canon(n.op, ctx);
         if (ctx.macroTable?.has(key)) {
-          console.log(`[promote] instr '${n.op}' -> macroInvoke '${key}' at ${n.pos.file}:${n.pos.line}`);
+          ctx.logger?.debug(`[promote] instr '${n.op}' -> macroInvoke '${key}' at ${n.pos.file}:${n.pos.line}`);
           const def = ctx.macroTable.get(key)!;
           ctx.nodes[i] = {
             kind: "macroInvoke",
@@ -213,14 +213,14 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
 
   // スタック優先で解決（無ければグローバルへ）
   for (const n of ctx.nodes) {
-    console.log(`[expandMacros] iter=${n}, in=${ctx.nodes.length}`);
+    ctx.logger?.debug(`[expandMacros] iter=${n}, in=${ctx.nodes.length}`);
     if (n.kind !== "macroInvoke") {
       out.push(n);
       continue;
     }
 
     const inv = n as NodeMacroInvoke;
-    console.log(`[expandMacros] invoke: ${inv.name} @${inv.pos.file}:${inv.pos.line}`);
+    ctx.logger?.debug(`[expandMacros] invoke: ${inv.name} @${inv.pos.file}:${inv.pos.line}`);
     const def = getDefByName(ctx, inv.name);
     if (!def) {
       ctx.errors.push(
@@ -233,7 +233,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       t => t.kind === "ident" && t.text.toUpperCase() === "LOCALMACRO"
     );
 
-    console.log(`[expandMacros] hasLocalDefs: ${hasLocalDefs} def found: ${def.name} (local=${def.isLocal})`);
+    ctx.logger?.debug(`[expandMacros] hasLocalDefs: ${hasLocalDefs} def found: ${def.name} (local=${def.isLocal})`);
     if (hasLocalDefs) {
       dumpTables("before-push");
       // --- 🟩 ローカルマクロを有効化 ---
@@ -257,22 +257,22 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
         }
         const localNodes = parse(ctx, def.bodyTokens)
           .filter((n): n is NodeMacroDef => isNodeMacroDef(n) && n.isLocal);
-        console.log(`[locals] found ${localNodes.length} local defs in '${def.name}'`);
+        ctx.logger?.debug(`[locals] found ${localNodes.length} local defs in '${def.name}'`);
         for (const m of localNodes) {
-          console.log(`[locals] found ${localNodes.length} local defs in '${def.name}'`);
+          ctx.logger?.debug(`[locals] found ${localNodes.length} local defs in '${def.name}'`);
           defineMacro(m.name, m.params, m.bodyTokens, ctx, m.pos, true);
         }
         dumpTables("after-local-register");
       }
 
       // 2️⃣ LOCALMACRO ブロックを削除
-      console.log("[rewrite] stripLocalMacroBlocks...");
+      ctx.logger?.debug("[rewrite] stripLocalMacroBlocks...");
         // 2) 本文から LOCALMACRO〜ENDM ブロックを除去して展開対象にする
       const workingBody = stripLocalMacroBlocks(def.bodyTokens);
-      console.log(`[locals] stripped body length: ${workingBody.length}`);
+      ctx.logger?.debug(`[locals] stripped body length: ${workingBody.length}`);
 
       // 3️⃣ 引数置換＋pos付与
-      console.log("[rewrite] rewriteTokensForMacro...");
+      ctx.logger?.debug("[rewrite] rewriteTokensForMacro...");
       // 3) 引数・ローカルラベル置換 → 呼び出し元 pos を parent に付与 → 再パース
       const rewritten = rewriteTokensForMacro({ ...def, bodyTokens: workingBody }, inv);
       const cloned = cloneTokensWithParent(rewritten, inv.pos);
@@ -282,7 +282,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
 
       // 5️⃣ ネストしたマクロを再展開
       if (expanded.some(n => n.kind === "macroInvoke")) {
-        console.log(`[expandMacros] nested expand inside ${def.name}`);
+        ctx.logger?.debug(`[expandMacros] nested expand inside ${def.name}`);
         const savedNodes: Node[] | undefined  = ctx.nodes;
         const savedStack = [...ctx.macroTableStack];
         ctx.nodes = expanded;
@@ -305,7 +305,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       }
     }
   }
-  console.log(`[expandMacros] done, nodes=${ctx.nodes.length}`);
+  ctx.logger?.debug(`[expandMacros] done, nodes=${ctx.nodes.length}`);
 
   // --- 展開後ノードを置き換え ---
   ctx.nodes = out;
@@ -313,9 +313,9 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
 
   // 🟩 ネストされたマクロ呼び出しを再帰展開する（再帰的に呼ぶ）
   const hasMore = ctx.nodes.some(n => n.kind === "macroInvoke");
-  console.log(`[expandMacros] hasMore=${hasMore}`);
+  ctx.logger?.debug(`[expandMacros] hasMore=${hasMore}`);
   if (hasMore) {
-    console.log(`[expandMacros] recursive expand...`);
+    ctx.logger?.debug(`[expandMacros] recursive expand...`);
     expandMacros(ctx, depth + 1);
   }
 }
