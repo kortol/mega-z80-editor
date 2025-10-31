@@ -2,6 +2,7 @@ import { assemble } from '../../../src/cli/mz80-as';
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../../logger';
+import { randomUUID } from 'crypto';
 
 describe('P1-E: SYM file generation', () => {
   const asmSrc = `
@@ -11,10 +12,11 @@ ZERO  EQU 0
 START: LD A,(EXTSYM)
        END
   `;
-  const tmpDir = path.resolve(__dirname, '../../.tmp_tests');
+  const tmpDir = path.resolve(__dirname, '../../.tmp_tests.' + randomUUID());
   const asmPath = path.join(tmpDir, 'TEST_SYM.asm');
   const relPath = path.join(tmpDir, 'TEST_SYM.rel');
   const symPath = relPath.replace(/\.rel$/, '.sym');
+  const lstmPath = relPath.replace(/\.rel$/, '.lst');
 
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -23,6 +25,24 @@ START: LD A,(EXTSYM)
 
     assemble(logger, asmPath, relPath, { verbose: false });
   });
+
+  afterAll(() => {
+    if (fs.existsSync(asmPath)) {
+      fs.unlinkSync(asmPath);
+    }
+    if (fs.existsSync(relPath)) {
+      fs.unlinkSync(relPath);
+    }
+    if (fs.existsSync(symPath)) {
+      fs.unlinkSync(symPath);
+    }
+    if (fs.existsSync(lstmPath)) {
+      fs.unlinkSync(lstmPath);
+    }
+    // 一時ディレクトリも削除
+    fs.rmdirSync(tmpDir);
+  })
+
 
   it('should list LABEL, CONST, and EXTERN correctly', () => {
     expect(fs.existsSync(symPath)).toBe(true);

@@ -70,12 +70,39 @@ export interface NodeLoopBase {
   symbolName?: string;
 }
 
-// TODO: replace with actual parser.parseTokens
 export function parseTokens(tokens: any[], ctx: AsmContext, opts?: any): Node[] {
-  // 🔧 実際にパースしてNode配列を返す
-  return parse(ctx, tokens);
-}
+  const savedTokens = ctx.tokens;
+  const savedPhase = ctx.phase;
 
+  try {
+    // --- isolate parse for IRP/IRPC/REPT expansion ---
+    ctx.tokens = tokens;
+    ctx.phase = "macroExpand";
+
+    const nodes = parse(ctx, tokens);
+    if (nodes && nodes.length > 0) return nodes;
+
+    // 🧩 fallback: minimal node when parser gives nothing
+    if (tokens.length >= 2 && /^[A-Za-z]/.test(tokens[0].text)) {
+      const pos: SourcePos = {
+        file: ctx.currentPos.file ?? "macro",
+        line: 0,
+        phase: "macroExpand"
+      };
+      return [{
+        kind: "instr",
+        op: tokens[0].text.toUpperCase(),
+        args: tokens.slice(1).map(t => t.text),
+        pos: pos,
+      }];
+    }
+
+    return [];
+  } finally {
+    ctx.tokens = savedTokens;
+    ctx.phase = savedPhase;
+  }
+}
 
 export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 

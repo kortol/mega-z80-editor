@@ -1,14 +1,15 @@
 // src/linker/core/__tests__/parseRelFile.test.ts
+import { randomUUID } from "crypto";
 import { parseRelFile } from "../parser";
 import * as fs from "fs";
 import * as path from "path";
 
 describe("P1-F: parseRelFile", () => {
-  const tmp = path.resolve(__dirname, "../../../.tmp_tests");
-  const relPath = path.join(tmp, "TEST_REL.rel");
+  const tmpDir = path.resolve(__dirname, "../../../.tmp_tests." + randomUUID());
+  const relPath = path.join(tmpDir, "TEST_REL.rel");
 
   beforeAll(() => {
-    fs.mkdirSync(tmp, { recursive: true });
+    fs.mkdirSync(tmpDir, { recursive: true });
     const content = [
       "H TESTMOD",
       "S LABEL1 0100",
@@ -19,6 +20,13 @@ describe("P1-F: parseRelFile", () => {
     ].join("\n");
     fs.writeFileSync(relPath, content);
   });
+  afterAll(() => {
+    if (fs.existsSync(relPath)) {
+      fs.unlinkSync(relPath);
+    }
+    // 一時ディレクトリも削除
+    fs.rmdirSync(tmpDir);
+  })
 
   it("parses .rel file correctly", () => {
     const mod = parseRelFile(relPath);

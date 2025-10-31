@@ -2,6 +2,7 @@ import { assemble } from '../../../src/cli/mz80-as';
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../../logger';
+import { randomUUID } from 'crypto';
 
 describe('P1-E: LST file generation', () => {
   const asmSrc = `
@@ -11,9 +12,10 @@ START: LD A,0FFH
        JP EXT_C
        END
   `;
-  const tmpDir = path.resolve(__dirname, '../../.tmp_tests');
+  const tmpDir = path.resolve(__dirname, '../../.tmp_tests.' + randomUUID());
   const asmPath = path.join(tmpDir, 'TEST_LST.asm');
   const relPath = path.join(tmpDir, 'TEST_LST.rel');
+  const symPath = relPath.replace(/\.rel$/, '.sym');
   const lstPath = relPath.replace(/\.rel$/, '.lst');
 
   beforeAll(() => {
@@ -22,6 +24,23 @@ START: LD A,0FFH
     const logger = createLogger("verbose");
     assemble(logger, asmPath, relPath, { verbose: false, relVersion: 2 });
   });
+
+  afterAll(() => {
+    if (fs.existsSync(asmPath)) {
+      fs.unlinkSync(asmPath);
+    }
+    if (fs.existsSync(relPath)) {
+      fs.unlinkSync(relPath);
+    }
+    if (fs.existsSync(symPath)) {
+      fs.unlinkSync(symPath);
+    }
+    if (fs.existsSync(lstPath)) {
+      fs.unlinkSync(lstPath);
+    }
+    // 一時ディレクトリも削除
+    fs.rmdirSync(tmpDir);
+  })
 
   it('should generate .lst file with address and source lines', () => {
     expect(fs.existsSync(lstPath)).toBe(true);

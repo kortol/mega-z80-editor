@@ -43,20 +43,24 @@ export function assembleSource(
 
   console.log(options);
 
-  // CLI版 assemble 実行
-  // const ctx = assemble(tmpAsm, actualOutfile, { ...options, verbose: true });
-  const ctx = assemble(tmpAsm, actualOutfile, { ...options });
-
-  // Cleanup: テストの邪魔にならないように削除
+  let ctx;
   try {
-    fs.unlinkSync(tmpAsm);
-    if (outfile === "TEST" && fs.existsSync(actualOutfile)) {
-      fs.unlinkSync(actualOutfile);
+    // CLI版 assemble 実行
+    // const ctx = assemble(tmpAsm, actualOutfile, { ...options, verbose: true });
+    ctx = assemble(tmpAsm, actualOutfile, { ...options });
+
+  } finally {
+    // Cleanup: テストの邪魔にならないように削除
+    try {
+      fs.unlinkSync(tmpAsm);
+      if (outfile === "TEST" && fs.existsSync(actualOutfile)) {
+        fs.unlinkSync(actualOutfile);
+      }
+      // 一時ディレクトリも削除
+      fs.rmdirSync(tmpDir);
+    } catch {
+      /* ignore */
     }
-    // 一時ディレクトリも削除
-    fs.rmdirSync(tmpDir);
-  } catch {
-    /* ignore */
   }
 
   return ctx;

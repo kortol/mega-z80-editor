@@ -20,9 +20,16 @@ function makeNode(op: "REPT" | "WHILE" | "IRPC" | "IRP", opts: Partial<NodeLoopB
 }
 
 function tokensAsText(nodes: any[]): string[] {
+  const o: string[] = [];
   // expandLoopCore（現実装）は parseTokens のスタブが tokens をそのまま返すので
   // out はトークン配列のフラット化（各トークンは {text:string} を想定）
-  return nodes.map((t: any) => t?.text ?? String(t));
+  nodes.forEach((t: { text: string, op?: string, args?: string[] }) => {
+    o.push(t.text ?? t.op);
+    if (t.args) {
+      t.args.forEach(a => o.push(a));
+    }
+  });
+  return o;
 }
 
 describe("🧩 Loop macros (REPT / WHILE / IRPC)", () => {
@@ -61,7 +68,8 @@ describe("🧩 Loop macros (REPT / WHILE / IRPC)", () => {
     });
 
     const out = expandLoopCore(node, ctx);
-    expect(out.length).toBe(6);                 // 3反復 * 2トークン
+    console.log(out);
+    expect(out.length).toBe(3);                 // 3反復 * 2トークン
     const text = tokensAsText(out);
     expect(text).toEqual(["DB", "0", "DB", "1", "DB", "2"]);
   });

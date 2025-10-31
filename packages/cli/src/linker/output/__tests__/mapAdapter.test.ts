@@ -2,10 +2,11 @@ import fs from "fs";
 import path from "path";
 import { MapAdapter } from "../mapAdapter";
 import { LinkResult } from "../../core/types";
+import { randomUUID } from "crypto";
 
 describe("P1-F: MapAdapter (BaseTextAdapter継承)", () => {
-  const tmp = path.resolve(__dirname, "../../../.tmp_tests");
-  const mapFile = path.join(tmp, "test.map");
+  const tmpDir = path.resolve(__dirname, "../../../.tmp_tests." + randomUUID());
+  const mapPath = path.join(tmpDir, "test.map");
 
   const sample: LinkResult = {
     segments: [
@@ -19,14 +20,21 @@ describe("P1-F: MapAdapter (BaseTextAdapter継承)", () => {
     ]),
   };
 
-  beforeAll(() => fs.mkdirSync(tmp, { recursive: true }));
-  afterEach(() => fs.existsSync(mapFile) && fs.unlinkSync(mapFile));
+  beforeAll(() => fs.mkdirSync(tmpDir, { recursive: true }));
+  afterEach(() => fs.existsSync(mapPath) && fs.unlinkSync(mapPath));
+  afterAll(() => {
+    if (fs.existsSync(mapPath)) {
+      fs.unlinkSync(mapPath);
+    }
+    // 一時ディレクトリも削除
+    fs.rmdirSync(tmpDir);
+  })
 
   it("generates valid MAP output", () => {
     const adapter = new MapAdapter(sample);
-    adapter.write(mapFile, false);
+    adapter.write(mapPath, false);
 
-    const text = fs.readFileSync(mapFile, "utf-8");
+    const text = fs.readFileSync(mapPath, "utf-8");
     expect(text).toMatch(/LINK MAP OF OUTPUT/);
     expect(text).toMatch(/@START/);
     expect(text).toMatch(/SEGMENTS:/);
@@ -46,8 +54,8 @@ describe("P1-F: MapAdapter (BaseTextAdapter継承)", () => {
   });
 
   it("prints verbose log with size", () => {
-    const spy = jest.spyOn(console, "log").mockImplementation(() => {});
-    new MapAdapter(sample).write(mapFile, true);
+    const spy = jest.spyOn(console, "log").mockImplementation(() => { });
+    new MapAdapter(sample).write(mapPath, true);
     const out = spy.mock.calls.map(c => c[0]).join("\n");
     expect(out).toMatch(/\[MAP\]/);
     expect(out).toMatch(/bytes/);

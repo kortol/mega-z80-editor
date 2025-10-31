@@ -24,15 +24,47 @@ export function makeEvalCtx(ac: AsmContext): EvalContext {
   };
 }
 
-// TODO: remove after actual expr/eval.ts exports evalConst
 export function evalConst(expr: any, ctx: AsmContext): number {
-  console.log(`[evalConst] start expr:${JSON.stringify(expr)}`);
+  if (!expr) return 0;
+
+  // 🟩 デバッグ出力
+  console.log(`[evalConst] evaluating:`, expr);
+
+  // --- 比較演算式対応（WHILE counter<3 等） ---
+  if (expr && typeof expr.text === "string") {
+    const text = expr.text.trim();
+    // より柔軟に空白・大文字小文字を許容
+    const m = text.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*([<>]=?|==|!=)\s*(\d+)$/i);
+    if (m) {
+      const [, sym, op, rhsRaw] = m;
+      const rhs = parseInt(rhsRaw, 10);
+      const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
+      const symEntry = ctx.symbols.get(key);
+      const lhs = symEntry?.value ?? 0;
+      console.log(`[evalConst] compare: ${lhs} ${op} ${rhs}`);
+
+      switch (op) {
+        case "<": return lhs < rhs ? 1 : 0;
+        case "<=": return lhs <= rhs ? 1 : 0;
+        case ">": return lhs > rhs ? 1 : 0;
+        case ">=": return lhs >= rhs ? 1 : 0;
+        case "==": return lhs === rhs ? 1 : 0;
+        case "!=": return lhs !== rhs ? 1 : 0;
+      }
+    }
+  }
+
+  // --- フォールバック ---
   if (typeof expr === "number") return expr;
   if (typeof expr?.value === "number") return expr.value;
   if (typeof expr?.value === "function") return expr.value();  // ✅関数なら実行
+  if (typeof expr.text === "string") {
+    const sym = ctx.symbols.get(ctx.caseInsensitive ? expr.text.toUpperCase() : expr.text);
+    if (sym) return sym.value;
+  }
+
   return 0;
 }
-
 // evalExpr: 式を評価し Const か Reloc を返す（Error は返さない）
 // - $ は Const(ctx.loc)
 // - 未定義/外部はエラーにせず Reloc(sym, addend)

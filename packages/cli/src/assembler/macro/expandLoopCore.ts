@@ -38,6 +38,74 @@ export function expandLoopCore(node: NodeLoopBase, ctx: AsmContext): Node[] {
       undefined,
   };
 
+  // =========================================================
+  // 🧩 IRPC: 文字列を1文字ずつ locals へ束縛して展開
+  // =========================================================
+  if (node.op === "IRPC" && node.symbolName && node.strLiteral) {
+    const str = node.strLiteral;
+    console.log(`[expandLoopCore] IRPC symbol=${node.symbolName} str=${str}`);
+
+    for (let i = 0; i < str.length; i++) {
+      const c = str[i];
+
+      // localsに現在の文字を設定
+      const frame = pushLoop(ctx, node.op, meta, str.length);
+      frame.index = i;
+      frame.locals.set(node.symbolName, c);
+
+      // bodyTokensをコピーし、\シンボル名を現在の文字で置換
+      const replacedTokens = node.bodyTokens.map((t) => {
+        if (t.text === `\\${node.symbolName}`) {
+          return { ...t, text: c };
+        }
+        return { ...t };
+      });
+      console.log(`[expandLoopCore] replacedTokens:${JSON.stringify(replacedTokens)}`);
+
+      // 本体を通常ノードとして解釈
+      const nodes = parseTokens(replacedTokens, ctx);
+      // ✅ パース結果が空なら文字トークンを直接Node化
+      const finalNodes: Node[] = nodes.length
+        ? nodes
+        : replacedTokens.map((t) => ({ kind: "token", text: t.text, pos: t.pos }) as unknown as Node);
+
+      out.push(...finalNodes);
+      console.log(`[expandLoopCore] nodes:${JSON.stringify(finalNodes)} out:${JSON.stringify(out)}`);
+
+      popLoop(ctx);
+    }
+
+    return out;
+  }
+
+  // =========================================================
+  // 🧩 IRP: パラメータを1つずつ locals へ束縛して展開
+  // =========================================================
+  if (node.op === "IRP" && node.args && node.args.length > 0) {
+    const [sym, ...rest] = node.args;
+    const symbolName = String(sym).replace(/[,]/g, "").trim(); // "X"
+    const argList = rest.join("").split(",").map((s) => s.trim()).filter(Boolean); // ["10","20","30"]
+
+    for (const [i, val] of argList.entries()) {
+      const frame = pushLoop(ctx, node.op, meta, argList.length);
+      frame.index = i;
+      frame.locals.set(symbolName, val);  // ← ここが重要！
+
+      const replacedTokens = node.bodyTokens.map((t) =>
+        t.text === `\\${symbolName}` ? { ...t, text: val } : t
+      );
+      const nodes = parseTokens(replacedTokens, ctx);
+      out.push(...(nodes.length ? nodes : replacedTokens as any));
+
+      popLoop(ctx);
+    }
+
+    return out;
+  }
+
+  // =========================================================
+  // 🧩 通常REPT / WHILE 処理
+  // =========================================================  
   const total = (node.kind === "macroLoop" && node.op === "REPT" && node.countExpr)
     ? evalConst(node.countExpr, ctx)
     : undefined;
@@ -59,8 +127,23 @@ export function expandLoopCore(node: NodeLoopBase, ctx: AsmContext): Node[] {
 
       frame.index = iteration;
 
+      // ループカウンタを locals/symbols にインジェクト（caseInsensitive 対応）
+      const COUNTER_NAME = ctx.caseInsensitive ? "COUNTER" : "counter";
+      const prevCounterSym = ctx.symbols.get(COUNTER_NAME);
+      ctx.symbols.set(COUNTER_NAME, {
+        value: frame.index,
+        sectionId: ctx.currentSection ?? 0,
+        type: "CONST",
+      });
+
       // === 条件判定 ===
       const cont = evalLoopCondition(node, ctx, frame, iteration);
+      // 元に戻す
+      if (prevCounterSym) {
+        ctx.symbols.set(COUNTER_NAME, prevCounterSym);
+      } else {
+        ctx.symbols.delete(COUNTER_NAME);
+      }
       if (!cont) break;
 
       console.log(`[expandLoopCore] iteration:${iteration} before out:${JSON.stringify(out)}`);
@@ -158,6 +241,7 @@ function expandLoopBody(node: NodeLoopBase, ctx: AsmContext, frame: LoopFrame, o
  * \# / \##n / \##MAX / locals をトークン上で置換
  */
 export function substituteLoopTokens(tokens: any[], ctx: AsmContext, frame: LoopFrame) {
+  console.log(`[substituteLoopTokens] before tokens:${JSON.stringify(tokens)}`);
   for (const t of tokens) {
     if (typeof t.text !== "string") continue;
 
@@ -170,7 +254,7 @@ export function substituteLoopTokens(tokens: any[], ctx: AsmContext, frame: Loop
     }
 
     // --- \# 単体（最内層） ---
-    if (t.text === "\\#") {
+    if (t.text === "\\#" || t.text === "#") {
       t.text = String(resolveLoopCounter(ctx, ""));
       continue;
     }
@@ -184,6 +268,7 @@ export function substituteLoopTokens(tokens: any[], ctx: AsmContext, frame: Loop
       }
     }
   }
+  console.log(`[substituteLoopTokens] after tokens:${JSON.stringify(tokens)}`);
 }
 
 /**

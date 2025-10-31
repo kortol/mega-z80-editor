@@ -3,14 +3,23 @@ import fs from "fs";
 import path from "path";
 import { BinOutputAdapter } from "../binAdapter";
 import { LinkResult } from "../../core/types";
+import { randomUUID } from "crypto";
 
 describe("P1-F: BinOutputAdapter", () => {
-  const tmpPath = path.resolve(__dirname, "../../../.tmp_tests/binout");
-  const absPath = path.join(tmpPath, "TEST.ABS");
+  const tmpDir = path.resolve(__dirname, "../../../.tmp_tests." + randomUUID());
+  const absPath = path.join(tmpDir, "TEST.ABS");
 
   beforeAll(() => {
-    fs.mkdirSync(tmpPath, { recursive: true });
+    fs.mkdirSync(tmpDir, { recursive: true });
   });
+
+  afterAll(() => {
+    if (fs.existsSync(absPath)) {
+      fs.unlinkSync(absPath);
+    }
+    // 一時ディレクトリも削除
+    fs.rmdirSync(tmpDir);
+  })
 
   it("writes segment data correctly", () => {
     const result: LinkResult = {
