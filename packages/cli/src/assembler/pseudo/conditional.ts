@@ -7,7 +7,8 @@ import { tokenize } from "../tokenizer";
 
 export function isConditionalOp(op: string): boolean {
   const u = op.toUpperCase();
-  return u === "IF" || u === "ELSEIF" || u === "ELSE" || u === "ENDIF" || u === "IFIDN";
+  return u === "IF" || u === "ELSEIF" || u === "ELSE" || u === "ENDIF" || u === "IFIDN"
+    || u === "IFDIF" || u === "IFDEF" || u === "IFNDEF" || u === "IFB" || u === "IFNB";
 }
 
 export function isConditionActive(ctx: AsmContext): boolean {
@@ -43,6 +44,9 @@ function evalConditionExpr(ctx: AsmContext, exprText: string, pos: any): boolean
 
 function normalizeIdn(ctx: AsmContext, raw: string): string {
   let s = (raw ?? "").trim();
+  if (s.startsWith("<") && s.endsWith(">")) {
+    s = s.slice(1, -1);
+  }
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     s = s.slice(1, -1);
   }
@@ -65,16 +69,57 @@ function evalIfIdn(ctx: AsmContext, node: NodePseudo): boolean {
   return normalizeIdn(ctx, left) === normalizeIdn(ctx, right);
 }
 
+function evalIfDef(ctx: AsmContext, node: NodePseudo, negate = false): boolean {
+  const symRaw = node.args?.[0]?.value?.trim() ?? "";
+  if (!symRaw) {
+    ctx.errors.push(
+      makeError(
+        AssemblerErrorCode.SyntaxError,
+        `${negate ? "IFNDEF" : "IFDEF"} requires symbol`,
+        { pos: node.pos }
+      )
+    );
+    return false;
+  }
+  const sym = ctx.caseInsensitive ? symRaw.toUpperCase() : symRaw;
+  const ok = ctx.symbols.has(sym) || ctx.externs.has(sym);
+  return negate ? !ok : ok;
+}
+
+function evalIfBlank(ctx: AsmContext, node: NodePseudo, negate = false): boolean {
+  const raw = node.args?.[0]?.value;
+  if (raw == null) {
+    ctx.errors.push(
+      makeError(
+        AssemblerErrorCode.SyntaxError,
+        `${negate ? "IFNB" : "IFB"} requires <text>`,
+        { pos: node.pos }
+      )
+    );
+    return false;
+  }
+  const text = normalizeIdn(ctx, raw);
+  const isBlank = text.length === 0;
+  return negate ? !isBlank : isBlank;
+}
+
 export function handleConditional(ctx: AsmContext, node: NodePseudo): void {
   const op = node.op.toUpperCase();
   if (!ctx.condStack) ctx.condStack = [];
   const stack = ctx.condStack;
 
-  if (op === "IF" || op === "IFIDN") {
+  if (op === "IF" || op === "IFIDN" || op === "IFDIF" || op === "IFDEF" || op === "IFNDEF" || op === "IFB" || op === "IFNB") {
     const parentActive = isConditionActive(ctx);
-    const cond = parentActive
-      ? (op === "IF" ? evalConditionExpr(ctx, node.args?.[0]?.value ?? "", node.pos) : evalIfIdn(ctx, node))
-      : false;
+    let cond = false;
+    if (parentActive) {
+      if (op === "IF") cond = evalConditionExpr(ctx, node.args?.[0]?.value ?? "", node.pos);
+      else if (op === "IFIDN") cond = evalIfIdn(ctx, node);
+      else if (op === "IFDIF") cond = !evalIfIdn(ctx, node);
+      else if (op === "IFDEF") cond = evalIfDef(ctx, node, false);
+      else if (op === "IFNDEF") cond = evalIfDef(ctx, node, true);
+      else if (op === "IFB") cond = evalIfBlank(ctx, node, false);
+      else if (op === "IFNB") cond = evalIfBlank(ctx, node, true);
+    }
     stack.push({
       parentActive,
       active: parentActive && cond,

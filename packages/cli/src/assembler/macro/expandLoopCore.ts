@@ -145,6 +145,7 @@ export function expandLoopCore(node: NodeLoopBase, ctx: AsmContext): Node[] {
 
       // === 本体展開 ===
       expandLoopBody(node, ctx, frame, out);
+      if (frame.breakFlag) break;
 
       iteration++;
     }
@@ -234,6 +235,10 @@ function expandLoopBody(node: NodeLoopBase, ctx: AsmContext, frame: LoopFrame, o
       // --- 終端トークンはスキップ（既に expandLoopCore でハンドル済） ---
       continue;
     } else {
+      if ((n as any).kind === "pseudo" && String((n as any).op).toUpperCase() === "EXITM") {
+        frame.breakFlag = true;
+        return;
+      }
       // --- 通常命令ノードなら引数置換して出力 ---
       substituteNodeArgs(n, ctx, frame);
       // --- WHILE/REPT で SET が出た場合は即時反映 ---

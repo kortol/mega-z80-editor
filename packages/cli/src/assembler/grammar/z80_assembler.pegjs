@@ -128,7 +128,7 @@ SetDirective
     }
 
 EndDirective
-  = "END"i value:(_ Expression)? {
+  = "END"i !IdentifierPart value:(_ Expression)? {
       return makeNode('directive', { name: 'END', value: value ? value[1] : null }, location());
     }
 
@@ -636,8 +636,10 @@ IdentifierPart
 // 予約語
 ReservedWord
   = ("ORG"i / "DB"i / "DEFB"i / "DZ"i / "DW"i / "DEFW"i / "DS"i / "DEFS"i / "EQU"i / "SET"i / "END"i /
-     "IF"i / "ELSEIF"i / "ELSE"i / "ENDIF"i / "IFIDN"i /
-     "EXTERN"i / "SECTION"i / "INCLUDE"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
+     "IF"i / "ELSEIF"i / "ELSE"i / "ENDIF"i / "IFIDN"i / "IFDIF"i / "IFDEF"i / "IFNDEF"i / "IFB"i / "IFNB"i /
+     "EXTERN"i / "EXTERNAL"i / "EXT"i / "SECTION"i / "INCLUDE"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
+     "DEFL"i / "DEFM"i / "DC"i / "GLOBAL"i / "PUBLIC"i / "LOCAL"i / "ASEG"i / "CSEG"i / "DSEG"i / "COMMON"i /
+     "LIST"i / "PAGE"i / "TITLE"i / "EXITM"i /
      "MACRO"i / "ENDM"i / "REPT"i / "REPEAT"i / "ENDR"i / "WHILE"i / "ENDW"i / "IRP"i / "IRPC"i / "LOCALMACRO"i /
      "LD"i / "ADD"i / "ADC"i / "SUB"i / "SBC"i / "INC"i / "DEC"i / "CP"i /
      "AND"i / "OR"i / "XOR"i / "RLC"i / "RRC"i / "RL"i / "RR"i / 

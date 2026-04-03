@@ -140,6 +140,7 @@ export interface AsmContext {
   symbols: Map<string, SymbolEntry>;
   unresolved: UnresolvedEntry[];
   externs: Set<string>;
+  exportSymbols: Set<string>;
 
   // --- モード/オプション ---
   modeWord32: boolean;           // `.WORD32` 拡張（通常false）
@@ -198,6 +199,11 @@ export interface AsmContext {
 
   // --- 条件アセンブル ---
   condStack: CondFrame[];
+  listingControl: {
+    enabled: boolean;
+    title?: string;
+    page?: number;
+  };
 }
 
 /* =====================================================================================
@@ -279,6 +285,7 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     symbols: new Map<string, SymbolEntry>(),
     unresolved: [],
     externs: new Set<string>(),
+    exportSymbols: new Set<string>(),
     modeWord32: false,
     modeSymLen: 6,
     caseInsensitive: true,
@@ -317,6 +324,9 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     loopStack: [],
 
     condStack: [],
+    listingControl: {
+      enabled: true,
+    },
   };
 
   // deepMerge で overrides を取り込み（Map/Set/Array を複製して採用）

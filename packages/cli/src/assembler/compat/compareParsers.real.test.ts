@@ -27,7 +27,7 @@ const files = [
   "packages/cli/examples/linktest/test.asm",
   "examples/hello/src/hello.asm",
   "examples/hello/src/bdos.asm",
-  "packages/cli/src/assembler-old/__tests__/mac.inc",
+  "packages/cli/src/assembler/__tests__/mac.inc",
   "packages/cli/src/assembler/examples/sample.asm",
 ];
 
@@ -52,3 +52,4 @@ describe("PEG parser (real files)", () => {
     });
   }
 });
+

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { phaseEmit, getBytes } from "../../../assembler-old/testUtils";
+import { phaseEmit, getBytes } from "../../../assembler/testUtils";
 
 const FIXTURE_DIR = path.resolve(__dirname, "../../../../tests/z80test");
 
@@ -39,4 +39,5 @@ if (asmFiles.length === 0) {
     }
   });
 }
+
 

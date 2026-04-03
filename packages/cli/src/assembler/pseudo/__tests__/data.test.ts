@@ -148,4 +148,10 @@ describe("pseudo - DB/DW", () => {
     expect(() => handlePseudo(ctx, makeNode(".WORD32", ["100H"])))
       .toThrow(/does not take operands/);
   });
+
+  test("DC sets bit7 on last character", () => {
+    const ctx = makeCtx();
+    handlePseudo(ctx, makeNode("DC", ['"ABC"', '"Z"']));
+    expect(ctx.texts[0].data).toEqual([0x41, 0x42, 0xC3, 0xDA]);
+  });
 });

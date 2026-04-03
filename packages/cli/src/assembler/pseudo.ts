@@ -14,7 +14,17 @@ import { AssemblerErrorCode, makeError } from "./errors";
 import { handleInclude } from "./pseudo/include";
 import { handleConditional, isConditionalOp } from "./pseudo/conditional";
 import { handleSET } from "./pseudo/set";
-import { handleDZ } from "./pseudo/data";
+import { handleDC, handleDZ } from "./pseudo/data";
+import {
+  handleEXITM,
+  handleEXTERNALAlias,
+  handleGLOBAL,
+  handleLIST,
+  handleLOCAL,
+  handlePAGE,
+  handleSectionAlias,
+  handleTITLE,
+} from "./pseudo/compat";
 
 export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
   switch (node.op.toUpperCase()) {
@@ -23,6 +33,11 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
     case "ELSE":
     case "ENDIF":
     case "IFIDN":
+    case "IFDIF":
+    case "IFDEF":
+    case "IFNDEF":
+    case "IFB":
+    case "IFNB":
       return handleConditional(ctx, node);
     case "ORG":
       return handleORG(ctx, node);
@@ -32,11 +47,17 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       return handleEQU(ctx, node);
     case "EXTERN":
       return handleEXTERN(ctx, node);
+    case "EXTERNAL":
+    case "EXT":
+      return handleEXTERNALAlias(ctx, node);
     case ".SYMLEN":
       return handleSYMLEN(ctx, node);
     case "DB":
     case "DEFB":
+    case "DEFM":
       return handleDB(ctx, node);
+    case "DC":
+      return handleDC(ctx, node);
     case "DZ":
       return handleDZ(ctx, node);
     case "DW":
@@ -49,6 +70,29 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       return handleWORD32(ctx, node);
     case "SET":
       return handleSET(ctx, node);
+    case "DEFL":
+      return handleSET(ctx, { ...node, op: "SET" });
+    case "GLOBAL":
+    case "PUBLIC":
+      return handleGLOBAL(ctx, node);
+    case "LOCAL":
+      return handleLOCAL(ctx, node);
+    case "CSEG":
+      return handleSectionAlias(ctx, node, "CSEG");
+    case "DSEG":
+      return handleSectionAlias(ctx, node, "DSEG");
+    case "ASEG":
+      return handleSectionAlias(ctx, node, "ASEG");
+    case "COMMON":
+      return handleSectionAlias(ctx, node, "COMMON");
+    case "TITLE":
+      return handleTITLE(ctx, node);
+    case "PAGE":
+      return handlePAGE(ctx, node);
+    case "LIST":
+      return handleLIST(ctx, node);
+    case "EXITM":
+      return handleEXITM(ctx, node);
     case "SECTION": {
       const name = node.args?.[0]?.value ?? "TEXT";
       const alignArg = node.args?.find((a) => a.key?.toUpperCase() === "ALIGN");

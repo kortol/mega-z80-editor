@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { createLogger } from "../../logger";
 import { assemble } from "../../cli/mz80-as";
-import { AsmOptions } from "../../assembler-old/context";
+import { AsmOptions } from "../../assembler/context";
 
 export type RunResult = {
   errors: string[];
@@ -170,3 +170,4 @@ export function runPegFile(
   }
   return peg;
 }
+

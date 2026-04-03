@@ -22,8 +22,29 @@ function extractGrammarMnemonics(text: string): string[] {
     "ELSE",
     "ENDIF",
     "IFIDN",
+    "IFDIF",
+    "IFDEF",
+    "IFNDEF",
+    "IFB",
+    "IFNB",
     "EXTERN",
+    "EXTERNAL",
+    "EXT",
+    "DEFL",
+    "DEFM",
+    "DC",
+    "GLOBAL",
+    "PUBLIC",
+    "LOCAL",
     "SECTION",
+    "ASEG",
+    "CSEG",
+    "DSEG",
+    "COMMON",
+    "LIST",
+    "PAGE",
+    "TITLE",
+    "EXITM",
     "ALIGN",
     "INCLUDE",
     ".SYMLEN",
@@ -89,8 +110,8 @@ function extractEncoderMnemonics(encoderText: string, tableText: string): string
 describe("Mnemonic coverage (grammar vs encoder)", () => {
   test("PEG grammar mnemonics are fully handled by encoder", () => {
     const grammarPath = path.resolve(__dirname, "../../grammar/z80_assembler.pegjs");
-    const encoderPath = path.resolve(__dirname, "../../../assembler-old/encoder.ts");
-    const instrTablePath = path.resolve(__dirname, "../../../assembler-old/encoder/instrTable.ts");
+    const encoderPath = path.resolve(__dirname, "../../../assembler/encoder.ts");
+    const instrTablePath = path.resolve(__dirname, "../../../assembler/encoder/instrTable.ts");
 
     const grammarText = fs.readFileSync(grammarPath, "utf8");
     const encoderText = fs.readFileSync(encoderPath, "utf8");
@@ -113,3 +134,4 @@ describe("Mnemonic coverage (grammar vs encoder)", () => {
     }
   });
 });
+

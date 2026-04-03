@@ -12,6 +12,12 @@ import { parseExpr } from "./expr/parserExpr";
 // マクロ展開の最大深度（無限ループ防止）
 const MAX_MACRO_EXPAND_DEPTH = 15;
 
+function trimAtExitm(nodes: Node[]): Node[] {
+  const idx = nodes.findIndex((n) => n.kind === "pseudo" && String((n as any).op).toUpperCase() === "EXITM");
+  if (idx < 0) return nodes;
+  return nodes.slice(0, idx);
+}
+
 // --- ✨ 新規追加：ローカルスコープ管理スタック ---
 export interface MacroScope {
   table: Map<string, NodeMacroDef>;
@@ -319,7 +325,7 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       const cloned = cloneTokensWithParent(rewritten, inv.pos);
 
       // 4️⃣ 本文再パース
-      const expanded = parse(ctx, cloned);
+      const expanded = trimAtExitm(parse(ctx, cloned));
 
       // 5️⃣ ネストしたマクロを再展開
       if (expanded.some(n => n.kind === "macroInvoke")) {

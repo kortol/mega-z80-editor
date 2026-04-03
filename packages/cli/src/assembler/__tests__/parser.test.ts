@@ -203,5 +203,42 @@ describe("parser", () => {
       { kind: "instr", op: "TSTIO", args: ["0"], pos: { line: 5, file: "test.asm" } },
     ]);
   });
+
+  test("P2-M: parse DEFL/DEFM/DC and aliases", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, 'FOO DEFL 1\nDEFM "AB",1\nDC "HI"\nEXT BAR\nEXTERNAL BAZ');
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "SET", args: [{ key: "FOO", value: "1" }] },
+      { kind: "pseudo", op: "DB", args: [{ value: '"AB"' }, { value: "1" }] },
+      { kind: "pseudo", op: "DC", args: [{ value: '"HI"' }] },
+      { kind: "pseudo", op: "EXT", args: [{ value: "BAR" }] },
+      { kind: "pseudo", op: "EXTERNAL", args: [{ value: "BAZ" }] },
+    ]);
+  });
+
+  test("P2-M: parse condition/list/segment directives", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(
+      ctx,
+      "IFDEF FOO\nIFNDEF BAR\nIFB <>\nIFNB <X>\nIFDIF <A>,<B>\nCSEG\nDSEG\nASEG\nCOMMON\nLIST OFF\nPAGE 60\nTITLE TEST\nGLOBAL START\nLOCAL TMP\nEXITM"
+    );
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "IFDEF", args: [{ value: "FOO" }] },
+      { kind: "pseudo", op: "IFNDEF", args: [{ value: "BAR" }] },
+      { kind: "pseudo", op: "IFB", args: [{ value: "<>" }] },
+      { kind: "pseudo", op: "IFNB", args: [{ value: "<X>" }] },
+      { kind: "pseudo", op: "IFDIF", args: [{ value: "<A>" }, { value: "<B>" }] },
+      { kind: "pseudo", op: "CSEG", args: [] },
+      { kind: "pseudo", op: "DSEG", args: [] },
+      { kind: "pseudo", op: "ASEG", args: [] },
+      { kind: "pseudo", op: "COMMON", args: [] },
+      { kind: "pseudo", op: "LIST", args: [{ value: "OFF" }] },
+      { kind: "pseudo", op: "PAGE", args: [{ value: "60" }] },
+      { kind: "pseudo", op: "TITLE", args: [{ value: "TEST" }] },
+      { kind: "pseudo", op: "GLOBAL", args: [{ value: "START" }] },
+      { kind: "pseudo", op: "LOCAL", args: [{ value: "TMP" }] },
+      { kind: "pseudo", op: "EXITM", args: [] },
+    ]);
+  });
 });
 

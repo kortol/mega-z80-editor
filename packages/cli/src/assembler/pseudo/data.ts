@@ -151,6 +151,58 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
 }
 
 // -----------------------------------------------------
+// DC (M80: set bit7 on the last byte of each argument element)
+// -----------------------------------------------------
+export function handleDC(ctx: AsmContext, node: NodePseudo) {
+  if (ctx.phase !== "emit") {
+    let count = 0;
+    for (const a of node.args) {
+      const v = a.value;
+      const lit = bytesFromLiteral(v);
+      if (lit.length) { count += lit.length; continue; }
+      const ext = parseExternExpr(ctx, v);
+      if (ext) { count += 1; continue; }
+      count += 1;
+    }
+    advanceLC(ctx, count);
+    return;
+  }
+
+  const outBytes: number[] = [];
+  for (const a of node.args) {
+    const valStr = a.value;
+    const lit = bytesFromLiteral(valStr);
+    if (lit.length) {
+      const copied = [...lit];
+      copied[copied.length - 1] = copied[copied.length - 1] | 0x80;
+      outBytes.push(...copied);
+      continue;
+    }
+
+    const ext = parseExternExpr(ctx, valStr);
+    if (ext) {
+      if (outBytes.length) {
+        emitBytes(ctx, outBytes, node.pos);
+        outBytes.length = 0;
+      }
+      emitFixup(ctx, ext.symbol, 1, {
+        op: "DC",
+        phase: "assemble",
+        pos: node.pos,
+      }, ext.addend, node.pos);
+      continue;
+    }
+
+    const val = resolveExpr8(ctx, valStr, node.pos);
+    outBytes.push((val & 0xFF) | 0x80);
+  }
+
+  if (outBytes.length > 0) {
+    emitBytes(ctx, outBytes, node.pos);
+  }
+}
+
+// -----------------------------------------------------
 // DW (Define Word)
 // -----------------------------------------------------
 export function handleDW(ctx: AsmContext, node: NodePseudo) {

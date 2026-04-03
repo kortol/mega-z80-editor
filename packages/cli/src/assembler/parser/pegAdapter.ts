@@ -1,6 +1,6 @@
-import { AsmContext, SourcePos, canon } from "../../assembler-old/context";
-import { Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler-old/node";
-import { tokenize } from "../../assembler-old/tokenizer";
+import { AsmContext, SourcePos, canon } from "../../assembler/context";
+import { Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler/node";
+import { tokenize } from "../../assembler/tokenizer";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pegParser = require("./gen/z80_assembler.js");
@@ -94,7 +94,9 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
   const pseudoOps = new Set([
     "ORG", "DB", "DW", "EQU", "END", "INCLUDE", "MACRO", "ENDM", "REPT", "ENDR",
     "DEFB", "DEFW", "DEFS", "ALIGN", "PUBLIC", "EXTERN", "LOCAL", "SECTION", "SEGMENT", "GLOBAL",
-    "SET", "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32"
+    "SET", "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32",
+    "DEFL", "DEFM", "DC", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM",
+    "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT"
   ]);
 
   const macroNames = new Set<string>();
@@ -207,6 +209,29 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         continue;
       }
 
+      // IFDEF FOO / EXTERNAL BAR / TITLE NAME などが
+      // parser上「label + macroInvoke」に分割されるケースを疑似命令へ救済する
+      if (labelName && !labelColon && instr.type === "macroInvoke") {
+        const leadingOp = String(labelName).toUpperCase();
+        const leadingPseudo = new Set([
+          "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF",
+          "GLOBAL", "PUBLIC", "LOCAL",
+          "EXTERNAL", "EXT",
+          "TITLE", "LIST",
+        ]);
+        if (leadingPseudo.has(leadingOp)) {
+          const pos = linePos;
+          const flatArgs = [String(instr.name), ...(instr.args ?? []).map((a: string) => String(a))];
+
+          if (leadingOp === "IFDIF" && flatArgs.length >= 2) {
+            nodes.push(makePseudo("IFDIF", [{ value: flatArgs[0] }, { value: flatArgs[1] }], pos));
+          } else {
+            nodes.push(makePseudo(leadingOp, flatArgs.map((v: string) => ({ value: v })), pos));
+          }
+          continue;
+        }
+      }
+
       // FOO EQU 10 / FOO SET 20 などのラベル横並びシンタックスを対応
       if (labelName && instr.type === "macroInvoke") {
         const op = String(instr.name).toUpperCase();
@@ -214,9 +239,9 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         if (labelColon && op === "EQU") {
           throw new Error("EQU cannot be used with label");
         }
-        if (op === "EQU" || op === "SET") {
+        if (op === "EQU" || op === "SET" || op === "DEFL") {
           const value = args[0] ?? "";
-          nodes.push(makePseudo(op, [{ key: labelName, value: String(value) }], linePos));
+          nodes.push(makePseudo(op === "DEFL" ? "SET" : op, [{ key: labelName, value: String(value) }], linePos));
           continue;
         }
       }
@@ -319,7 +344,43 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
 
       if (instr.type === "macroInvoke") {
         const pos = locToPos(ctx, instr.pos ?? item.pos);
-        nodes.push({ kind: "macroInvoke", name: instr.name, args: instr.args ?? [], pos } as NodeMacroInvoke);
+        const op = String(instr.name).toUpperCase();
+        const invokeArgs = instr.args ?? [];
+
+        if (pseudoOps.has(op)) {
+          if (op === "DEFL") {
+            if (invokeArgs.length >= 2) {
+              nodes.push(makePseudo("SET", [{ key: String(invokeArgs[0]), value: String(invokeArgs[1]) }], pos));
+            } else {
+              nodes.push(makePseudo("SET", [], pos));
+            }
+            continue;
+          }
+
+          if (op === "DEFM") {
+            nodes.push(makePseudo("DB", invokeArgs.map((a: string) => ({ value: String(a) })), pos));
+            continue;
+          }
+
+          if (op === "IFIDN" || op === "IFDIF") {
+            if (invokeArgs.length >= 2) {
+              nodes.push(makePseudo(op, [{ value: String(invokeArgs[0]) }, { value: String(invokeArgs[1]) }], pos));
+            } else {
+              nodes.push(makePseudo(op, invokeArgs.map((a: string) => ({ value: String(a) })), pos));
+            }
+            continue;
+          }
+
+          if (op === "EXTERNAL" || op === "EXT") {
+            nodes.push(makePseudo(op, invokeArgs.map((a: string) => ({ value: String(a) })), pos));
+            continue;
+          }
+
+          nodes.push(makePseudo(op, invokeArgs.map((a: string) => ({ value: String(a) })), pos));
+          continue;
+        }
+
+        nodes.push({ kind: "macroInvoke", name: instr.name, args: invokeArgs, pos } as NodeMacroInvoke);
         continue;
       }
 
@@ -418,3 +479,4 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
 
   return nodes;
 }
+
