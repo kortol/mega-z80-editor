@@ -637,7 +637,7 @@ IdentifierPart
 ReservedWord
   = ("ORG"i / "DB"i / "DEFB"i / "DZ"i / "DW"i / "DEFW"i / "DS"i / "DEFS"i / "EQU"i / "SET"i / "END"i /
      "IF"i / "ELSEIF"i / "ELSE"i / "ENDIF"i / "IFIDN"i / "IFDIF"i / "IFDEF"i / "IFNDEF"i / "IFB"i / "IFNB"i /
-     "EXTERN"i / "EXTERNAL"i / "EXT"i / "SECTION"i / "INCLUDE"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
+     "EXTERN"i / "EXTERNAL"i / "SECTION"i / "INCLUDE"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
      "DEFL"i / "DEFM"i / "DC"i / "GLOBAL"i / "PUBLIC"i / "LOCAL"i / "ASEG"i / "CSEG"i / "DSEG"i / "COMMON"i /
      "LIST"i / "PAGE"i / "TITLE"i / "EXITM"i /
      "MACRO"i / "ENDM"i / "REPT"i / "REPEAT"i / "ENDR"i / "WHILE"i / "ENDW"i / "IRP"i / "IRPC"i / "LOCALMACRO"i /

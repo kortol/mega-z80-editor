@@ -36,11 +36,13 @@ describe("P2-D-EX-02: INCLUDE trace in listing", () => {
     // --- Golden出力（期待値） ---
     const expected = [
       "; --- SECTION: .text ---",
-      ";#include \"main.asm\"",
-      ";#include \"sub1.inc\" (from main.asm line 1)",
+      ";#include \"sub1.inc\"",
       ";#include \"sub2.inc\" (from sub1.inc line 1)",
       "0000  3E 03           LD A,3",
+      ";#include \"main.asm\"",
+      ";#include \"sub1.inc\" (from main.asm line 2)",
       ";#endinclude (sub2.inc)",
+      ";#endinclude (sub1.inc)",
       "0002  3E 02           LD A,2",
       ";#endinclude (sub1.inc)",
       "0004  3E 01           LD A,1",
