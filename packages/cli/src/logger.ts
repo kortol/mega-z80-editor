@@ -1,8 +1,35 @@
-import pino from "pino";
-
 export type LogLevel = "quiet" | "normal" | "verbose";
 
 export function createLogger(level: LogLevel = "normal", ctxId?: string) {
+  let pino: any;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("pino");
+    // pino may be exported as default or named export depending on module type.
+    pino =
+      typeof mod === "function"
+        ? mod
+        : typeof mod?.default === "function"
+          ? mod.default
+          : typeof mod?.pino === "function"
+            ? mod.pino
+            : undefined;
+  } catch {
+    // Fallback for test/sandbox environments without pino resolution.
+    pino = undefined;
+  }
+
+  if (typeof pino !== "function") {
+    // Fallback for test/sandbox environments or unexpected module shape.
+    pino = () => ({
+      child: () => pino(),
+      info: () => {},
+      debug: () => {},
+      warn: () => {},
+      error: () => {},
+    });
+  }
+
   const map = { quiet: "silent", normal: "info", verbose: "debug" } as const;
 
   // Jest / CI 環境では pretty を無効化

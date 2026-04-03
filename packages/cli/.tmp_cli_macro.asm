@@ -1,0 +1,21 @@
+; demo main
+INCLUDE "demo.inc"
+ORG 0x9000
+
+PRINT3 MACRO
+  LD A,3
+  LD B,2
+  LD C,1
+ENDM
+
+PRINT3
+
+IRP X, 10, 20, 30
+  DB \X
+ENDM
+
+IRPC C, "ABC"
+  DB \C
+ENDM
+
+END

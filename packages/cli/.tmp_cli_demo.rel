@@ -1,0 +1,10 @@
+MZ8R
+$SECTION 0 .text size=19 align=1
+$TEXT section=.text
+T 8000 3E 12
+T 8002 06 5A
+T 8004 0E 03
+T 8006 48 45 4C 4C 4F 00
+T 800C 34 12
+T 8010 01 02 03
+S START 8000 .text

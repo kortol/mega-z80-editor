@@ -1,11 +1,12 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { MapAdapter } from "../mapAdapter";
 import { LinkResult } from "../../core/types";
 import { randomUUID } from "crypto";
 
 describe("P1-F: MapAdapter (BaseTextAdapter継承)", () => {
-  const tmpDir = path.resolve(__dirname, "../../../.tmp_tests." + randomUUID());
+  const tmpDir = path.join(os.tmpdir(), "mz80-tests-" + randomUUID());
   const mapPath = path.join(tmpDir, "test.map");
 
   const sample: LinkResult = {
@@ -20,14 +21,21 @@ describe("P1-F: MapAdapter (BaseTextAdapter継承)", () => {
     ]),
   };
 
+  function safeUnlink(p: string) {
+    try { fs.unlinkSync(p); } catch { /* ignore */ }
+  }
+  function safeRmdir(p: string) {
+    try { fs.rmdirSync(p); } catch { /* ignore */ }
+  }
+
   beforeAll(() => fs.mkdirSync(tmpDir, { recursive: true }));
-  afterEach(() => fs.existsSync(mapPath) && fs.unlinkSync(mapPath));
+  afterEach(() => fs.existsSync(mapPath) && safeUnlink(mapPath));
   afterAll(() => {
     if (fs.existsSync(mapPath)) {
-      fs.unlinkSync(mapPath);
+      safeUnlink(mapPath);
     }
     // 一時ディレクトリも削除
-    fs.rmdirSync(tmpDir);
+    safeRmdir(tmpDir);
   })
 
   it("generates valid MAP output", () => {

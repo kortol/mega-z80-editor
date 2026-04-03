@@ -10,6 +10,7 @@ export function parseRelFile(filename: string): RelModule {
 
   const mod: RelModule = { name: "", symbols: [], texts: [], refs: [], externs: [], };
 
+  // 各行をパース
   for (const line of lines) {
     const [rec, ...rest] = line.split(/\s+/);
     switch (rec) {

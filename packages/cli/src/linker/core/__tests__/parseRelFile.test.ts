@@ -3,10 +3,18 @@ import { randomUUID } from "crypto";
 import { parseRelFile } from "../parser";
 import * as fs from "fs";
 import * as path from "path";
+import os from "os";
 
 describe("P1-F: parseRelFile", () => {
-  const tmpDir = path.resolve(__dirname, "../../../.tmp_tests." + randomUUID());
+  const tmpDir = path.join(os.tmpdir(), "mz80-tests-" + randomUUID());
   const relPath = path.join(tmpDir, "TEST_REL.rel");
+
+  function safeUnlink(p: string) {
+    try { fs.unlinkSync(p); } catch { /* ignore */ }
+  }
+  function safeRmdir(p: string) {
+    try { fs.rmdirSync(p); } catch { /* ignore */ }
+  }
 
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -22,10 +30,10 @@ describe("P1-F: parseRelFile", () => {
   });
   afterAll(() => {
     if (fs.existsSync(relPath)) {
-      fs.unlinkSync(relPath);
+      safeUnlink(relPath);
     }
     // 一時ディレクトリも削除
-    fs.rmdirSync(tmpDir);
+    safeRmdir(tmpDir);
   })
 
   it("parses .rel file correctly", () => {

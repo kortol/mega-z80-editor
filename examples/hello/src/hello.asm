@@ -2,6 +2,8 @@
 
         ORG 0x0100        ; CP/M 実行プログラム開始番地
 
+        EXTERN BDOS       ; BDOS エントリポイント
+
         LD  E,'#'         ; 出力する文字
         LD  C,2           ; BDOS function 2 (C = function, E = char)
         CALL BDOS         ; BDOS呼び出し (0x0005)

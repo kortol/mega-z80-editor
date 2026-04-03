@@ -1,0 +1,6 @@
+;#include <sub1.inc>
+0000  3E 02           LD A,2
+;#include <sub2.inc>
+0002  3E 03           LD A,3
+;#endinclude (sub2.inc)
+;#endinclude (sub1.inc)

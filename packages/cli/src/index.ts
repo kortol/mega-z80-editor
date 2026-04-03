@@ -64,6 +64,7 @@ program
   .command("as <input> <output>")
   .description("Assemble .asm into .rel")
   .option("--rel-version <version>", "Specify the .rel version (1 or 2)", "2")
+  .option("--parser <mode>", "Select parser (legacy|peg)", "peg")
   .option("--verbose", "Show detailed output")
   .option("--quiet", "Suppress logs")
   .action((input, output, opts) => {
@@ -74,11 +75,12 @@ program
         : "normal";
     const logger = createLogger(logLevel);
     const relVersion = opts.relVersion === "2" ? 2 : 1;
+    const parserMode = opts.parser === "peg" ? "peg" : "legacy";
 
     const out = new Console(opts.verbose);
 
     try {
-      assemble(logger, input, output, { verbose: !!opts.verbose, relVersion });
+      assemble(logger, input, output, { verbose: !!opts.verbose, relVersion, parser: parserMode });
       out.success(`Assembled: ${input} → ${output}`);
     } catch (err: any) {
       out.error(`Assembly failed: ${err.message}`);

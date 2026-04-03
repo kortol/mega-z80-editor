@@ -33,7 +33,7 @@ Z80 の主要命令セットを網羅的に実装し、`.asm → .bin` 出力を
 | 入出力        | `IN/OUT (n),A`, `IN/OUT (C),r`                                                              | ✅ 完了            |
 | 制御命令       | `JP/CALL/RET/EXX/EX AF,AF'/DAA/NOP/HALT`                                                    | ✅ 完了            |
 | ED拡張       | `NEG/RRD/RLD/LDI/LDD/LDIR/LDDR/CPI/CPD/CPIR/CPDR`                                           | ✅ 完了            |
-| IX/IY算術    | `ADD IX,rr`, `ADD IY,rr`, `ADD IX,SP`                                                       | ⚠️ 未実装（P1-B残課題） |
+| IX/IY算術    | `ADD IX,rr`, `ADD IY,rr`, `ADD IX,SP`                                                       | ✅ 完了            |
 
 ---
 
@@ -88,7 +88,7 @@ Z80 の主要命令セットを網羅的に実装し、`.asm → .bin` 出力を
 
 | 項目                         | 状況                |
 | -------------------------- | ----------------- |
-| ADD IX,rr / ADD IY,SP 系未実装 | P1-B 残タスク         |
+| ADD IX,rr / ADD IY,SP 系未実装 | ✅ 完了            |
 | encoder.ts の肥大化            | 分割進行中（P1-C で完了予定） |
 | CB/ED prefixの共通処理抽象化       | リファクタリング対象        |
 | テストベンチ自動化                  | z80test導入フェーズで対応  |
@@ -98,7 +98,7 @@ Z80 の主要命令セットを網羅的に実装し、`.asm → .bin` 出力を
 ## 🔄 フェーズ移行条件
 
 * Jest テスト **全ケース成功**（✅ 達成）
-* ADD IX/IY 系命令の encode 実装完了
+* ADD IX/IY 系命令の encode 実装完了 ✅
 * コード分割の基本構造確立
 * テスト用 z80test サンプルデータ配置（最低1命令分）
 

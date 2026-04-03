@@ -1,13 +1,21 @@
 // src/linker/output/__tests__/binAdapter.test.ts
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { BinOutputAdapter } from "../binAdapter";
 import { LinkResult } from "../../core/types";
 import { randomUUID } from "crypto";
 
 describe("P1-F: BinOutputAdapter", () => {
-  const tmpDir = path.resolve(__dirname, "../../../.tmp_tests." + randomUUID());
+  const tmpDir = path.join(os.tmpdir(), "mz80-tests-" + randomUUID());
   const absPath = path.join(tmpDir, "TEST.ABS");
+
+  function safeUnlink(p: string) {
+    try { fs.unlinkSync(p); } catch { /* ignore */ }
+  }
+  function safeRmdir(p: string) {
+    try { fs.rmdirSync(p); } catch { /* ignore */ }
+  }
 
   beforeAll(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -15,10 +23,10 @@ describe("P1-F: BinOutputAdapter", () => {
 
   afterAll(() => {
     if (fs.existsSync(absPath)) {
-      fs.unlinkSync(absPath);
+      safeUnlink(absPath);
     }
     // 一時ディレクトリも削除
-    fs.rmdirSync(tmpDir);
+    safeRmdir(tmpDir);
   })
 
   it("writes segment data correctly", () => {

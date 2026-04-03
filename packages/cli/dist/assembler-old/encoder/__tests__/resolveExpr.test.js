@@ -1,0 +1,123 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const context_1 = require("../../context");
+const utils_1 = require("../utils");
+const pos = { line: 0, file: "test.asm", phase: "analyze" };
+function makeCtx() {
+    const ctx = (0, context_1.createContext)({
+        loc: 0,
+        moduleName: "TEST",
+        phase: "emit"
+    });
+    (0, context_1.defineSymbol)(ctx, "FOO", 10, "CONST");
+    (0, context_1.defineSymbol)(ctx, "BAR", 20, "CONST");
+    (0, context_1.defineSymbol)(ctx, "ZERO", 0, "CONST");
+    ctx.externs.add("EXT");
+    ctx.externs.add("EXT1");
+    ctx.externs.add("EXT2");
+    return ctx;
+}
+describe("resolveExpr8/16", () => {
+    // let ctx: EvalContext;
+    let ctx;
+    beforeEach(() => {
+        ctx = makeCtx();
+    });
+    describe("即値のみ", () => {
+        test("5 => 5", () => {
+            expect((0, utils_1.resolveExpr8)(ctx, "5", pos)).toBe(5);
+        });
+        test("FOO+BAR => 30", () => {
+            expect((0, utils_1.resolveExpr8)(ctx, "FOO+BAR", pos)).toBe(30);
+        });
+        test("FOO/BAR => 0 (10/20=0)", () => {
+            expect((0, utils_1.resolveExpr8)(ctx, "FOO/BAR", pos)).toBe(0);
+        });
+        test("除算ゼロはエラー", () => {
+            expect(() => (0, utils_1.resolveExpr8)(ctx, "FOO/ZERO", pos, true)).toThrow();
+        });
+    });
+    describe("外部参照（単独/±定数）", () => {
+        test("EXT", () => {
+            const val = (0, utils_1.resolveExpr8)(ctx, "EXT", pos);
+            expect(val).toBe(0);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", size: 1,
+            });
+        });
+        test("EXT+1", () => {
+            (0, utils_1.resolveExpr8)(ctx, "EXT+1", pos);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", addend: 1, size: 1,
+            });
+        });
+        test("1+EXT (入れ替え)", () => {
+            (0, utils_1.resolveExpr8)(ctx, "1+EXT", pos);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", addend: 1, size: 1,
+            });
+        });
+        test("EXT-1", () => {
+            (0, utils_1.resolveExpr16)(ctx, "EXT-1", pos);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", addend: -1, size: 2, "requester": { "op": "ENCODER", "phase": "assemble", pos: { "line": 0, file: "test.asm", phase: "analyze" } },
+            });
+        });
+        test("5-EXT はエラー", () => {
+            expect(() => (0, utils_1.resolveExpr8)(ctx, "5-EXT", pos, true)).toThrow();
+        });
+        test("-EXT はエラー", () => {
+            expect(() => (0, utils_1.resolveExpr8)(ctx, "-EXT", pos, true)).toThrow();
+        });
+    });
+    describe("外部＋内部", () => {
+        test("EXT+FOO => unresolved(addend=10)", () => {
+            (0, utils_1.resolveExpr8)(ctx, "EXT+FOO", pos);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", addend: 10, size: 1,
+            });
+        });
+        test("FOO+EXT => unresolved(addend=10)", () => {
+            (0, utils_1.resolveExpr8)(ctx, "FOO+EXT", pos);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", addend: 10, size: 1,
+            });
+        });
+        test("EXT-FOO => unresolved(addend=-10)", () => {
+            (0, utils_1.resolveExpr8)(ctx, "EXT-FOO", pos);
+            expect(ctx.unresolved).toContainEqual({
+                addr: 1, symbol: "EXT", addend: -10, size: 1,
+            });
+        });
+        test("FOO-EXT はエラー", () => {
+            expect(() => (0, utils_1.resolveExpr8)(ctx, "FOO-EXT", pos, true)).toThrow();
+        });
+        test("EXT+BAR (未定義) はエラー", () => {
+            expect(() => (0, utils_1.resolveExpr8)(ctx, "EXT+BAR2", pos, true)).toThrow();
+        });
+    });
+    describe("外部が2つ以上", () => {
+        test("EXT1+EXT2 はエラー", () => {
+            expect(() => (0, utils_1.resolveExpr16)(ctx, "EXT1+EXT2", pos, true)).toThrow();
+        });
+        test("EXT1-EXT2 はエラー", () => {
+            expect(() => (0, utils_1.resolveExpr16)(ctx, "EXT1-EXT2", pos, true)).toThrow();
+        });
+    });
+    describe("サイズ境界チェック", () => {
+        test("300 in resolveExpr8 → 範囲外エラー", () => {
+            expect(() => (0, utils_1.resolveExpr8)(ctx, "300", pos, true)).toThrow();
+        });
+        test("300 in resolveExpr16 → OK", () => {
+            expect((0, utils_1.resolveExpr16)(ctx, "300", pos)).toBe(300);
+        });
+        test("EXT+1 in resolveExpr8 → size=1", () => {
+            (0, utils_1.resolveExpr8)(ctx, "EXT+1", pos);
+            expect(ctx.unresolved[0].size).toBe(1);
+        });
+        test("EXT+1 in resolveExpr16 → size=2", () => {
+            (0, utils_1.resolveExpr16)(ctx, "EXT+1", pos);
+            expect(ctx.unresolved[0].size).toBe(2);
+        });
+    });
+});

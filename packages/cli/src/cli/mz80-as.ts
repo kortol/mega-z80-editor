@@ -1,18 +1,20 @@
-import { tokenize } from "../assembler/tokenizer";
-import { parse } from "../assembler/parser";
-import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
-import { handlePseudo } from "../assembler/pseudo";
-import { emitRel } from "../assembler/rel";
-import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler/context";
+import { tokenize } from "../assembler-old/tokenizer";
+import { parse } from "../assembler-old/parser";
+import { encodeInstr, estimateInstrSize } from "../assembler-old/encoder";
+import { handlePseudo } from "../assembler-old/pseudo";
+import { emitRel } from "../assembler-old/rel";
+import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler-old/context";
 import * as fs from "fs";
 import * as path from "path";
-import { emitRelV2 } from "../assembler/rel/builder";
-import { initCodegen } from "../assembler/codegen/emit";
-import { setPhase } from "../assembler/phaseManager";
+import { emitRelV2 } from "../assembler-old/rel/builder";
+import { initCodegen } from "../assembler-old/codegen/emit";
+import { setPhase } from "../assembler-old/phaseManager";
 import { Logger } from "../logger";
-import { writeLstFile, writeLstFileV2 } from "../assembler/output/listing";
-import { runAnalyze } from "../assembler/analyze";
-import { expandMacros } from "../assembler/macro";
+import { writeLstFile, writeLstFileV2 } from "../assembler-old/output/listing";
+import { runAnalyze } from "../assembler-old/analyze";
+import { expandMacros } from "../assembler-old/macro";
+import { parsePeg } from "../assembler/parser/pegAdapter";
+import { handleConditional, isConditionActive, isConditionalOp } from "../assembler-old/pseudo/conditional";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -31,6 +33,7 @@ export function writeSymFile(ctx: AsmContext, outputFile: string) {
   for (const name of entries) {
     let kind = "UNKNOWN";
     let valStr = "----";
+    let fileStr = "-";
 
     if (ctx.externs.has(name)) {
       kind = "EXTERN";
@@ -39,10 +42,11 @@ export function writeSymFile(ctx: AsmContext, outputFile: string) {
       if (typeof (entry?.value) === "number") {
         kind = "LABEL";
         valStr = entry.value.toString(16).padStart(4, "0");
+        if (entry?.pos?.file) fileStr = path.basename(entry.pos.file);
       }
     }
 
-    lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind}`);
+    lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind} ${fileStr}`);
   }
 
   fs.writeFileSync(symPath, lines.join("\n") + "\n", "utf-8");
@@ -88,6 +92,7 @@ export function assemble(
     verbose,
     inputFile,
     logger,
+    options,
   });
   initCodegen(ctx, { withDefaultSections: true });
 
@@ -99,11 +104,19 @@ export function assemble(
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");
-  ctx.tokens = tokenize(ctx, source);
+  if (options.parser === "peg") {
+    ctx.tokens = [];
+  } else {
+    ctx.tokens = tokenize(ctx, source);
+  }
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  ctx.nodes = parse(ctx, ctx.tokens);
+  if (options.parser === "peg") {
+    ctx.nodes = parsePeg(ctx, source);
+  } else {
+    ctx.nodes = parse(ctx, ctx.tokens);
+  }
   ctx.source = source;
 
   // --- 🧩 PHASE: macro-expand (P2-E-03) ---
@@ -146,22 +159,77 @@ export function runEmit(ctx: AsmContext) {
   ctx.loc = 0;
   ctx.relocs = [];
   ctx.unresolved = [];
+  ctx.condStack = [];
+  ctx.listing = [];
   for (const sec of ctx.sections.values()) {
     sec.lc = 0;
     sec.bytes = [];
   }
 
   for (const node of ctx.nodes ?? []) {
+    if (node.kind === "empty") continue;
+    const beforeTexts = ctx.texts.length;
+    const addr = ctx.loc;
+    const sectionId = ctx.currentSection;
+    let skipListing = false;
+
     switch (node.kind) {
       case "label":
-        defineSymbol(ctx, node.name, ctx.loc, "LABEL");
+        if (!isConditionActive(ctx)) { skipListing = true; break; }
+        defineSymbol(ctx, node.name, ctx.loc, "LABEL", node.pos);
         break;
       case "pseudo":
+        if (isConditionalOp(node.op)) {
+          handleConditional(ctx, node);
+          skipListing = true;
+          break;
+        }
+        if (!isConditionActive(ctx)) { skipListing = true; break; }
+        const pseudoOp = node.op.toUpperCase();
+        if (pseudoOp === "INCLUDE" || pseudoOp === "SECTION") {
+          skipListing = true;
+        }
         handlePseudo(ctx, node);
         break;
       case "instr":
+        if (!isConditionActive(ctx)) { skipListing = true; break; }
         encodeInstr(ctx, node);
         break;
+    }
+
+    if (skipListing) continue;
+
+    const newTexts = ctx.texts.slice(beforeTexts);
+    if (newTexts.length > 0) {
+      for (const t of newTexts) {
+        ctx.listing.push({
+          addr: t.addr,
+          bytes: t.data,
+          pos: t.pos,
+          sectionId: t.sectionId,
+        });
+      }
+      continue;
+    }
+
+    // no bytes emitted -> listing entry for label/pseudo
+    if (node.kind === "label") {
+      ctx.listing.push({
+        addr,
+        bytes: [],
+        pos: node.pos,
+        sectionId,
+        text: `${node.name}:`,
+        kind: "label",
+      });
+    } else if (node.kind === "pseudo") {
+      ctx.listing.push({
+        addr,
+        bytes: [],
+        pos: node.pos,
+        sectionId,
+        kind: "pseudo",
+      });
     }
   }
 }
