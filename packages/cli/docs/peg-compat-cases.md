@@ -123,19 +123,23 @@ The goal is output/diagnostic parity for assembler and linker inputs.
   - `\#`, `\##n`, `\##MAX` loop counters
   - `@#` (sjasm-style) mapped to `COUNTER`
 - Conditional pseudo:
-  - `IF/ELSEIF/ELSE/ENDIF`, `IFIDN`
+  - `IF/ELSEIF/ELSE/ENDIF`, `IFIDN`, `IFDIF`, `IFDEF`, `IFNDEF`, `IFB`, `IFNB`
 - Pseudo directives implemented:
-  - `ORG`, `END`, `EQU`, `SET`
-  - `DB/DEFB`, `DW/DEFW`, `DS/DEFS`, `DZ`
-  - `EXTERN` (accepts `FROM` but ignored)
-  - `SECTION` (supports `ALIGN=`), `INCLUDE`, `ALIGN`, `.SYMLEN`, `.WORD32`
+  - `ORG`, `END`, `EQU`, `SET`, `DEFL`
+  - `DB/DEFB`, `DW/DEFW`, `DS/DEFS`, `DZ`, `DEFM`, `DC`
+  - `EXTERN`, `EXTERNAL`, `EXT` (`FROM` is accepted but ignored)
+  - `SECTION` (supports `ALIGN=`), `ASEG/CSEG/DSEG`, `COMMON`, `INCLUDE`, `ALIGN`, `.SYMLEN`, `.WORD32`
+  - `GLOBAL`, `LOCAL` (M80完全互換ではなく簡易実装)
+  - `TITLE`, `PAGE`, `LIST`, `EXITM` (簡易実装)
 
 ### Missing vs sjasm/m80 (known gaps)
-- Conditional directives not implemented:
-  - `IFDEF/IFNDEF`, `IFIDNI`, `IFDIF/IFDIFI`, `IFB/IFNB`
 - Pseudo directives not implemented:
-  - `PUBLIC/LOCAL/GLOBAL/SEGMENT` are parsed but will error in pseudo handler
-  - No `INCBIN/INCLUDEBIN`, `TITLE`, `PAGE`, `LIST/NOLIST`, etc.
+  - `INCBIN/INCLUDEBIN`, `MODULE`
+  - `IFIDNI/IFDIFI` など一部派生条件ディレクティブ
+- Implemented but simplified:
+  - `COMMON` は `SECTION COMMON` 相当の最小実装
+  - `LIST/PAGE/TITLE` は状態保持中心（完全listing制御ではない）
+  - `LOCAL` は可視性制御ではなく最小互換扱い
 - Macro args limitations:
   - No quoting/escaping to keep commas inside a single arg
   - No default args / varargs / named args
@@ -180,37 +184,42 @@ The goal is output/diagnostic parity for assembler and linker inputs.
 ### Pseudo-op Comparison (sjasmplus / M80 / mz80)
 | Category | sjasmplus (documented) | M80 (documented) | mz80 (implemented) |
 | --- | --- | --- | --- |
-| Core data | `DB/DEFB`, `DW/DEFW`, `DEFS/DS`, `DEFM`, `DEFL`, `EQU` etc. citeturn1view3 | `DB/DEFB/DEFW/DEFS/DS/DW`, `DEFM`, `DEFL`, `EQU`, `DC` citeturn4view2 | `DB/DEFB`, `DW/DEFW`, `DS/DEFS`, `DZ`, `EQU`, `SET` |
+| Core data | `DB/DEFB`, `DW/DEFW`, `DEFS/DS`, `DEFM`, `DEFL`, `EQU` etc. citeturn1view3 | `DB/DEFB/DEFW/DEFS/DS/DW`, `DEFM`, `DEFL`, `EQU`, `DC` citeturn4view2 | `DB/DEFB`, `DW/DEFW`, `DS/DEFS`, `DZ`, `EQU`, `SET`, `DEFL`, `DEFM`, `DC` |
 | Include | `INCLUDE`, `INCBIN`, `INSERT` and related include directives citeturn1view3 | `$INCLUDE`, `INCLUDE` citeturn4view2 | `INCLUDE` (string path only) |
-| Conditionals | `IF/ELSEIF/ELSE/ENDIF`, `IFDEF/IFNDEF`, `IFN` etc. citeturn1view3 | `IF/ELSE/ENDIF/ENDC`, `IFDEF/IFNDEF`, `IFDIF`, `IFB/IFNB`, `IFIDN` etc. citeturn4view2 | `IF/ELSEIF/ELSE/ENDIF`, `IFIDN` |
+| Conditionals | `IF/ELSEIF/ELSE/ENDIF`, `IFDEF/IFNDEF`, `IFN` etc. citeturn1view3 | `IF/ELSE/ENDIF/ENDC`, `IFDEF/IFNDEF`, `IFDIF`, `IFB/IFNB`, `IFIDN` etc. citeturn4view2 | `IF/ELSEIF/ELSE/ENDIF`, `IFIDN`, `IFDIF`, `IFDEF`, `IFNDEF`, `IFB`, `IFNB` |
 | Macro / repeat | `MACRO/ENDM`, `REPT` (via DUP), `WHILE` citeturn1view3 | `MACRO/ENDM`, `IRP/IRPC`, `EXITM` citeturn4view2 | `MACRO/ENDM`, `REPT/REPEAT`, `IRP/IRPC`, `WHILE/ENDW`, `LOCALMACRO` |
-| Segments / scope | `MODULE`, `ORG`, `PHASE/DISP`, device/page directives (many) citeturn1view3 | `ASEG/CSEG/DSEG`, `COMMON`, `GLOBAL`, `LOCAL`, `ORG` citeturn4view2 | `SECTION`, `ALIGN`, `ORG` |
+| Segments / scope | `MODULE`, `ORG`, `PHASE/DISP`, device/page directives (many) citeturn1view3 | `ASEG/CSEG/DSEG`, `COMMON`, `GLOBAL`, `LOCAL`, `ORG` citeturn4view2 | `SECTION`, `ALIGN`, `ORG`, `ASEG/CSEG/DSEG`, `COMMON`, `GLOBAL`, `LOCAL` |
 
-### Pseudo-op Checklist (Supported / Missing / Alternative)
-| Pseudo-op | sjasmplus | M80 | mz80 | Alternative / Note |
-| --- | --- | --- | --- | --- |
-| `ORG` | ✅ | ✅ | ✅ |  |
-| `EQU` | ✅ | ✅ | ✅ |  |
-| `SET` / `DEFL` | ✅ (`DEFL`) | ✅ (`DEFL`) citeturn4view2 | ✅ (`SET`) | `DEFL` not implemented; use `SET` (semantics may differ) |
-| `DB/DEFB` | ✅ | ✅ | ✅ |  |
-| `DW/DEFW` | ✅ | ✅ | ✅ |  |
-| `DS/DEFS` | ✅ | ✅ | ✅ |  |
-| `DEFM` / `DC` | ✅ (`DEFM`) citeturn1view3 | ✅ (`DEFM`, `DC`) citeturn4view2 | ❌ | Use `DB "string"` |
-| `DZ` | ✅ citeturn1view3 | (not listed) citeturn4view2 | ✅ |  |
-| `INCLUDE` | ✅ | ✅ citeturn4view2 | ✅ |  |
-| `INCBIN` / `INSERT` | ✅ citeturn1view3 | (not listed) citeturn4view2 | ❌ |  |
-| `IF/ELSE/ENDIF` | ✅ citeturn1view3 | ✅ citeturn4view2 | ✅ |  |
-| `IFDEF/IFNDEF` | ✅ citeturn1view3 | ✅ citeturn4view2 | ❌ |  |
-| `IFB/IFNB` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ❌ |  |
-| `IFDIF/IFIDN` | ✅ citeturn1view3 | ✅ citeturn4view2 | ✅ (`IFIDN` only) | `IFDIF` missing |
-| `MACRO/ENDM` | ✅ | ✅ | ✅ |  |
-| `IRP/IRPC` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ✅ |  |
-| `REPT/WHILE` | ✅ citeturn1view3 | (not listed) citeturn4view2 | ✅ |  |
-| `EXITM` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ❌ |  |
-| `GLOBAL/LOCAL` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ❌ | Only `LOCALMACRO` exists (not symbol scope) |
-| `ASEG/CSEG/DSEG` | ❌ (uses `MODULE`/`PAGE`) citeturn1view3 | ✅ citeturn4view2 | ❌ | Use `SECTION <name>` |
-| `TITLE/PAGE/LIST` | ✅ (various) citeturn1view3 | ✅ (`$TITLE`, `.LIST/.XLIST`) citeturn4view2 | ❌ |  |
-| `EXTRN/EXTERNAL/EXT` | ✅ (EXPORT/EXTERN variants) citeturn1view3 | ✅ citeturn4view2 | ✅ (`EXTERN`) | Use `EXTERN` |
+### Pseudo-op Checklist (P2-M Current)
+Status:
+- `Full` = 実運用レベルで使用可能
+- `Simplified` = 文法再現優先の簡易実装
+- `Deferred` = 未実装（後続フェーズ）
+
+| Pseudo-op | sjasmplus | M80 | mz80 | Status | Note |
+| --- | --- | --- | --- | --- | --- |
+| `ORG` | ✅ | ✅ | ✅ | `Full` |  |
+| `EQU` | ✅ | ✅ | ✅ | `Full` |  |
+| `SET` / `DEFL` | ✅ (`DEFL`) | ✅ (`DEFL`) citeturn4view2 | ✅ (`SET`, `DEFL`) | `Simplified` | `DEFL` は `SET` 同等 |
+| `DB/DEFB` | ✅ | ✅ | ✅ | `Full` |  |
+| `DW/DEFW` | ✅ | ✅ | ✅ | `Full` |  |
+| `DS/DEFS` | ✅ | ✅ | ✅ | `Full` |  |
+| `DEFM` / `DC` | ✅ (`DEFM`) citeturn1view3 | ✅ (`DEFM`, `DC`) citeturn4view2 | ✅ | `Simplified` | `DC` は終端bit7立て最小互換 |
+| `DZ` | ✅ citeturn1view3 | (not listed) citeturn4view2 | ✅ | `Full` |  |
+| `INCLUDE` | ✅ | ✅ citeturn4view2 | ✅ | `Full` |  |
+| `INCBIN` / `INSERT` | ✅ citeturn1view3 | (not listed) citeturn4view2 | ❌ | `Deferred` |  |
+| `IF/ELSE/ENDIF` | ✅ citeturn1view3 | ✅ citeturn4view2 | ✅ | `Full` |  |
+| `IFDEF/IFNDEF` | ✅ citeturn1view3 | ✅ citeturn4view2 | ✅ | `Full` |  |
+| `IFB/IFNB` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ✅ | `Simplified` | `<text>` 形式中心 |
+| `IFDIF/IFIDN` | ✅ citeturn1view3 | ✅ citeturn4view2 | ✅ | `Full` |  |
+| `MACRO/ENDM` | ✅ | ✅ | ✅ | `Full` |  |
+| `IRP/IRPC` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ✅ | `Full` |  |
+| `REPT/WHILE` | ✅ citeturn1view3 | (not listed) citeturn4view2 | ✅ | `Full` |  |
+| `EXITM` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ✅ | `Simplified` | 展開打ち切りの最小互換 |
+| `GLOBAL/LOCAL` | ✅ (sjasmplus) citeturn1view3 | ✅ citeturn4view2 | ✅ | `Simplified` | `LOCAL` はM80完全互換ではない |
+| `ASEG/CSEG/DSEG` | ❌ (uses `MODULE`/`PAGE`) citeturn1view3 | ✅ citeturn4view2 | ✅ | `Simplified` | `SECTION` 正規化ベース |
+| `TITLE/PAGE/LIST` | ✅ (various) citeturn1view3 | ✅ (`$TITLE`, `.LIST/.XLIST`) citeturn4view2 | ✅ | `Simplified` | 状態保持中心 |
+| `EXTRN/EXTERNAL/EXT` | ✅ (EXPORT/EXTERN variants) citeturn1view3 | ✅ citeturn4view2 | ✅ | `Full` | `EXTERN/EXTERNAL/EXT` を受理 |
 
 ## Listings / Output
 - .lst formatting parity for macro-expanded sources
