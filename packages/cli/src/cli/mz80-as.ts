@@ -1,18 +1,18 @@
-import { encodeInstr, estimateInstrSize } from "../assembler-old/encoder";
-import { handlePseudo } from "../assembler-old/pseudo";
-import { emitRel } from "../assembler-old/rel";
-import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler-old/context";
+import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
+import { handlePseudo } from "../assembler/pseudo";
+import { emitRel } from "../assembler/rel";
+import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
-import { emitRelV2 } from "../assembler-old/rel/builder";
-import { initCodegen } from "../assembler-old/codegen/emit";
-import { setPhase } from "../assembler-old/phaseManager";
+import { emitRelV2 } from "../assembler/rel/builder";
+import { initCodegen } from "../assembler/codegen/emit";
+import { setPhase } from "../assembler/phaseManager";
 import { Logger } from "../logger";
-import { writeLstFile, writeLstFileV2 } from "../assembler-old/output/listing";
-import { runAnalyze } from "../assembler-old/analyze";
-import { expandMacros } from "../assembler-old/macro";
+import { writeLstFile, writeLstFileV2 } from "../assembler/output/listing";
+import { runAnalyze } from "../assembler/analyze";
+import { expandMacros } from "../assembler/macro";
 import { parsePeg } from "../assembler/parser/pegAdapter";
-import { handleConditional, isConditionActive, isConditionalOp } from "../assembler-old/pseudo/conditional";
+import { handleConditional, isConditionActive, isConditionalOp } from "../assembler/pseudo/conditional";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -38,7 +38,7 @@ export function writeSymFile(ctx: AsmContext, outputFile: string) {
     } else {
       const entry = ctx.symbols.get(name);
       if (typeof (entry?.value) === "number") {
-        kind = "LABEL";
+        kind = ctx.exportSymbols.has(name) ? "GLOBAL" : "LABEL";
         valStr = entry.value.toString(16).padStart(4, "0");
         if (entry?.pos?.file) fileStr = path.basename(entry.pos.file);
       }
@@ -188,6 +188,7 @@ export function runEmit(ctx: AsmContext) {
     }
 
     if (skipListing) continue;
+    if (!ctx.listingControl.enabled) continue;
 
     const newTexts = ctx.texts.slice(beforeTexts);
     if (newTexts.length > 0) {
@@ -275,3 +276,4 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
   }
   return ctx;
 }
+
