@@ -37,20 +37,20 @@ exports.writeSymFile = writeSymFile;
 exports.assemble = assemble;
 exports.runEmit = runEmit;
 exports.finalizeOutput = finalizeOutput;
-const encoder_1 = require("../assembler-old/encoder");
-const pseudo_1 = require("../assembler-old/pseudo");
-const rel_1 = require("../assembler-old/rel");
-const context_1 = require("../assembler-old/context");
+const encoder_1 = require("../assembler/encoder");
+const pseudo_1 = require("../assembler/pseudo");
+const rel_1 = require("../assembler/rel");
+const context_1 = require("../assembler/context");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
-const builder_1 = require("../assembler-old/rel/builder");
-const emit_1 = require("../assembler-old/codegen/emit");
-const phaseManager_1 = require("../assembler-old/phaseManager");
-const listing_1 = require("../assembler-old/output/listing");
-const analyze_1 = require("../assembler-old/analyze");
-const macro_1 = require("../assembler-old/macro");
+const builder_1 = require("../assembler/rel/builder");
+const emit_1 = require("../assembler/codegen/emit");
+const phaseManager_1 = require("../assembler/phaseManager");
+const listing_1 = require("../assembler/output/listing");
+const analyze_1 = require("../assembler/analyze");
+const macro_1 = require("../assembler/macro");
 const pegAdapter_1 = require("../assembler/parser/pegAdapter");
-const conditional_1 = require("../assembler-old/pseudo/conditional");
+const conditional_1 = require("../assembler/pseudo/conditional");
 // --- .sym 出力 ---
 function writeSymFile(ctx, outputFile) {
     const symPath = outputFile.replace(/\.rel$/i, ".sym");
@@ -72,7 +72,7 @@ function writeSymFile(ctx, outputFile) {
         else {
             const entry = ctx.symbols.get(name);
             if (typeof (entry?.value) === "number") {
-                kind = "LABEL";
+                kind = ctx.exportSymbols.has(name) ? "GLOBAL" : "LABEL";
                 valStr = entry.value.toString(16).padStart(4, "0");
                 if (entry?.pos?.file)
                     fileStr = path.basename(entry.pos.file);
@@ -206,6 +206,8 @@ function runEmit(ctx) {
                 break;
         }
         if (skipListing)
+            continue;
+        if (!ctx.listingControl.enabled)
             continue;
         const newTexts = ctx.texts.slice(beforeTexts);
         if (newTexts.length > 0) {

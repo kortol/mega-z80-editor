@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const testUtils_1 = require("../../../assembler-old/testUtils");
+const testUtils_1 = require("../../../assembler/testUtils");
 const FIXTURE_DIR = path_1.default.resolve(__dirname, "../../../../tests/z80test");
 function listAsmFixtures(dir) {
     if (!fs_1.default.existsSync(dir))
