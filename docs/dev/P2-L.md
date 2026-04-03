@@ -1,10 +1,10 @@
-# 🧩 P2-E フェーズ仕様書 - PEG単一路線化と Legacy Parser 除去
+# 🧩 P2-L フェーズ仕様書 - PEG単一路線化と Legacy Parser 除去
 
 ---
 
 ## 🎯 フェーズ目的
 
-P2-E の目的は、アセンブラのパーサ経路を **PEG のみ**に統一し、`legacy parser` の実行経路と運用負債を除去すること。
+P2-L の目的は、アセンブラのパーサ経路を **PEG のみ**に統一し、`legacy parser` の実行経路と運用負債を除去すること。
 
 これにより、以下を達成する。
 
@@ -65,14 +65,14 @@ P2-E の目的は、アセンブラのパーサ経路を **PEG のみ**に統一
 
 | No      | タスク | 内容 |
 | ------- | ------ | ---- |
-| P2-E-01 | Node型分離 | `Node*` 型を parser 実装から独立ファイルへ移設し、参照先を置換 |
-| P2-E-02 | Assemble経路一本化 | `assemble()` の legacy/peg 分岐を削除し PEG 固定化 |
-| P2-E-03 | INCLUDE経路一本化 | `pseudo/include.ts` の parser 分岐を削除し PEG 固定化 |
-| P2-E-04 | CLI仕様更新 | `--parser` 廃止、help/README/docs を更新 |
-| P2-E-05 | 互換テスト再編 | `compare legacy vs peg` 基盤を縮退し PEG ゴールデン回帰へ移行 |
-| P2-E-06 | ビルド整理 | `build:parser_old` など legacy parser 前提の script を整理 |
-| P2-E-07 | 実装削除 | legacy トップレベル parser 実装と未使用導線を削除 |
-| P2-E-08 | 回帰確認 | 既存主要テスト・実ファイルアセンブル・出力物検証 |
+| P2-L-01 | Node型分離 | `Node*` 型を parser 実装から独立ファイルへ移設し、参照先を置換 |
+| P2-L-02 | Assemble経路一本化 | `assemble()` の legacy/peg 分岐を削除し PEG 固定化 |
+| P2-L-03 | INCLUDE経路一本化 | `pseudo/include.ts` の parser 分岐を削除し PEG 固定化 |
+| P2-L-04 | CLI仕様更新 | `--parser` 廃止、help/README/docs を更新 |
+| P2-L-05 | 互換テスト再編 | `compare legacy vs peg` 基盤を縮退し PEG ゴールデン回帰へ移行 |
+| P2-L-06 | ビルド整理 | `build:parser_old` など legacy parser 前提の script を整理 |
+| P2-L-07 | 実装削除 | legacy トップレベル parser 実装と未使用導線を削除 |
+| P2-L-08 | 回帰確認 | 既存主要テスト・実ファイルアセンブル・出力物検証 |
 
 ---
 
@@ -115,7 +115,7 @@ P2-E の目的は、アセンブラのパーサ経路を **PEG のみ**に統一
 
 ## ✅ 完了条件（DoD）
 
-以下をすべて満たした時点で P2-E 完了とする。
+以下をすべて満たした時点で P2-L 完了とする。
 
 1. CLI から `--parser` が削除され、PEG 単一路線で動作する
 2. `assemble` / `include` / test utility の parser 分岐が消えている
@@ -130,7 +130,7 @@ P2-E の目的は、アセンブラのパーサ経路を **PEG のみ**に統一
 ### リスク1: 型依存の崩れ
 
 - 症状: `pegAdapter` などが `parser.ts` に暗黙依存
-- 対策: 先行で Node 型分離（P2-E-01）を実施
+- 対策: 先行で Node 型分離（P2-L-01）を実施
 
 ### リスク2: マクロ再パース経路の破断
 
@@ -146,20 +146,22 @@ P2-E の目的は、アセンブラのパーサ経路を **PEG のみ**に統一
 
 ## 🚚 推奨実装順序
 
-1. P2-E-01 Node型分離
-2. P2-E-02 / 03 経路一本化
-3. P2-E-04 CLI更新
-4. P2-E-05 テスト再編
-5. P2-E-06 / 07 legacy資産整理・削除
-6. P2-E-08 回帰とドキュメント最終整合
+1. P2-L-01 Node型分離
+2. P2-L-02 / 03 経路一本化
+3. P2-L-04 CLI更新
+4. P2-L-05 テスト再編
+5. P2-L-06 / 07 legacy資産整理・削除
+6. P2-L-08 回帰とドキュメント最終整合
 
 ---
 
 ## 🔭 次フェーズ接続（P2-F）
 
-P2-E 完了後、P2-F では以下に集中できる。
+P2-L 完了後、P2-F では以下に集中できる。
 
 - parser 実装差分に左右されない IR/AST 整理
 - encode/error/listing の一貫性改善
 - パフォーマンス最適化（単一路線化の恩恵）
+
+
 
