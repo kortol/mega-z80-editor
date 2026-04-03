@@ -1,5 +1,5 @@
 import { AsmContext } from "../context";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 import {
   resolveValue,
   reg8Info,

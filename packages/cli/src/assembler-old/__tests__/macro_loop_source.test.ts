@@ -7,7 +7,7 @@ REPT 3
   DB \\#
 ENDM
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     console.log(ctx);
     expect(ctx.errors).toHaveLength(0);
     expect(getBytes(ctx)).toEqual([0, 1, 2]); // DB 0,1,2
@@ -21,7 +21,7 @@ REPT 2
   ENDM
 ENDM
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     console.log(ctx);
     expect(ctx.errors).toHaveLength(0);
     expect(getBytes(ctx)).toEqual([
@@ -40,7 +40,7 @@ IRP X, 10, 20, 30
   DB \\X
 ENDM
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(ctx.errors).toHaveLength(0);
     expect(getBytes(ctx)).toEqual([10, 20, 30]);
   });
@@ -53,9 +53,10 @@ WHILE X < 3
   X := X+1
 ENDW
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(ctx.errors).toHaveLength(0);
     expect(getBytes(ctx)).toEqual([0, 1, 2]);
   });
 
 });
+

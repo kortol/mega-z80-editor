@@ -1,6 +1,6 @@
 import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 import { parseIndexAddr, reg8Info, regCode, reg16Code, isReg8 } from "./utils";
 
 export function encodeINC(ctx: AsmContext, node: NodeInstr) {

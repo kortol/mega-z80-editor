@@ -145,9 +145,8 @@ The goal is output/diagnostic parity for assembler and linker inputs.
 - `strictMacro=true` rejects macro definitions that shadow Z80 mnemonics.
 
 ### CLI Gaps (sjasm/m80 Compatibility)
-- Parser choice is CLI-visible:
-  - `--parser peg` (default) or `--parser legacy`
-  - Both are internal mz80 implementations; not sjasm/m80
+- Parser choice is not CLI-visible:
+  - PEG parser is always used by `mz80 as`
 - Options missing for compatibility tuning:
   - No CLI flag to force `strictMacro` (sjasm-like: do not allow macro override)
   - No CLI flag for case sensitivity

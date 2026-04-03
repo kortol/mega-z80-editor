@@ -19,7 +19,8 @@ function handleSET(ctx, node) {
         return;
     }
     const sym = ctx.caseInsensitive ? key.toUpperCase() : key;
-    const tokens = (0, tokenizer_1.tokenize)(ctx, valStr).filter((t) => t.kind !== "eol");
+    const cleaned = valStr.replace(/,/g, " ");
+    const tokens = (0, tokenizer_1.tokenize)(ctx, cleaned).filter((t) => t.kind !== "eol");
     const e = (0, parserExpr_1.parseExpr)(tokens);
     const evalCtx = {
         symbols: ctx.symbols,
@@ -38,5 +39,6 @@ function handleSET(ctx, node) {
         value: res.value,
         sectionId: ctx.currentSection ?? 0,
         type: "CONST",
+        pos: node.pos,
     });
 }

@@ -23,16 +23,11 @@ npm i -D peggy
 npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs
 ```
 
-## CLI (parser switch)
-
-The CLI can be switched between the legacy tokenizer/parser and the PEG parser.
+## CLI
 
 ```bash
-# legacy (default)
+# PEG parser (default)
 mz80 as input.asm output.rel
-
-# PEG parser
-mz80 as --parser peg input.asm output.rel
 ```
 
 ## Use from Node

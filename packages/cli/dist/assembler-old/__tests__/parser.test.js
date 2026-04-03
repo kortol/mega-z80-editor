@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const pegAdapter_1 = require("../../assembler/parser/pegAdapter");
 const context_1 = require("../context");
 function makeCtx() {
-    return (0, context_1.createContext)({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm", phase: "parse" }, options: { parser: "peg" } });
+    return (0, context_1.createContext)({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm", phase: "parse" }, options: {} });
 }
 function parseLines(ctx, src) {
     return (0, pegAdapter_1.parsePeg)(ctx, src);
@@ -23,6 +23,16 @@ describe("parser", () => {
         const nodes = parseLines(ctx, "LD A,1\n; comment\nLD B,2");
         expect(nodes).toMatchObject([
             { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } },
+            { kind: "empty", pos: { line: 1, file: "test.asm" } },
+            { kind: "instr", op: "LD", args: ["B", "2"], pos: { line: 2, file: "test.asm" } }
+        ]);
+    });
+    test("empty line becomes empty node", () => {
+        const ctx = makeCtx();
+        const nodes = parseLines(ctx, "LD A,1\n\nLD B,2");
+        expect(nodes).toMatchObject([
+            { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } },
+            { kind: "empty", pos: { line: 1, file: "test.asm" } },
             { kind: "instr", op: "LD", args: ["B", "2"], pos: { line: 2, file: "test.asm" } }
         ]);
     });
@@ -115,6 +125,13 @@ describe("parser", () => {
         const ctx = makeCtx();
         expect(() => parseLines(ctx, ":")).toThrow(/Syntax error/);
     });
+    test("OUT (n),r is parsed (compatibility-first)", () => {
+        const ctx = makeCtx();
+        const nodes = parseLines(ctx, "OUT (1234H),B");
+        expect(nodes).toMatchObject([
+            { kind: "instr", op: "OUT", args: ["(1234H)", "B"], pos: { line: 0, file: "test.asm" } }
+        ]);
+    });
     test("label + EQU is invalid", () => {
         const ctx = makeCtx();
         expect(() => parseLines(ctx, "FOO: EQU 10")).toThrow(/EQU cannot be used/);
@@ -153,5 +170,17 @@ describe("parser", () => {
                 file: "test.asm",
             }
         });
+    });
+    test("extended ISA mnemonics are parsed", () => {
+        const ctx = makeCtx();
+        const nodes = parseLines(ctx, "MULUB A,B\nJAF label\nLDUP HL,(1234H)\nMLT BC\nIN0 A,(0)\nTSTIO 0");
+        expect(nodes).toMatchObject([
+            { kind: "instr", op: "MULUB", args: ["A", "B"], pos: { line: 0, file: "test.asm" } },
+            { kind: "instr", op: "JAF", args: ["label"], pos: { line: 1, file: "test.asm" } },
+            { kind: "instr", op: "LDUP", args: ["HL", "(1234H)"], pos: { line: 2, file: "test.asm" } },
+            { kind: "instr", op: "MLT", args: ["BC"], pos: { line: 3, file: "test.asm" } },
+            { kind: "instr", op: "IN0", args: ["A", "(0)"], pos: { line: 4, file: "test.asm" } },
+            { kind: "instr", op: "TSTIO", args: ["0"], pos: { line: 5, file: "test.asm" } },
+        ]);
     });
 });

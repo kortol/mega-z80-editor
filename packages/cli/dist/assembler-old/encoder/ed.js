@@ -57,5 +57,14 @@ function encodeED(ctx, node) {
         (0, emit_1.emitBytes)(ctx, [0xED, codes[mode]], node.pos);
         return;
     }
-    throw new Error(`Unsupported ED instruction ${op} ${args.join(",")}`);
+    const supported = [
+        "LDI/LDIR/LDD/LDDR",
+        "CPI/CPIR/CPD/CPDR",
+        "INI/INIR/IND/INDR",
+        "OUTI/OTIR/OUTD/OTDR",
+        "NEG/RETN/RETI/RRD/RLD",
+        "LD A,I / LD A,R / LD I,A / LD R,A",
+        "IM 0/1/2",
+    ];
+    throw new Error(`Unsupported ED instruction ${op} ${args.join(",")} (supported: ${supported.join("; ")})`);
 }

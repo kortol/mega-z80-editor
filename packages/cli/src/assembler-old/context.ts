@@ -4,7 +4,7 @@ import { createLogger, Logger } from "../logger";
 import { getZ80OpcodeTable } from "./encoder";
 import { AssemblerError, AssemblerErrorCode, makeError, makeWarning } from "./errors";
 import { MacroScope } from "./macro";
-import { Node, NodeMacroDef } from "./parser";
+import { Node, NodeMacroDef } from "./node";
 import { AsmPhase } from "./phaseManager";
 import { RelocEntry } from "./rel/types";
 import { Token } from "./tokenizer";
@@ -18,8 +18,6 @@ export type AsmOptions = {
   caseSensitive?: boolean;
   /** 既定 false（M80互換: マクロ優先解釈） */
   strictMacro?: boolean;
-  /** パーサ選択 */
-  parser?: "legacy" | "peg";
   /** .rel フォーマットバージョン */
   relVersion?: number;
   /** verbose ログ */

@@ -1,6 +1,6 @@
 import { AsmContext } from "../context";
 import { AssemblerError, AssemblerErrorCode, makeError } from "../errors";
-import { Node, NodeLoopBase } from "../parser";
+import type { Node, NodeLoopBase } from "../node";
 import {
   LoopFrame,
   LoopKind,
@@ -11,7 +11,7 @@ import {
 
 import { evalConst, evalExpr, makeEvalCtx } from "../expr/eval";   // 既存評価器
 import { parseExpr } from "../expr/parserExpr";
-import { parseTokens } from "../parser";    // 再パース用
+import { parseTokens } from "../macroParser";    // 再パース用
 import { cloneTokens, tokenize } from "../tokenizer"; // トークン複製
 
 /**

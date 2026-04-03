@@ -1,5 +1,5 @@
 import { AsmContext, SourcePos, canon } from "../../assembler-old/context";
-import { Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler-old/parser";
+import { Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler-old/node";
 import { tokenize } from "../../assembler-old/tokenizer";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

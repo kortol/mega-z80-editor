@@ -1,5 +1,3 @@
-import { tokenize } from "../assembler-old/tokenizer";
-import { parse } from "../assembler-old/parser";
 import { encodeInstr, estimateInstrSize } from "../assembler-old/encoder";
 import { handlePseudo } from "../assembler-old/pseudo";
 import { emitRel } from "../assembler-old/rel";
@@ -104,19 +102,11 @@ export function assemble(
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");
-  if (options.parser === "peg") {
-    ctx.tokens = [];
-  } else {
-    ctx.tokens = tokenize(ctx, source);
-  }
+  ctx.tokens = [];
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  if (options.parser === "peg") {
-    ctx.nodes = parsePeg(ctx, source);
-  } else {
-    ctx.nodes = parse(ctx, ctx.tokens);
-  }
+  ctx.nodes = parsePeg(ctx, source);
   ctx.source = source;
 
   // --- 🧩 PHASE: macro-expand (P2-E-03) ---

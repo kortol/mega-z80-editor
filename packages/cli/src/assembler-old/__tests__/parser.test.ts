@@ -1,9 +1,9 @@
-import { Node } from "../parser";
+import { Node } from "../node";
 import { parsePeg } from "../../assembler/parser/pegAdapter";
 import { AsmContext, createContext } from "../context";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm", phase: "parse" }, options: { parser: "peg" } });
+  return createContext({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm", phase: "parse" }, options: {  } });
 }
 
 function parseLines(ctx: AsmContext, src: string): Node[] {
@@ -204,3 +204,4 @@ describe("parser", () => {
     ]);
   });
 });
+

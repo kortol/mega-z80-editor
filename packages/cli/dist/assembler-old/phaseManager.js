@@ -27,5 +27,4 @@ function setPhase(ctx, next) {
     ctx.phase = next;
     ctx.currentPos.phase = next;
     ctx.logger?.debug?.(`[Phase] ${ctx.phase}`);
-    console.log(`[Phase] ${ctx.phase}`);
 }

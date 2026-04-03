@@ -50,7 +50,7 @@ function handleEQU(ctx, node) {
             throw new Error(`Symbol '${sym}' redefined at line ${node.pos.line}`);
         }
     }
-    (0, context_1.defineSymbol)(ctx, sym, val, "CONST");
+    (0, context_1.defineSymbol)(ctx, sym, val, "CONST", node.pos);
 }
 function handleSYMLEN(ctx, node) {
     const arg = node.args?.[0]?.value ?? "6";

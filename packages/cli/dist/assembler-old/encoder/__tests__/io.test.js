@@ -47,4 +47,16 @@ describe("IO instructions", () => {
         (0, encoder_1.encodeInstr)(ctx, makeNode("OUT", ["(C)", "0"]));
         expect(ctx.texts[0].data).toEqual([0xed, 0x71]);
     });
+    test("IN B,(12H) is rejected (only A allowed)", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("IN", ["B", "(12H)"]))).toThrow(/only IN A,\(n\) is supported/);
+    });
+    test("OUT (12H),B is rejected (only A allowed)", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("OUT", ["(12H)", "B"]))).toThrow(/only OUT \(n\),A is supported/);
+    });
+    test("OUT (C),1 is rejected (only 0 allowed)", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("OUT", ["(C)", "1"]))).toThrow(/only 0 is supported/);
+    });
 });

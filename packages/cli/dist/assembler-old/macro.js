@@ -8,10 +8,13 @@ exports.getDefByName = getDefByName;
 exports.expandMacros = expandMacros;
 // packages/cli/src/assembler/macro.ts
 const context_1 = require("./context");
-const parser_1 = require("./parser");
+const macroParser_1 = require("./macroParser");
 const errors_1 = require("./errors");
+const tokenizer_1 = require("./tokenizer");
 const defineMacro_1 = require("./macro/defineMacro");
 const expandLoopCore_1 = require("./macro/expandLoopCore");
+const eval_1 = require("./expr/eval");
+const parserExpr_1 = require("./expr/parserExpr");
 // マクロ展開の最大深度（無限ループ防止）
 const MAX_MACRO_EXPAND_DEPTH = 15;
 function pushMacroScope(ctx) {
@@ -98,6 +101,13 @@ function rewriteTokensForMacro(def, inv) {
         if (t.kind !== "ident")
             return { ...t };
         const upper = t.text.toUpperCase();
+        const positional = /^\\(\d+)$/.exec(t.text);
+        if (positional) {
+            const idx = Number(positional[1]) - 1;
+            if (idx >= 0 && idx < args.length) {
+                return { ...t, text: args[idx] };
+            }
+        }
         if (argMap.has(upper)) {
             return { ...t, text: argMap.get(upper) };
         }
@@ -190,7 +200,6 @@ function expandMacros(ctx, depth = 0) {
             ctx.logger?.debug(`[expandMacros] expand loop macro: ${n.op}`);
             // A. ループ展開
             const nodes = (0, expandLoopCore_1.expandLoopCore)(n, ctx);
-            console.log(`[expandMacros] expandLoopCore nodes:${nodes}`);
             // D. 内側に更なる macroInvoke / macroLoop があれば再帰展開
             if (nodes.some(x => x.kind === "macroInvoke" || x.kind === "macroLoop")) {
                 const savedNodes = ctx.nodes;
@@ -201,8 +210,13 @@ function expandMacros(ctx, depth = 0) {
                 ctx.macroTableStack = savedStack;
                 ctx.nodes = savedNodes;
             }
-            console.log(`[expandMacros] macroLoop nodes:${JSON.stringify(nodes)}`);
             out.push(...nodes);
+            continue;
+        }
+        // 🟩 SET は macroExpand 段階でも反映（WHILE 条件用）
+        if (n.kind === "pseudo" && String(n.op).toUpperCase() === "SET") {
+            applySetForMacroExpand(ctx, n);
+            out.push(n);
             continue;
         }
         // 🟩 2️⃣ 通常のマクロ呼び出し
@@ -239,7 +253,7 @@ function expandMacros(ctx, depth = 0) {
                 function isNodeMacroDef(n) {
                     return n.kind === "macroDef";
                 }
-                const localNodes = (0, parser_1.parse)(ctx, def.bodyTokens)
+                const localNodes = (0, macroParser_1.parse)(ctx, def.bodyTokens)
                     .filter((n) => isNodeMacroDef(n) && n.isLocal);
                 ctx.logger?.debug(`[locals] found ${localNodes.length} local defs in '${def.name}'`);
                 for (const m of localNodes) {
@@ -259,7 +273,7 @@ function expandMacros(ctx, depth = 0) {
             const rewritten = rewriteTokensForMacro({ ...def, bodyTokens: workingBody }, inv);
             const cloned = cloneTokensWithParent(rewritten, inv.pos);
             // 4️⃣ 本文再パース
-            const expanded = (0, parser_1.parse)(ctx, cloned);
+            const expanded = (0, macroParser_1.parse)(ctx, cloned);
             // 5️⃣ ネストしたマクロを再展開
             if (expanded.some(n => n.kind === "macroInvoke")) {
                 ctx.logger?.debug(`[expandMacros] nested expand inside ${def.name}`);
@@ -296,4 +310,24 @@ function expandMacros(ctx, depth = 0) {
         ctx.logger?.debug(`[expandMacros] recursive expand...`);
         expandMacros(ctx, depth + 1);
     }
+}
+function applySetForMacroExpand(ctx, node) {
+    const arg = node.args?.[0];
+    const key = arg?.key;
+    const valStr = arg?.value;
+    if (!key || typeof valStr !== "string")
+        return;
+    const sym = ctx.caseInsensitive ? String(key).toUpperCase() : String(key);
+    const cleaned = valStr.replace(/,/g, " ");
+    const tokens = (0, tokenizer_1.tokenize)(ctx, cleaned).filter((t) => t.kind !== "eol");
+    const expr = (0, parserExpr_1.parseExpr)(tokens);
+    const res = (0, eval_1.evalExpr)(expr, (0, eval_1.makeEvalCtx)(ctx));
+    if (res.kind !== "Const")
+        return;
+    ctx.symbols.set(sym, {
+        value: res.value,
+        sectionId: ctx.currentSection ?? 0,
+        type: "CONST",
+        pos: ctx.currentPos,
+    });
 }

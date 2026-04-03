@@ -37,8 +37,6 @@ exports.writeSymFile = writeSymFile;
 exports.assemble = assemble;
 exports.runEmit = runEmit;
 exports.finalizeOutput = finalizeOutput;
-const tokenizer_1 = require("../assembler-old/tokenizer");
-const parser_1 = require("../assembler-old/parser");
 const encoder_1 = require("../assembler-old/encoder");
 const pseudo_1 = require("../assembler-old/pseudo");
 const rel_1 = require("../assembler-old/rel");
@@ -67,6 +65,7 @@ function writeSymFile(ctx, outputFile) {
     for (const name of entries) {
         let kind = "UNKNOWN";
         let valStr = "----";
+        let fileStr = "-";
         if (ctx.externs.has(name)) {
             kind = "EXTERN";
         }
@@ -75,9 +74,11 @@ function writeSymFile(ctx, outputFile) {
             if (typeof (entry?.value) === "number") {
                 kind = "LABEL";
                 valStr = entry.value.toString(16).padStart(4, "0");
+                if (entry?.pos?.file)
+                    fileStr = path.basename(entry.pos.file);
             }
         }
-        lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind}`);
+        lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind} ${fileStr}`);
     }
     fs.writeFileSync(symPath, lines.join("\n") + "\n", "utf-8");
 }
@@ -120,20 +121,10 @@ function assemble(logger, inputFile, outputFile, options) {
     ctx.sourceMap.set(inputFile, source.split(/\r?\n/));
     // --- PHASE: tokenize ---
     (0, phaseManager_1.setPhase)(ctx, "tokenize");
-    if (options.parser === "peg") {
-        ctx.tokens = [];
-    }
-    else {
-        ctx.tokens = (0, tokenizer_1.tokenize)(ctx, source);
-    }
+    ctx.tokens = [];
     // --- PHASE: parse ---
     (0, phaseManager_1.setPhase)(ctx, "parse");
-    if (options.parser === "peg") {
-        ctx.nodes = (0, pegAdapter_1.parsePeg)(ctx, source);
-    }
-    else {
-        ctx.nodes = (0, parser_1.parse)(ctx, ctx.tokens);
-    }
+    ctx.nodes = (0, pegAdapter_1.parsePeg)(ctx, source);
     ctx.source = source;
     // --- 🧩 PHASE: macro-expand (P2-E-03) ---
     (0, phaseManager_1.setPhase)(ctx, "macroExpand");
@@ -170,31 +161,83 @@ function runEmit(ctx) {
     ctx.relocs = [];
     ctx.unresolved = [];
     ctx.condStack = [];
+    ctx.listing = [];
     for (const sec of ctx.sections.values()) {
         sec.lc = 0;
         sec.bytes = [];
     }
     for (const node of ctx.nodes ?? []) {
+        if (node.kind === "empty")
+            continue;
+        const beforeTexts = ctx.texts.length;
+        const addr = ctx.loc;
+        const sectionId = ctx.currentSection;
+        let skipListing = false;
         switch (node.kind) {
             case "label":
-                if (!(0, conditional_1.isConditionActive)(ctx))
+                if (!(0, conditional_1.isConditionActive)(ctx)) {
+                    skipListing = true;
                     break;
-                (0, context_1.defineSymbol)(ctx, node.name, ctx.loc, "LABEL");
+                }
+                (0, context_1.defineSymbol)(ctx, node.name, ctx.loc, "LABEL", node.pos);
                 break;
             case "pseudo":
                 if ((0, conditional_1.isConditionalOp)(node.op)) {
                     (0, conditional_1.handleConditional)(ctx, node);
+                    skipListing = true;
                     break;
                 }
-                if (!(0, conditional_1.isConditionActive)(ctx))
+                if (!(0, conditional_1.isConditionActive)(ctx)) {
+                    skipListing = true;
                     break;
+                }
+                const pseudoOp = node.op.toUpperCase();
+                if (pseudoOp === "INCLUDE" || pseudoOp === "SECTION") {
+                    skipListing = true;
+                }
                 (0, pseudo_1.handlePseudo)(ctx, node);
                 break;
             case "instr":
-                if (!(0, conditional_1.isConditionActive)(ctx))
+                if (!(0, conditional_1.isConditionActive)(ctx)) {
+                    skipListing = true;
                     break;
+                }
                 (0, encoder_1.encodeInstr)(ctx, node);
                 break;
+        }
+        if (skipListing)
+            continue;
+        const newTexts = ctx.texts.slice(beforeTexts);
+        if (newTexts.length > 0) {
+            for (const t of newTexts) {
+                ctx.listing.push({
+                    addr: t.addr,
+                    bytes: t.data,
+                    pos: t.pos,
+                    sectionId: t.sectionId,
+                });
+            }
+            continue;
+        }
+        // no bytes emitted -> listing entry for label/pseudo
+        if (node.kind === "label") {
+            ctx.listing.push({
+                addr,
+                bytes: [],
+                pos: node.pos,
+                sectionId,
+                text: `${node.name}:`,
+                kind: "label",
+            });
+        }
+        else if (node.kind === "pseudo") {
+            ctx.listing.push({
+                addr,
+                bytes: [],
+                pos: node.pos,
+                sectionId,
+                kind: "pseudo",
+            });
         }
     }
 }

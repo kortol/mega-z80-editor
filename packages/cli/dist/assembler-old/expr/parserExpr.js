@@ -150,11 +150,11 @@ function parseExpr(tokens) {
         }
         return node;
     }
-    function parseBitAnd() {
+    function parseBitXor() {
         let node = parseEq();
         while (true) {
             const tok = peek();
-            if (tok && tok.kind === "op" && tok.text === "&") {
+            if (tok && tok.kind === "op" && tok.text === "^") {
                 const op = tok.text;
                 consume();
                 const right = parseEq();
@@ -165,14 +165,14 @@ function parseExpr(tokens) {
         }
         return node;
     }
-    function parseBitXor() {
-        let node = parseBitAnd();
+    function parseBitAnd() {
+        let node = parseBitXor();
         while (true) {
             const tok = peek();
-            if (tok && tok.kind === "op" && tok.text === "^") {
+            if (tok && tok.kind === "op" && tok.text === "&") {
                 const op = tok.text;
                 consume();
-                const right = parseBitAnd();
+                const right = parseBitXor();
                 node = { kind: "Binary", op, left: node, right };
                 continue;
             }
@@ -181,13 +181,13 @@ function parseExpr(tokens) {
         return node;
     }
     function parseOr() {
-        let node = parseBitXor();
+        let node = parseBitAnd();
         while (true) {
             const tok = peek();
             if (tok && tok.kind === "op" && tok.text === "|") {
                 const op = tok.text;
                 consume();
-                const right = parseBitXor();
+                const right = parseBitAnd();
                 node = { kind: "Binary", op, left: node, right };
                 continue;
             }

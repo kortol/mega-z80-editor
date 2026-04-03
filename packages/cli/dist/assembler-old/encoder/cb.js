@@ -53,5 +53,9 @@ function encodeCB(ctx, node) {
         (0, emit_1.emitBytes)(ctx, [0xCB, base | (bit << 3) | reg], node.pos);
         return;
     }
-    throw new Error(`Unsupported CB instruction ${op} at line ${node.pos.line}`);
+    const supported = [
+        "RLC/RRC/RL/RR/SLA/SRA/SLL/SRL r/(HL)/(IX/IY+d)",
+        "BIT/RES/SET b,r/(HL)/(IX/IY+d)",
+    ];
+    throw new Error(`Unsupported CB instruction ${op} ${args.join(",")} (supported: ${supported.join("; ")})`);
 }

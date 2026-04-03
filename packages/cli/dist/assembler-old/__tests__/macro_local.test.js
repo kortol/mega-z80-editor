@@ -15,7 +15,7 @@ ENDM
 OUTER
 FOO    ; should not be visible globally
 `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         console.log(ctx);
         expect(ctx.errors).toHaveLength(1);
         expect(ctx.errors[0].code).toBe(errors_1.AssemblerErrorCode.SyntaxError);
@@ -32,7 +32,7 @@ ENDM
 
 OUTER
 `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         expect(ctx.errors).toHaveLength(0);
         // NOP → 00h
         expect((0, testUtils_1.getBytes)(ctx)).toContain(0x00);
@@ -49,7 +49,7 @@ ENDM
 OUTER
 TEMP    ; should fail (scope closed)
 `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         const err = ctx.errors.find(e => /TEMP/.test(e.message));
         expect(err?.code).toBe(errors_1.AssemblerErrorCode.SyntaxError);
     });
@@ -69,7 +69,7 @@ ENDM
 MACRO2
 MACRO1       ; should expand to NOP
 `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         expect(ctx.errors).toHaveLength(0);
         const bin = (0, testUtils_1.getBytes)(ctx);
         const hex = bin.map(b => b.toString(16).padStart(2, "0")).join(" ");
@@ -109,7 +109,7 @@ ENDM
 
     RECUR
   `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         const err = ctx.errors.find(e => /exceeded/i);
         expect(err?.code).toBe(errors_1.AssemblerErrorCode.MacroRecursionLimit);
     });

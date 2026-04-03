@@ -67,6 +67,15 @@ exports.ldInstr = [
             (0, emit_1.emitBytes)(ctx, [0xf9], node.pos);
         },
     },
+    // --- LD SP,IX / LD SP,IY ---
+    {
+        match: (ctx, [dst, src]) => dst.raw === "SP" && src.kind === operandKind_1.OperandKind.REG16X && (src.raw === "IX" || src.raw === "IY"),
+        encode(ctx, [dst, src], node) {
+            const prefix = src.raw === "IX" ? 0xdd : 0xfd;
+            (0, emit_1.emitBytes)(ctx, [prefix, 0xf9], node.pos);
+        },
+        estimate: 2,
+    },
     // --- LD r,n ---
     {
         match: (ctx, [dst, src]) => (dst.kind === operandKind_1.OperandKind.REG8 || dst.kind === operandKind_1.OperandKind.REG8X) &&
@@ -255,6 +264,9 @@ function encodeLD(ctx, node) {
     {
         const idx = (0, utils_1.parseIndexAddr)(ctx, dst);
         if (idx && src !== undefined) {
+            if ((0, utils_1.isMemAddress)(src) || (0, utils_1.parseIndexAddr)(ctx, src)) {
+                throw new Error(`Unsupported LD form '${dst},${src}' (indexed destination requires immediate)`);
+            }
             const val = (0, utils_1.resolveExpr8)(ctx, src, node.pos);
             (0, emit_1.emitBytes)(ctx, [idx.prefix, 0x36, idx.disp, val & 0xff], node.pos);
             return;
@@ -288,6 +300,21 @@ function encodeLD(ctx, node) {
         (0, emit_1.emitBytes)(ctx, [prefix, 0x22, val & 0xff, val >> 8], node.pos);
         return;
     }
-    throw new Error(`Unsupported LD form at line ${node.pos.line} :${JSON.stringify(node)}`);
+    const dstStr = String(dst ?? "");
+    const srcStr = String(src ?? "");
+    const bothMem = dstStr.startsWith("(") && srcStr.startsWith("(");
+    if (bothMem) {
+        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory-to-memory is invalid)`);
+    }
+    if ((0, utils_1.isIdxReg)(dstStr) && (0, utils_1.isIdxReg)(srcStr)) {
+        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (IX/IY register copy is invalid)`);
+    }
+    if (dstStr.startsWith("(") && (0, utils_1.isIdxReg)(srcStr)) {
+        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory <- IX/IY requires (nn),IX/IY or (IX/IY+d),r)`);
+    }
+    if ((0, utils_1.isIdxReg)(dstStr) && srcStr.startsWith("(")) {
+        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (IX/IY <- memory requires IX/IY,(nn) or r,(IX/IY+d))`);
+    }
+    throw new Error(`Unsupported LD form '${dstStr},${srcStr}'`);
     // throw new Error(`Unsupported LD form at line ${node.pos.line}: ${JSON.stringify(node)}`);
 }

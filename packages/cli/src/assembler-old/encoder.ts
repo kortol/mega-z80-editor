@@ -1,6 +1,6 @@
 // packages\cli\src\assembler\encoder.ts
 import { AsmContext } from "./context";
-import { NodeInstr } from "./parser";
+import { NodeInstr } from "./node";
 import { encodeLD } from "./encoder/ld";
 import {
   encodeADD,

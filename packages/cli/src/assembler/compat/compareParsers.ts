@@ -4,12 +4,6 @@ import { createLogger } from "../../logger";
 import { assemble } from "../../cli/mz80-as";
 import { AsmOptions } from "../../assembler-old/context";
 
-export type CompareResult = {
-  name: string;
-  legacy: RunResult;
-  peg: RunResult;
-};
-
 export type RunResult = {
   errors: string[];
   warnings: string[];
@@ -52,21 +46,20 @@ function readIfExists(p: string): string | undefined {
 function runOnce(
   name: string,
   src: string,
-  mode: "legacy" | "peg",
+  tag: string,
   outDir: string,
   opts?: CompareOptions,
   virtualFiles?: Map<string, string>,
 ): RunResult {
   const logger = createLogger("quiet");
-  const relPath = path.join(outDir, `${name}.${mode}.rel`);
+  const relPath = path.join(outDir, `${name}.${tag}.rel`);
 
   const options: AsmOptions = {
     relVersion: opts?.relVersion ?? 2,
-    parser: mode,
     virtualFiles,
   };
 
-  const tmpAsm = path.join(outDir, `${name}.${mode}.asm`);
+  const tmpAsm = path.join(outDir, `${name}.${tag}.asm`);
   fs.writeFileSync(tmpAsm, src, "utf-8");
   try {
     const ctx = assemble(logger, tmpAsm, relPath, options);
@@ -99,16 +92,15 @@ function runOnce(
 function runFileOnce(
   name: string,
   inputFile: string,
-  mode: "legacy" | "peg",
+  tag: string,
   outDir: string,
   opts?: CompareOptions,
 ): RunResult {
   const logger = createLogger("quiet");
-  const relPath = path.join(outDir, `${name}.${mode}.rel`);
+  const relPath = path.join(outDir, `${name}.${tag}.rel`);
 
   const options: AsmOptions = {
     relVersion: opts?.relVersion ?? 2,
-    parser: mode,
   };
 
   try {
@@ -142,49 +134,6 @@ function makeRunDir(label: string): string {
   const safe = label.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 48);
   const prefix = path.join(root, `run_${safe}_`);
   return fs.mkdtempSync(prefix);
-}
-
-export function compareSource(
-  name: string,
-  src: string,
-  opts?: CompareOptions,
-  virtualFiles?: Map<string, string>
-): CompareResult {
-  const base = makeRunDir(`compareSource_${name}`);
-
-  const legacy = runOnce(name, src, "legacy", base, opts, virtualFiles);
-  const peg = runOnce(name, src, "peg", base, opts, virtualFiles);
-
-  if (!opts?.keepTemp) {
-    try {
-      fs.rmSync(base, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return { name, legacy, peg };
-}
-
-export function compareFile(
-  name: string,
-  inputFile: string,
-  opts?: CompareOptions,
-): CompareResult {
-  const base = makeRunDir(`compareFile_${name}`);
-
-  const legacy = runFileOnce(name, inputFile, "legacy", base, opts);
-  const peg = runFileOnce(name, inputFile, "peg", base, opts);
-
-  if (!opts?.keepTemp) {
-    try {
-      fs.rmSync(base, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return { name, legacy, peg };
 }
 
 export function runPegSource(

@@ -19,7 +19,6 @@ function evalConst(expr, ctx) {
     if (!expr)
         return 0;
     // 🟩 デバッグ出力
-    console.log(`[evalConst] evaluating:`, expr);
     // --- 比較演算式対応（WHILE counter<3 等） ---
     if (expr && typeof expr.text === "string") {
         const text = expr.text.trim();
@@ -31,7 +30,6 @@ function evalConst(expr, ctx) {
             const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
             const symEntry = ctx.symbols.get(key);
             const lhs = symEntry?.value ?? 0;
-            console.log(`[evalConst] compare: ${lhs} ${op} ${rhs}`);
             switch (op) {
                 case "<": return lhs < rhs ? 1 : 0;
                 case "<=": return lhs <= rhs ? 1 : 0;

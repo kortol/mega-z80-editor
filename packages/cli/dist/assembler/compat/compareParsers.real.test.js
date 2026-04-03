@@ -34,6 +34,13 @@ const files = [
     "packages/cli/src/assembler/examples/sample.asm",
 ];
 describe("PEG parser (real files)", () => {
+    test("debug p1c peg", () => {
+        const input = path_1.default.join(repoRoot, "examples/p1-c/p1c_fixture.asm");
+        const res = (0, compareParsers_1.runPegFile)("p1c", input, { relVersion: 2 });
+        console.log("debug p1c peg errors", res.errors);
+        console.log("debug p1c peg warnings", res.warnings);
+        expect(res.errors).toEqual([]);
+    });
     for (const rel of files) {
         const name = rel.replace(/[\\/]/g, "_");
         const full = path_1.default.join(repoRoot, rel);

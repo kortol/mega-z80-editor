@@ -79,6 +79,18 @@ function makeALUDefs(op, opts) {
             (0, emit_1.emitBytes)(ctx, info.prefix ? [info.prefix, opcode] : [opcode], node.pos);
         },
     });
+    // --- A,(IX+d)/(IY+d) ---
+    defs.push({
+        match: (ctx, [dst, src]) => !!dst && !!src &&
+            dst.kind === operandKind_1.OperandKind.REG8 && dst.raw === "A" &&
+            src.kind === operandKind_1.OperandKind.IDX,
+        encode(ctx, [dst, src], node) {
+            const prefix = src.raw.startsWith("(IX") ? 0xdd : 0xfd;
+            const disp = (src.disp ?? 0) & 0xff;
+            (0, emit_1.emitBytes)(ctx, [prefix, base | 0x06, disp], node.pos);
+        },
+        estimate: 3,
+    });
     // --- r (暗黙A) ---
     if (opts?.allowImplicitA) {
         defs.push({
@@ -90,6 +102,16 @@ function makeALUDefs(op, opts) {
                 const opcode = base | info.code;
                 (0, emit_1.emitBytes)(ctx, info.prefix ? [info.prefix, opcode] : [opcode], node.pos);
             },
+        });
+        // --- (IX+d)/(IY+d) (暗黙A) ---
+        defs.push({
+            match: (ctx, [src]) => src.kind === operandKind_1.OperandKind.IDX,
+            encode(ctx, [src], node) {
+                const prefix = src.raw.startsWith("(IX") ? 0xdd : 0xfd;
+                const disp = (src.disp ?? 0) & 0xff;
+                (0, emit_1.emitBytes)(ctx, [prefix, base | 0x06, disp], node.pos);
+            },
+            estimate: 3,
         });
     }
     // --- 16bit版 ---
@@ -113,7 +135,54 @@ function makeALUDefs(op, opts) {
                 (0, emit_1.emitBytes)(ctx, [0x09 | (code << 4)], node.pos);
             },
         });
+        // --- ADD IX/IY,rr ---
+        if (op === "ADD") {
+            defs.push({
+                match: (ctx, [dst, src]) => !!dst && !!src &&
+                    dst.kind === operandKind_1.OperandKind.REG16X &&
+                    (src.kind === operandKind_1.OperandKind.REG16 || src.kind === operandKind_1.OperandKind.REG16X) &&
+                    (["BC", "DE", "SP"].includes(src.raw) ||
+                        (src.kind === operandKind_1.OperandKind.REG16X && src.raw === dst.raw)),
+                encode(ctx, [dst, src], node) {
+                    const prefix = dst.raw === "IX" ? 0xdd : 0xfd;
+                    const table = {
+                        BC: 0x09,
+                        DE: 0x19,
+                        IX: 0x29,
+                        IY: 0x29,
+                        SP: 0x39,
+                    };
+                    const opcode = table[src.raw];
+                    (0, emit_1.emitBytes)(ctx, [prefix, opcode], node.pos);
+                },
+                estimate: 2,
+            });
+        }
     }
+    // --- Fallback: unsupported ALU form ---
+    defs.push({
+        match: () => true,
+        encode(ctx, args, node) {
+            const text = args.map(a => a.raw).join(",");
+            const forms = [
+                `${op} A,r`,
+                `${op} A,(HL)`,
+                `${op} A,(IX/IY+d)`,
+                `${op} A,n`,
+            ];
+            if (opts?.allowImplicitA) {
+                forms.push(`${op} r`, `${op} (HL)`, `${op} (IX/IY+d)`, `${op} n`);
+            }
+            if (opts?.has16bit) {
+                forms.push(`${op} HL,BC/DE/HL/SP`);
+                if (op === "ADD") {
+                    forms.push(`${op} IX,BC/DE/IX/SP`);
+                    forms.push(`${op} IY,BC/DE/IY/SP`);
+                }
+            }
+            throw new Error(`Unsupported ${op} form '${text}' (allowed: ${forms.join("; ")})`);
+        },
+    });
     return defs;
 }
 /**

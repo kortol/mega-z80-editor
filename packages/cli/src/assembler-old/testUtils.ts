@@ -5,12 +5,11 @@ import { assemble, runEmit } from "../cli/mz80-as";
 import { AsmOptions, createContext, type AsmContext } from "./context";
 import { initCodegen } from "./codegen/emit";
 import { setPhase } from "./phaseManager";
-import { tokenize } from "./tokenizer";
-import { parse } from "./parser";
 import { runAnalyze } from "./analyze";
 import { expandMacros } from "./macro";
 import { console } from "inspector";
 import { randomUUID } from "crypto";
+import { parsePeg } from "../assembler/parser/pegAdapter";
 
 /**
  * 簡易アセンブル関数。
@@ -102,16 +101,11 @@ export function phaseAnalyze(
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");
-  ctx.tokens = tokenize(ctx, source);
+  ctx.tokens = [];
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  if (options?.parser === "peg") {
-    const { parsePeg } = require("../assembler/parser/pegAdapter");
-    ctx.nodes = parsePeg(ctx, source);
-  } else {
-    ctx.nodes = parse(ctx, ctx.tokens);
-  }
+  ctx.nodes = parsePeg(ctx, source);
   ctx.source = source;
 
   // --- 🧩 PHASE: macro-expand ---
@@ -144,16 +138,11 @@ export function phaseEmit(
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");
-  ctx.tokens = tokenize(ctx, source);
+  ctx.tokens = [];
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  if (options?.parser === "peg") {
-    const { parsePeg } = require("../assembler/parser/pegAdapter");
-    ctx.nodes = parsePeg(ctx, source);
-  } else {
-    ctx.nodes = parse(ctx, ctx.tokens);
-  }
+  ctx.nodes = parsePeg(ctx, source);
   ctx.source = source;
 
   // --- 🧩 PHASE: macro-expand ---

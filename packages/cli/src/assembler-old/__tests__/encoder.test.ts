@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../context";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 import { encodeInstr } from "../encoder";
 import { initCodegen } from "../codegen/emit";
 

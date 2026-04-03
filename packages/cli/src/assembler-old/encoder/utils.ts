@@ -15,7 +15,7 @@ import { AsmContext, SourcePos, UnresolvedEntry } from "../context";
 import { AssemblerErrorCode, makeWarning } from "../errors";
 import { evalExpr } from "../expr/eval";
 import { parseExpr } from "../expr/parserExpr";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 import { parseNumber, tokenize } from "../tokenizer";
 
 /* -------------------- 値解決 -------------------- */

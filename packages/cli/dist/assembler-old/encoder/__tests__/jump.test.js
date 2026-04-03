@@ -60,10 +60,18 @@ describe("Jump/Call/Return", () => {
         (0, encoder_1.encodeInstr)(ctx, makeNode("JR", ["NZ", "10"]));
         expect(ctx.texts[0].data).toEqual([0x20, 0x08]);
     });
+    test("JR (HL) is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("JR", ["(HL)"]))).toThrow(/Unsupported JR form/);
+    });
     test("CALL 1234H → CD 34 12", () => {
         const ctx = makeCtx();
         (0, encoder_1.encodeInstr)(ctx, makeNode("CALL", ["1234H"]));
         expect(ctx.texts[0].data).toEqual([0xcd, 0x34, 0x12]);
+    });
+    test("CALL (HL) is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("CALL", ["(HL)"]))).toThrow(/Unsupported CALL form/);
     });
     test("RET → C9", () => {
         const ctx = makeCtx();
@@ -84,6 +92,10 @@ describe("Jump/Call/Return", () => {
         const ctx = makeCtx();
         (0, encoder_1.encodeInstr)(ctx, makeNode("JP", ["(HL)"]));
         expect(ctx.texts[0].data).toEqual([0xe9]);
+    });
+    test("JP A is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("JP", ["A"]))).toThrow(/Unsupported JP form/);
     });
     test("JP (IX) → DD E9", () => {
         const ctx = makeCtx();

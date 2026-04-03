@@ -57,6 +57,10 @@ function getZ80OpcodeTable() {
     return table;
 }
 function encodeLegacyInstr(ctx, node) {
+    const throwExtended = () => {
+        const args = node.args.join(",");
+        throw new Error(`Unsupported extended instruction ${node.op}${args ? " " + args : ""} (R800/Z280 not implemented)`);
+    };
     switch (node.op) {
         case "LD":
             (0, ld_1.encodeLD)(ctx, node);
@@ -182,6 +186,32 @@ function encodeLegacyInstr(ctx, node) {
             }
             throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
         }
+        // --- Extended ISA (R800/Z280 etc.) ---
+        case "MULUB":
+        case "MULUW":
+        case "SLP":
+        case "MLT":
+        case "IN0":
+        case "OUT0":
+        case "INO":
+        case "OUTO":
+        case "OTIM":
+        case "OTIMR":
+        case "OTDM":
+        case "OTDMR":
+        case "TSTIO":
+        case "TST":
+        case "MULT":
+        case "MULTU":
+        case "MULTW":
+        case "DIV":
+        case "DIVU":
+        case "JAF":
+        case "JAR":
+        case "LDUP":
+        case "LOUD":
+            throwExtended();
+            break;
         default:
             throw new Error(`Unsupported instruction ${node.op} at line ${node.pos.line}`);
     }

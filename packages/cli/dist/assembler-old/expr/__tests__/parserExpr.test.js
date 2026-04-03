@@ -122,8 +122,14 @@ describe("parserExpr", () => {
     test("bitwise and/or/xor", () => {
         const ctx = makeCtx();
         const e = parseE(ctx, "1|2&3^4");
-        // precedence: & > ^ > |
+        // precedence (compat): ^ > & > |
         expect((0, eval_1.evalExpr)(e, makeEvalCtx())).toEqual({ kind: "Const", value: 1 | (2 & (3 ^ 4)) });
+    });
+    test("bitwise precedence guard: ^ > &", () => {
+        const ctx = makeCtx();
+        const e = parseE(ctx, "1^2&4");
+        // if ^ > &: (1^2)=3, 3&4=0
+        expect((0, eval_1.evalExpr)(e, makeEvalCtx())).toEqual({ kind: "Const", value: 0 });
     });
     test("shift and compare", () => {
         const ctx = makeCtx();

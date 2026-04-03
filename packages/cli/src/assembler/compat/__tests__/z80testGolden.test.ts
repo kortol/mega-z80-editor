@@ -31,7 +31,7 @@ if (asmFiles.length === 0) {
         if (!fs.existsSync(binPath)) {
           throw new Error(`Missing .bin for fixture: ${base}`);
         }
-        const ctx = phaseEmit(asmPath, "TEST", { parser: "peg" });
+        const ctx = phaseEmit(asmPath, "TEST", {  });
         const actual = getBytes(ctx);
         const expected = loadBinBytes(binPath);
         expect(actual).toEqual(expected);
@@ -39,3 +39,4 @@ if (asmFiles.length === 0) {
     }
   });
 }
+

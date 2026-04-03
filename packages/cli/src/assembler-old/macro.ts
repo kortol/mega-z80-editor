@@ -1,6 +1,7 @@
 // packages/cli/src/assembler/macro.ts
 import { AsmContext, canon, SourcePos } from "./context";
-import { Node, NodeMacroDef, NodeMacroInvoke, parse } from "./parser";
+import { parse } from "./macroParser";
+import type { Node, NodeMacroDef, NodeMacroInvoke } from "./node";
 import { AssemblerErrorCode, makeError } from "./errors";
 import { Token, tokenize } from "./tokenizer";
 import { defineMacro } from "./macro/defineMacro";

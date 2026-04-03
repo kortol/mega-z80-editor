@@ -2,7 +2,7 @@ import { AsmContext } from "../context";
 import { AssemblerErrorCode, makeError } from "../errors";
 import { evalExpr, EvalContext } from "../expr/eval";
 import { parseExpr } from "../expr/parserExpr";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 import { tokenize } from "../tokenizer";
 
 export function isConditionalOp(op: string): boolean {

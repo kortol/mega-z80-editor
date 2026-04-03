@@ -11,7 +11,7 @@ FILLZ MACRO COUNT,VAL
   ENDM
 FILLZ 10,0
 `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         // console.log(ctx);
         const txt = ctx.texts.map(t => t.data).flat();
         // console.log(txt);

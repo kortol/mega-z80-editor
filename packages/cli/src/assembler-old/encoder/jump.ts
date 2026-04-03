@@ -2,7 +2,7 @@ import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { AssemblerErrorCode } from "../errors";
 import { OperandKind } from "../operand/operandKind";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 import { InstrDef } from "./types";
 import { resolveExpr8, resolveExpr16 } from "./utils";
 

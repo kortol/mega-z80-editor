@@ -66,6 +66,9 @@ function makeInstr(op, args, pos) {
 function makeLabel(name, pos) {
     return { kind: "label", name, pos };
 }
+function makeEmpty(pos) {
+    return { kind: "empty", pos };
+}
 function tokenizeMacroBody(ctx, body, pos) {
     const saved = { ...ctx.currentPos };
     ctx.currentPos.file = pos.file;
@@ -76,8 +79,22 @@ function tokenizeMacroBody(ctx, body, pos) {
     return tokens;
 }
 function parsePeg(ctx, source) {
-    const ast = pegParser.parse(source);
+    let ast;
+    try {
+        ast = pegParser.parse(source);
+    }
+    catch (err) {
+        if (err?.name === "SyntaxError" || /Expected/.test(String(err?.message ?? ""))) {
+            throw new Error("Syntax error");
+        }
+        throw err;
+    }
     const nodes = [];
+    const pseudoOps = new Set([
+        "ORG", "DB", "DW", "EQU", "END", "INCLUDE", "MACRO", "ENDM", "REPT", "ENDR",
+        "DEFB", "DEFW", "DEFS", "ALIGN", "PUBLIC", "EXTERN", "LOCAL", "SECTION", "SEGMENT", "GLOBAL",
+        "SET", "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32"
+    ]);
     const macroNames = new Set();
     const useMacroOverride = !ctx.options?.strictMacro;
     function registerMacro(name) {
@@ -163,14 +180,39 @@ function parsePeg(ctx, source) {
             });
             continue;
         }
+        if (item.type === "empty") {
+            const pos = locToPos(ctx, item.pos);
+            nodes.push(makeEmpty(pos));
+            continue;
+        }
         if (item.type === "line") {
             const linePos = locToPos(ctx, item.pos);
-            if (item.label?.name) {
-                nodes.push(makeLabel(item.label.name, linePos));
-            }
+            const labelName = item.label?.name;
+            const labelColon = Boolean(item.label?.colon);
             const instr = item.instruction;
-            if (!instr)
+            if (!instr) {
+                if (labelName)
+                    nodes.push(makeLabel(labelName, linePos));
+                if (!labelName)
+                    nodes.push(makeEmpty(linePos));
                 continue;
+            }
+            // FOO EQU 10 / FOO SET 20 などのラベル横並びシンタックスを対応
+            if (labelName && instr.type === "macroInvoke") {
+                const op = String(instr.name).toUpperCase();
+                const args = instr.args ?? [];
+                if (labelColon && op === "EQU") {
+                    throw new Error("EQU cannot be used with label");
+                }
+                if (op === "EQU" || op === "SET") {
+                    const value = args[0] ?? "";
+                    nodes.push(makePseudo(op, [{ key: labelName, value: String(value) }], linePos));
+                    continue;
+                }
+            }
+            if (labelName) {
+                nodes.push(makeLabel(labelName, linePos));
+            }
             if (instr.type === "directive") {
                 const op = String(instr.name).toUpperCase();
                 const pos = locToPos(ctx, instr.pos ?? item.pos);
@@ -227,6 +269,10 @@ function parsePeg(ctx, source) {
                         break;
                     case "EXTERN": {
                         const args = (instr.symbols ?? []).map((s) => ({ value: s }));
+                        if (instr.from) {
+                            args.push({ value: "FROM" });
+                            args.push({ value: String(instr.from) });
+                        }
                         nodes.push(makePseudo("EXTERN", args, pos));
                         break;
                     }
@@ -249,8 +295,8 @@ function parsePeg(ctx, source) {
                     case ".SYMLEN":
                         nodes.push(makePseudo(".SYMLEN", instr.value ? [{ value: exprToRaw(instr.value) }] : [], pos));
                         break;
-                    case ".WORD32":
-                        nodes.push(makePseudo(".WORD32", [], pos));
+                    case ".ORG":
+                        nodes.push(makePseudo("ORG", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
                         break;
                     default:
                         nodes.push(makePseudo(op, [], pos));
@@ -261,6 +307,89 @@ function parsePeg(ctx, source) {
             if (instr.type === "macroInvoke") {
                 const pos = locToPos(ctx, instr.pos ?? item.pos);
                 nodes.push({ kind: "macroInvoke", name: instr.name, args: instr.args ?? [], pos });
+                continue;
+            }
+            if (instr.type === "instruction" && pseudoOps.has(instr.mnemonic.toUpperCase())) {
+                const pos = locToPos(ctx, instr.pos ?? item.pos);
+                const op = instr.mnemonic.toUpperCase();
+                // Simple pseudo ops without args
+                if (["END", "ELSE", "ENDIF", "ENDM", "ENDR"].includes(op)) {
+                    nodes.push(makePseudo(op, [], pos));
+                }
+                else if (op === "EQU") {
+                    // EQU symbol value
+                    const args = instr.operands ?? [];
+                    if (args.length >= 2) {
+                        nodes.push(makePseudo("EQU", [{ key: String(args[0]), value: String(args[1]) }], pos));
+                    }
+                }
+                else if (op === "SET") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 2) {
+                        nodes.push(makePseudo("SET", [{ key: String(args[0]), value: String(args[1]) }], pos));
+                    }
+                }
+                else if (op === "IF") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 1) {
+                        nodes.push(makePseudo("IF", [{ value: String(args[0]) }], pos));
+                    }
+                }
+                else if (op === "ELSEIF") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 1) {
+                        nodes.push(makePseudo("ELSEIF", [{ value: String(args[0]) }], pos));
+                    }
+                }
+                else if (op === "IFIDN") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 2) {
+                        nodes.push(makePseudo("IFIDN", [{ value: String(args[0]) }, { value: String(args[1]) }], pos));
+                    }
+                }
+                else if (op === "ORG") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 1) {
+                        nodes.push(makePseudo("ORG", [{ value: String(args[0]) }], pos));
+                    }
+                }
+                else if (["DB", "DEFB", "DW", "DEFW", "DS", "DEFS", "DZ"].includes(op)) {
+                    const args = instr.operands ?? [];
+                    nodes.push(makePseudo(op, args.map((a) => ({ value: String(a) })), pos));
+                }
+                else if (op === "INCLUDE") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 1) {
+                        nodes.push(makePseudo("INCLUDE", [{ value: String(args[0]) }], pos));
+                    }
+                }
+                else if (op === "EXTERN") {
+                    const args = instr.operands ?? [];
+                    nodes.push(makePseudo("EXTERN", args.map((a) => ({ value: String(a) })), pos));
+                }
+                else if (op === "SECTION") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 1) {
+                        nodes.push(makePseudo("SECTION", [{ value: String(args[0]) }], pos));
+                    }
+                }
+                else if (op === "ALIGN") {
+                    const args = instr.operands ?? [];
+                    if (args.length >= 1) {
+                        nodes.push(makePseudo("ALIGN", [{ value: String(args[0]) }], pos));
+                    }
+                }
+                else if (op === ".SYMLEN") {
+                    const args = instr.operands ?? [];
+                    nodes.push(makePseudo(".SYMLEN", args.length > 0 ? [{ value: String(args[0]) }] : [], pos));
+                }
+                else if (op === ".WORD32") {
+                    nodes.push(makePseudo(".WORD32", [], pos));
+                }
+                else {
+                    // Unknown pseudo
+                    nodes.push(makePseudo(op, [], pos));
+                }
                 continue;
             }
             if (instr.type === "instruction") {

@@ -4,7 +4,7 @@ import { AsmContext } from "../context";
 import { resolveExpr16, resolveExpr8 } from "../encoder/utils";
 import { AssemblerErrorCode, makeWarning } from "../errors";
 import { parseExternExpr } from "../expr/parseExternExpr";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 
 function bytesFromLiteral(arg: string): number[] {
   if (arg.startsWith('"') && arg.endsWith('"')) {

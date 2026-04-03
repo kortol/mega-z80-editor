@@ -62,6 +62,14 @@ describe("Arithmetic and Logic", () => {
         (0, encoder_1.encodeInstr)(ctx, makeNode("DEC", ["B"]));
         expect(ctx.texts[0].data).toEqual([0x05]);
     });
+    test("ADD HL,IX is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("ADD", ["HL", "IX"]))).toThrow(/Unsupported ADD form/);
+    });
+    test("SUB HL,1 is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("SUB", ["HL", "1"]))).toThrow(/Unsupported SUB form/);
+    });
 });
 // --- 16bit Arithmetic (non-ED) ---
 describe("16bit Arithmetic", () => {

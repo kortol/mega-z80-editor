@@ -150,7 +150,8 @@ function parseIndexAddr(ctx, v) {
     }
     return { prefix, disp };
 }
-function resolveExpr8(ctx, expr, pos, strict = false, rejectReloc = false, relative = false) {
+function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = false) {
+    const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
     const prevErrCount = ctx.errors.length;
     const tokens = (0, tokenizer_1.tokenize)(ctx, expr).filter(t => t.kind !== "eol");
     const e = (0, parserExpr_1.parseExpr)(tokens);
@@ -181,7 +182,7 @@ function resolveExpr8(ctx, expr, pos, strict = false, rejectReloc = false, relat
     const newErrors = ctx.errors.slice(prevErrCount);
     if (newErrors.length > 0) {
         const err = ctx.errors[ctx.errors.length - 1];
-        if (strict) {
+        if (effectiveStrict) {
             throw new Error(`Expression error at line ${pos.line}: ${err.message ?? err.code}`);
         }
         ctx.errors.push({
@@ -194,21 +195,18 @@ function resolveExpr8(ctx, expr, pos, strict = false, rejectReloc = false, relat
     // --- Const値 ---
     if (res.kind === "Const") {
         if (res.value < -128 || res.value > 255) {
-            if (strict) {
+            if (effectiveStrict) {
                 throw new Error(`8bit immediate out of range: ${res.value} (line ${pos.line})`);
             }
-            ctx.errors.push({
-                code: errors_1.AssemblerErrorCode.ExprNotConstant,
-                message: `8bit immediate out of range at line ${pos.line}`,
-                pos,
-            });
-            return 0;
+            ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.ExprOverflow, `8bit immediate out of range at line ${pos.line}`, { pos }));
+            return res.value & 0xff;
         }
         return res.value & 0xFF;
     }
     throw new Error(`Unexpected evalExpr result at line ${pos.line}`);
 }
-function resolveExpr16(ctx, expr, pos, strict = false, rejectReloc = false) {
+function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false) {
+    const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
     const prevErrCount = ctx.errors.length;
     const tokens = (0, tokenizer_1.tokenize)(ctx, expr).filter(t => t.kind !== "eol");
     const e = (0, parserExpr_1.parseExpr)(tokens);
@@ -248,7 +246,7 @@ function resolveExpr16(ctx, expr, pos, strict = false, rejectReloc = false) {
     if (newErrors.length > 0) {
         const err = ctx.errors[ctx.errors.length - 1];
         // console.log("newErrors");
-        if (strict) {
+        if (effectiveStrict) {
             throw new Error(`Expression error at line ${pos.line}: ${err.message ?? err.code}`);
         }
         ctx.errors.push({
@@ -263,15 +261,11 @@ function resolveExpr16(ctx, expr, pos, strict = false, rejectReloc = false) {
     // ---- Const値 ----
     if (res.kind === "Const") {
         if (res.value < -32768 || res.value > 0xFFFF) {
-            if (strict) {
+            if (effectiveStrict) {
                 throw new Error(`16bit immediate out of range: ${res.value} (line ${pos.line})`);
             }
-            ctx.errors.push({
-                code: errors_1.AssemblerErrorCode.ExprNotConstant,
-                message: `16bit immediate out of range at line ${pos.line}`,
-                pos,
-            });
-            return 0;
+            ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.ExprOverflow, `16bit immediate out of range at line ${pos.line}`, { pos }));
+            return res.value & 0xffff;
         }
         return res.value & 0xFFFF;
     }

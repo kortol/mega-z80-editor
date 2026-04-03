@@ -1,6 +1,6 @@
 // src/assembler/pseudo/section.ts
 import { AsmContext } from "../context";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 import { emitSection } from "../codegen/emit";
 
 /**

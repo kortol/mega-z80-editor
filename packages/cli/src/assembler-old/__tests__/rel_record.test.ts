@@ -10,7 +10,7 @@ describe("P1-E: Relocation Record Generation", () => {
       ;EXT_C: NOP
       END
     `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     // console.log(ctx);
 
     const rel = buildRelFile(ctx);
@@ -40,3 +40,4 @@ describe("P1-E: Relocation Record Generation", () => {
     expect(rRecords.length).toBe(0);
   });
 });
+

@@ -1,7 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { tokenize } from "../tokenizer";
-import { parse } from "../parser";
 import { parsePeg } from "../../assembler/parser/pegAdapter";
 import { AsmContext, cloneSourcePos, createSourcePos } from "../context";
 import { AssemblerErrorCode, makeError, makeWarning } from "../errors";
@@ -35,11 +33,8 @@ export function handleInclude(ctx: AsmContext, node: any, recurse = false): any[
     pushedCurrent = true;
   }
 
-  const usePeg = ctx.options?.parser === "peg";
   const parseSource = (src: string) => {
-    if (usePeg) return parsePeg(ctx, src);
-    const tokens = tokenize(ctx, src);
-    return parse(ctx, tokens);
+    return parsePeg(ctx, src);
   };
 
   // 🟩 仮想ファイルシステム優先

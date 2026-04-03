@@ -7,7 +7,7 @@
 
 import { createAsmContext } from "../context";
 import { expandLoopCore, substituteLoopTokens } from "../macro/expandLoopCore";
-import { NodeLoopBase } from "../parser";
+import { NodeLoopBase } from "../node";
 
 function makeNode(op: "REPT" | "WHILE" | "IRPC" | "IRP", opts: Partial<NodeLoopBase>): NodeLoopBase {
   return {

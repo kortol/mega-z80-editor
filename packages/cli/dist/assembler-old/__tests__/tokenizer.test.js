@@ -139,7 +139,7 @@ describe("tokenizer", () => {
     test("empty", () => {
         const ctx = makeCtx();
         const toks = (0, tokenizer_1.tokenize)(ctx, "");
-        expect(toks).toEqual([]);
+        expect(kinds(toks)).toEqual(["eol:\n"]);
     });
     // 10. 複合
     test("multi with label and comment", () => {

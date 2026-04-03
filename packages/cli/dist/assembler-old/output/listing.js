@@ -69,44 +69,61 @@ function writeLstFile(ctx, outputFile, source) {
 function writeLstFileV2(ctx, outputFile, _source) {
     const lstPath = outputFile.replace(/\.rel$/i, ".lst");
     const lines = [];
-    const texts = [...ctx.texts].sort((a, b) => a.addr - b.addr);
-    let prevStack = [];
-    for (const t of texts) {
-        const stack = getIncludeStack(t.pos);
-        const diff = getStackDiff(prevStack, stack);
-        // include 開始（深くなった分だけ）
-        for (const f of diff.entered) {
-            lines.push(`;#include <${path_1.default.basename(f)}>`);
+    const sections = Array.from(ctx.sections.values()).sort((a, b) => a.id - b.id);
+    const entries = ctx.listing ?? ctx.texts.map(t => ({
+        addr: t.addr,
+        bytes: t.data,
+        pos: t.pos,
+        sectionId: t.sectionId,
+    }));
+    for (const sec of sections) {
+        const texts = entries
+            .filter(t => t.sectionId === sec.id)
+            .sort((a, b) => a.addr - b.addr);
+        if (texts.length === 0)
+            continue;
+        lines.push(`; --- SECTION: ${sec.name} ---`);
+        let prevStack = [];
+        let stackInfo = [];
+        for (const t of texts) {
+            stackInfo = getIncludeStackInfo(t.pos);
+            const stack = stackInfo.map(s => s.file);
+            const diff = getStackDiff(prevStack, stack);
+            const infoByFile = new Map(stackInfo.map(s => [s.file, s]));
+            // include 開始（深くなった分だけ）
+            for (const f of diff.entered) {
+                const info = infoByFile.get(f);
+                lines.push(formatIncludeEnter(info));
+            }
+            // include 終了（浅くなった分だけ）
+            for (const f of diff.exited.reverse()) {
+                lines.push(`;#endinclude (${path_1.default.basename(f)})`);
+            }
+            // --- 🔹 ファイルごとのソース取得
+            const fileSrc = ctx.sourceMap?.get(t.pos.file) ?? [];
+            const srcLine = fileSrc[t.pos.line]?.trim() ?? "";
+            const text = t.text ?? srcLine;
+            const dump = writeDumpLine(t.addr, t.bytes, text);
+            if (dump)
+                lines.push(...dump.split("\n"));
+            prevStack = stack;
         }
-        // include 終了（浅くなった分だけ）
-        for (const f of diff.exited.reverse()) {
+        // 終了時にすべて閉じる（セクション単位）
+        for (const f of prevStack.reverse()) {
             lines.push(`;#endinclude (${path_1.default.basename(f)})`);
         }
-        // --- 🔹 ファイルごとのソース取得
-        const fileSrc = ctx.sourceMap?.get(t.pos.file) ?? [];
-        const srcLine = fileSrc[t.pos.line]?.trim() ?? "";
-        // 通常行
-        const bytes = t.data.map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
-        // lines.push(
-        //   `${t.addr.toString(16).padStart(4, "0").toUpperCase()}  ${bytes.padEnd(9)}  ${getSourceSummary(t.pos)}`
-        // );
-        lines.push(`${t.addr.toString(16).padStart(4, "0").toUpperCase()}  ${bytes.padEnd(9)}       ${srcLine}`);
-        prevStack = stack;
-    }
-    // 終了時にすべて閉じる
-    for (const f of prevStack.reverse()) {
-        lines.push(`;#endinclude (${path_1.default.basename(f)})`);
     }
     fs.writeFileSync(lstPath, lines.join("\n") + "\n", "utf-8");
 }
-/**
- * 現在のposから親方向にファイル階層をたどる
- */
-function getIncludeStack(pos) {
+function getIncludeStackInfo(pos) {
     const stack = [];
     let p = pos;
     while (p) {
-        stack.unshift(p.file);
+        stack.unshift({
+            file: p.file,
+            parentFile: p.parent?.file,
+            parentLine: p.parent?.line,
+        });
         p = p.parent;
     }
     return stack;
@@ -123,11 +140,34 @@ function getStackDiff(prev, next) {
         entered: next.slice(i),
     };
 }
-/**
- * posから短いソース位置情報を返す（例: "LD A,3"）
- * 現状はpos.lineを無視しても問題ない（構文トレース専用）
- */
-function getSourceSummary(pos) {
-    const f = path_1.default.basename(pos.file);
-    return `INCLUDE "${f}"`; // 仮に今は簡易表示、必要ならctx.sourceMap参照で本来の行を表示
+function writeDumpLine(addr, bytes, text) {
+    const addrStr = addr.toString(16).padStart(4, "0").toUpperCase();
+    if (!bytes || bytes.length === 0) {
+        const emptyBytes = "".padEnd(9, " ");
+        return `${addrStr}  ${emptyBytes}       ${text ?? ""}`.trimEnd();
+    }
+    const hex = bytes.map(b => b.toString(16).padStart(2, "0").toUpperCase());
+    const lines = [];
+    for (let i = 0; i < hex.length; i += 4) {
+        const chunk = hex.slice(i, i + 4).join(" ");
+        const chunkStr = chunk.padEnd(9, " ");
+        if (i === 0) {
+            lines.push(`${addrStr}  ${chunkStr}       ${text ?? ""}`.trimEnd());
+        }
+        else {
+            lines.push(`    ${chunkStr}`.trimEnd());
+        }
+    }
+    return lines.join("\n");
+}
+function formatIncludeEnter(info) {
+    if (!info)
+        return ";#include";
+    const file = path_1.default.basename(info.file);
+    if (info.parentFile) {
+        const parent = path_1.default.basename(info.parentFile);
+        const line = (info.parentLine ?? 0) + 1;
+        return `;#include "${file}" (from ${parent} line ${line})`;
+    }
+    return `;#include "${file}"`;
 }

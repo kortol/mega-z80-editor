@@ -32,5 +32,5 @@ function encodeEX(ctx, node) {
         (0, emit_1.emitBytes)(ctx, [0xFD, 0xE3], node.pos);
         return;
     }
-    throw new Error(`Unsupported EX form at line ${node.pos.line}`);
+    throw new Error(`Unsupported EX form '${op1},${op2}' (allowed: AF,AF' / DE,HL / (SP),HL/IX/IY)`);
 }

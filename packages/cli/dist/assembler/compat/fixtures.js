@@ -114,4 +114,30 @@ DB "ABC", 0
 DB 'Z'
 `,
     },
+    {
+        name: "z80_edge_io",
+        source: `
+IM 1
+EX AF,AF'
+IN (C)
+IN F,(C)
+OUT (C),0
+OUT (C),0x00
+LD SP,IX
+LD SP,IY
+`,
+    },
+    {
+        name: "z80_edge_alu_indexed",
+        source: `
+ADD A,(IX+1)
+ADC A,(IY-2)
+SUB (IX+0)
+SBC (IY+0)
+AND (IX+3)
+OR (IY+4)
+XOR (IX+5)
+CP (IY+6)
+`,
+    },
 ];

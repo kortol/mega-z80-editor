@@ -2,7 +2,7 @@ import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { OperandInfo } from "../operand/classifyOperand";
 import { OperandKind } from "../operand/operandKind";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 import { InstrDef } from "./types";
 import { reg8Info, regCode, reg16Code, resolveExpr8, isReg8, resolveValue, isImm8 } from "./utils";
 

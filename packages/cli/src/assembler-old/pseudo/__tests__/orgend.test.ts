@@ -1,6 +1,6 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
 import { handlePseudo } from "../../pseudo";
-import { NodePseudo } from "../../parser";
+import { NodePseudo } from "../../node";
 
 function makeCtx(): AsmContext {
   return createContext({ moduleName: "TEST" });

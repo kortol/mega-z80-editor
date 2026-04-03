@@ -1,7 +1,7 @@
 import { AsmContext } from "../context";
 import { parseExpr } from "../expr/parserExpr";
 import { evalExpr, makeEvalCtx } from "../expr/eval";
-import { Node } from "../parser";
+import { Node } from "../node";
 import { AssemblerErrorCode, makeError } from "../errors";
 import { Token, tokenize } from "../tokenizer";
 

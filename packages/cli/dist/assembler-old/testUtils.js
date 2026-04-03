@@ -15,12 +15,11 @@ const mz80_as_1 = require("../cli/mz80-as");
 const context_1 = require("./context");
 const emit_1 = require("./codegen/emit");
 const phaseManager_1 = require("./phaseManager");
-const tokenizer_1 = require("./tokenizer");
-const parser_1 = require("./parser");
 const analyze_1 = require("./analyze");
 const macro_1 = require("./macro");
 const inspector_1 = require("inspector");
 const crypto_1 = require("crypto");
+const pegAdapter_1 = require("../assembler/parser/pegAdapter");
 /**
  * 簡易アセンブル関数。
  * 文字列ソースを一時ファイルに書き出し、CLI版assembleを呼び出す。
@@ -84,16 +83,10 @@ function phaseAnalyze(inputFile, outputFile, options) {
     const source = fs_1.default.readFileSync(inputFile, "utf-8");
     // --- PHASE: tokenize ---
     (0, phaseManager_1.setPhase)(ctx, "tokenize");
-    ctx.tokens = (0, tokenizer_1.tokenize)(ctx, source);
+    ctx.tokens = [];
     // --- PHASE: parse ---
     (0, phaseManager_1.setPhase)(ctx, "parse");
-    if (options?.parser === "peg") {
-        const { parsePeg } = require("../assembler/parser/pegAdapter");
-        ctx.nodes = parsePeg(ctx, source);
-    }
-    else {
-        ctx.nodes = (0, parser_1.parse)(ctx, ctx.tokens);
-    }
+    ctx.nodes = (0, pegAdapter_1.parsePeg)(ctx, source);
     ctx.source = source;
     // --- 🧩 PHASE: macro-expand ---
     (0, phaseManager_1.setPhase)(ctx, "macroExpand");
@@ -117,16 +110,10 @@ function phaseEmit(inputFile, outputFile, options) {
         : ctx.options.virtualFiles?.get(inputFile) ?? "";
     // --- PHASE: tokenize ---
     (0, phaseManager_1.setPhase)(ctx, "tokenize");
-    ctx.tokens = (0, tokenizer_1.tokenize)(ctx, source);
+    ctx.tokens = [];
     // --- PHASE: parse ---
     (0, phaseManager_1.setPhase)(ctx, "parse");
-    if (options?.parser === "peg") {
-        const { parsePeg } = require("../assembler/parser/pegAdapter");
-        ctx.nodes = parsePeg(ctx, source);
-    }
-    else {
-        ctx.nodes = (0, parser_1.parse)(ctx, ctx.tokens);
-    }
+    ctx.nodes = (0, pegAdapter_1.parsePeg)(ctx, source);
     ctx.source = source;
     // --- 🧩 PHASE: macro-expand ---
     (0, phaseManager_1.setPhase)(ctx, "macroExpand");

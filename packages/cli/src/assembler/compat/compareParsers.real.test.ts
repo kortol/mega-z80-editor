@@ -1,5 +1,5 @@
 import path from "path";
-import { runPegFile, compareFile } from "./compareParsers";
+import { runPegFile } from "./compareParsers";
 
 const repoRoot = path.resolve(__dirname, "../../../../..");
 
@@ -32,14 +32,12 @@ const files = [
 ];
 
 describe("PEG parser (real files)", () => {
-  test("debug p1c legacy vs peg", () => {
+  test("debug p1c peg", () => {
     const input = path.join(repoRoot, "examples/p1-c/p1c_fixture.asm");
-    const res = compareFile("p1c", input, { relVersion: 2 });
-    console.log("debug p1c legacy errors", res.legacy.errors);
-    console.log("debug p1c legacy warnings", res.legacy.warnings);
-    console.log("debug p1c peg errors", res.peg.errors);
-    console.log("debug p1c peg warnings", res.peg.warnings);
-    expect(res.legacy.errors).toEqual([]);
+    const res = runPegFile("p1c", input, { relVersion: 2 });
+    console.log("debug p1c peg errors", res.errors);
+    console.log("debug p1c peg warnings", res.warnings);
+    expect(res.errors).toEqual([]);
   });
 
   for (const rel of files) {

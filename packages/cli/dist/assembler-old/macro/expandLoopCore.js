@@ -5,14 +5,14 @@ exports.substituteLoopTokens = substituteLoopTokens;
 const errors_1 = require("../errors");
 const context_1 = require("../context"); // ← context.ts 末尾に LoopFrame 統合済みの場合
 const eval_1 = require("../expr/eval"); // 既存評価器
-const parser_1 = require("../parser"); // 再パース用
+const parserExpr_1 = require("../expr/parserExpr");
+const macroParser_1 = require("../macroParser"); // 再パース用
 const tokenizer_1 = require("../tokenizer"); // トークン複製
 /**
  * expandLoopCore()
  * すべてのループ系マクロ(REPT/WHILE/IRP/IRPC)を統一的に展開する。
  */
 function expandLoopCore(node, ctx) {
-    console.log(`[expandLoopCore] start node:${JSON.stringify(node)} node.countExpr:${node.countExpr}`);
     // --- 終端系はスキップ ---
     if (node.op === "ENDW" || node.op === "ENDM") {
         ctx.logger?.debug(`[expandLoopCore] skip terminator ${node.op}`);
@@ -33,7 +33,6 @@ function expandLoopCore(node, ctx) {
     // =========================================================
     if (node.op === "IRPC" && node.symbolName && node.strLiteral) {
         const str = node.strLiteral;
-        console.log(`[expandLoopCore] IRPC symbol=${node.symbolName} str=${str}`);
         for (let i = 0; i < str.length; i++) {
             const c = str[i];
             const code = c.charCodeAt(0);
@@ -48,15 +47,13 @@ function expandLoopCore(node, ctx) {
                 }
                 return { ...t };
             });
-            console.log(`[expandLoopCore] replacedTokens:${JSON.stringify(replacedTokens)}`);
             // 本体を通常ノードとして解釈
-            const nodes = (0, parser_1.parseTokens)(replacedTokens, ctx);
+            const nodes = (0, macroParser_1.parseTokens)(replacedTokens, ctx);
             // ✅ パース結果が空なら文字トークンを直接Node化
             const finalNodes = nodes.length
                 ? nodes
                 : replacedTokens.map((t) => ({ kind: "token", text: t.text, pos: t.pos }));
             out.push(...finalNodes);
-            console.log(`[expandLoopCore] nodes:${JSON.stringify(finalNodes)} out:${JSON.stringify(out)}`);
             (0, context_1.popLoop)(ctx);
         }
         return out;
@@ -73,7 +70,7 @@ function expandLoopCore(node, ctx) {
             frame.index = i;
             frame.locals.set(symbolName, val); // ← ここが重要！
             const replacedTokens = node.bodyTokens.map((t) => t.text === `\\${symbolName}` ? { ...t, text: val } : t);
-            const nodes = (0, parser_1.parseTokens)(replacedTokens, ctx);
+            const nodes = (0, macroParser_1.parseTokens)(replacedTokens, ctx);
             out.push(...(nodes.length ? nodes : replacedTokens));
             (0, context_1.popLoop)(ctx);
         }
@@ -85,9 +82,7 @@ function expandLoopCore(node, ctx) {
     const total = (node.kind === "macroLoop" && node.op === "REPT" && node.countExpr)
         ? (0, eval_1.evalConst)(node.countExpr, ctx)
         : undefined;
-    console.log(`[expandLoopCore] total:${JSON.stringify(total)}`);
     const frame = (0, context_1.pushLoop)(ctx, node.op, meta, total);
-    console.log(`[expandLoopCore] frame:${JSON.stringify(frame)}`);
     let iteration = 0;
     let guard = 0;
     try {
@@ -102,6 +97,7 @@ function expandLoopCore(node, ctx) {
                 value: frame.index,
                 sectionId: ctx.currentSection ?? 0,
                 type: "CONST",
+                pos: ctx.currentPos,
             });
             // === 条件判定 ===
             const cont = evalLoopCondition(node, ctx, frame, iteration);
@@ -114,10 +110,8 @@ function expandLoopCore(node, ctx) {
             }
             if (!cont)
                 break;
-            console.log(`[expandLoopCore] iteration:${iteration} before out:${JSON.stringify(out)}`);
             // === 本体展開 ===
             expandLoopBody(node, ctx, frame, out);
-            console.log(`[expandLoopCore] iteration:${iteration} after out:${JSON.stringify(out)}`);
             iteration++;
         }
     }
@@ -177,7 +171,7 @@ function expandLoopBody(node, ctx, frame, out) {
     // clone tokens
     const tokens = (0, tokenizer_1.cloneTokens)(node.bodyTokens);
     // ノード分割を先に行う（REPT/IRP/WHILE/IRPC の場合）
-    const nodes = (0, parser_1.parseTokens)(tokens, ctx, { macroMode: true });
+    const nodes = (0, macroParser_1.parseTokens)(tokens, ctx, { macroMode: true });
     for (const n of nodes) {
         if (n.kind === "macroLoop") {
             // --- 内側REPT/IRP/IRPC/WHILE は再帰展開 ---
@@ -191,49 +185,84 @@ function expandLoopBody(node, ctx, frame, out) {
         else {
             // --- 通常命令ノードなら引数置換して出力 ---
             substituteNodeArgs(n, ctx, frame);
+            // --- WHILE/REPT で SET が出た場合は即時反映 ---
+            if (n.kind === "pseudo" && String(n.op).toUpperCase() === "SET") {
+                applySetInMacro(ctx, n);
+            }
             out.push(n);
         }
     }
 }
+function applySetInMacro(ctx, node) {
+    const arg = node.args?.[0];
+    const key = arg?.key;
+    const valStr = arg?.value;
+    if (!key || typeof valStr !== "string")
+        return;
+    const sym = ctx.caseInsensitive ? String(key).toUpperCase() : String(key);
+    const cleaned = valStr.replace(/,/g, " ");
+    const tokens = (0, tokenizer_1.tokenize)(ctx, cleaned).filter((t) => t.kind !== "eol");
+    const expr = (0, parserExpr_1.parseExpr)(tokens);
+    const res = (0, eval_1.evalExpr)(expr, (0, eval_1.makeEvalCtx)(ctx));
+    if (res.kind !== "Const")
+        return;
+    ctx.symbols.set(sym, {
+        value: res.value,
+        sectionId: ctx.currentSection ?? 0,
+        type: "CONST",
+        pos: ctx.currentPos,
+    });
+}
 function substituteNodeArgs(n, ctx, frame) {
+    if (n.args && Array.isArray(n.args) && typeof n.args[0] === "string") {
+        n.args = n.args.map((s) => replaceLoopRefInString(s, ctx, frame));
+        return;
+    }
     // 代表例: pseudo命令(DB 等)の args が { value: string | number } 等になっているケース
     if (n.args && Array.isArray(n.args)) {
         for (const a of n.args) {
             if (typeof a.value === "string") {
-                const s = a.value;
-                // \##MAX / \##n
-                const m2 = s.match(/^\\#\\#(MAX|\d+)$/);
-                if (m2) {
-                    const key = m2[1];
-                    a.value = String(resolveLoopCounter(ctx, key));
-                    continue;
-                }
-                // \#（最内層）
-                if (s === "\\#" || s === "#") {
-                    a.value = String(resolveLoopCounter(ctx, ""));
-                    continue;
-                }
-                // \name（IRP/IRPCローカル）
-                if (s.startsWith("\\")) {
-                    const name = s.slice(1);
-                    if (frame.locals.has(name)) {
-                        const v = frame.locals.get(name);
-                        a.value = String(v);
-                    }
-                }
+                a.value = replaceLoopRefInString(a.value, ctx, frame);
             }
         }
     }
+}
+function replaceLoopRefInString(s, ctx, frame) {
+    // \##MAX / \##n
+    const m2 = s.match(/^\\+##(MAX|\d+)$/);
+    if (m2) {
+        const key = m2[1];
+        return String(resolveLoopCounter(ctx, key));
+    }
+    // \#（最内層）
+    if (s === "\\#" || s === "#") {
+        return String(resolveLoopCounter(ctx, ""));
+    }
+    // \name（IRP/IRPCローカル）
+    if (s.startsWith("\\")) {
+        const name = s.replace(/^\\+/, "");
+        if (frame.locals.has(name)) {
+            const v = frame.locals.get(name);
+            return String(v);
+        }
+    }
+    // CONST シンボルは現在値で展開（WHILE 内の変数更新用）
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s)) {
+        const key = ctx.caseInsensitive ? s.toUpperCase() : s;
+        const entry = ctx.symbols.get(key);
+        if (entry && entry.type === "CONST" && typeof entry.value === "number") {
+            return String(entry.value);
+        }
+    }
+    return s;
 }
 /**
  * \# / \##n / \##MAX / locals をトークン上で置換
  */
 function substituteLoopTokens(tokens, ctx, frame) {
-    console.log(`[substituteLoopTokens] before tokens:${JSON.stringify(tokens)}`);
     for (const t of tokens) {
         if (typeof t.text !== "string")
             continue;
-        console.log(`[substituteLoopTokens] processing token:${JSON.stringify(t)}`);
         // --- \##MAX / \##n ---
         const m2 = t.text.match(/^\\#\#(MAX|\d+)$/);
         if (m2) {
@@ -244,7 +273,6 @@ function substituteLoopTokens(tokens, ctx, frame) {
             t.value = v;
             continue;
         }
-        console.log(`[substituteLoopTokens] after ## check token:${JSON.stringify(t)}`);
         // --- \# 単体（最内層） ---
         if (t.text === "\\#" || t.text === "#") {
             const v = resolveLoopCounter(ctx, "");
@@ -253,7 +281,6 @@ function substituteLoopTokens(tokens, ctx, frame) {
             t.value = v;
             continue;
         }
-        console.log(`[substituteLoopTokens] after # check token:${JSON.stringify(t)}`);
         // --- locals (IRP/IRPC) ---
         if (t.text.startsWith("\\")) {
             const name = t.text.slice(1);
@@ -265,7 +292,6 @@ function substituteLoopTokens(tokens, ctx, frame) {
             }
         }
     }
-    console.log(`[substituteLoopTokens] after tokens:${JSON.stringify(tokens)}`);
 }
 /**
  * カウンタ参照を解決

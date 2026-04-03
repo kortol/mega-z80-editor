@@ -1,6 +1,6 @@
 import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 
 /**
  * 単発 Misc 命令

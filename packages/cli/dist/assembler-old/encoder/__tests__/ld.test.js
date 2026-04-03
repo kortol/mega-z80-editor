@@ -157,4 +157,12 @@ describe("LD extra", () => {
         (0, encoder_1.encodeInstr)(ctx, makeNode("LD", ["(IY-2)", "IYL"]));
         expect(ctx.texts[0].data).toEqual([0xfd, 0x75, 0xfe]);
     });
+    test("LD (1234H),(HL) is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("LD", ["(1234H)", "(HL)"]))).toThrow(/memory-to-memory/);
+    });
+    test("LD (IX+1),(IY+2) is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("LD", ["(IX+1)", "(IY+2)"]))).toThrow(/Unsupported LD form/);
+    });
 });

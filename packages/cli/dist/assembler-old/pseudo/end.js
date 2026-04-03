@@ -29,7 +29,7 @@ function handleEND(ctx, node) {
         // evalExpr が A2100 を積んでいる可能性を消す
         ctx.errors = ctx.errors.filter((e) => e.code !== errors_1.AssemblerErrorCode.ExprUndefinedSymbol);
         // 外部シンボルはエントリ不可
-        ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprExternInEnd, `External symbol not allowed in END: ${node.args.join(" ")}`));
+        ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprExternInEnd, `External symbol not allowed in END: ${node.args.map(a => a.value).join(" ")}`));
         ctx.entry = undefined;
     }
 }

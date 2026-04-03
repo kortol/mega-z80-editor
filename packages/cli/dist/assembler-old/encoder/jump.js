@@ -50,13 +50,22 @@ exports.JPInstrDefs = [
     },
     // JP nn
     {
-        match: (ctx, args) => args.length === 1,
+        match: (ctx, args) => args.length === 1 &&
+            (args[0].kind === operandKind_1.OperandKind.IMM || args[0].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             // console.log("JP NN");
             const val = (0, utils_1.resolveExpr16)(ctx, args[0].raw, node.pos, true);
             (0, emit_1.emitBytes)(ctx, [0xC3, val & 0xFF, val >> 8], node.pos);
         },
         estimate: 3,
+    },
+    // Fallback: unsupported JP form
+    {
+        match: () => true,
+        encode(ctx, args, node) {
+            const text = args.map(a => a.raw).join(",");
+            throw new Error(`Unsupported JP form '${text}' (allowed: JP nn, JP cc,nn, JP (HL)/(IX)/(IY))`);
+        },
     },
 ];
 // ====================================================================
@@ -65,7 +74,9 @@ exports.JPInstrDefs = [
 exports.JRInstrDefs = [
     // JR cc,offset
     {
-        match: (ctx, args) => args.length === 2 && condCodes.hasOwnProperty(args[0].raw.toUpperCase()),
+        match: (ctx, args) => args.length === 2 &&
+            condCodes.hasOwnProperty(args[0].raw.toUpperCase()) &&
+            (args[1].kind === operandKind_1.OperandKind.IMM || args[1].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             const cond = args[0].raw.toUpperCase();
             const target = args[1].raw;
@@ -91,7 +102,8 @@ exports.JRInstrDefs = [
     },
     // JR offset
     {
-        match: (ctx, args) => args.length === 1,
+        match: (ctx, args) => args.length === 1 &&
+            (args[0].kind === operandKind_1.OperandKind.IMM || args[0].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             const target = args[0].raw;
             const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false);
@@ -110,6 +122,14 @@ exports.JRInstrDefs = [
         },
         estimate: 2,
     },
+    // Fallback: unsupported JR form
+    {
+        match: () => true,
+        encode(ctx, args) {
+            const text = args.map(a => a.raw).join(",");
+            throw new Error(`Unsupported JR form '${text}' (allowed: JR e, JR NZ/Z/NC/C,e)`);
+        },
+    },
 ];
 // ====================================================================
 // CALL 命令群
@@ -117,7 +137,9 @@ exports.JRInstrDefs = [
 exports.CALLInstrDefs = [
     // CALL cc,nn
     {
-        match: (ctx, args) => args.length === 2 && condCodes.hasOwnProperty(args[0].raw.toUpperCase()),
+        match: (ctx, args) => args.length === 2 &&
+            condCodes.hasOwnProperty(args[0].raw.toUpperCase()) &&
+            (args[1].kind === operandKind_1.OperandKind.IMM || args[1].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             const cond = args[0].raw.toUpperCase();
             const val = (0, utils_1.resolveExpr16)(ctx, args[1].raw, node.pos, true);
@@ -128,12 +150,21 @@ exports.CALLInstrDefs = [
     },
     // CALL nn
     {
-        match: (ctx, args) => args.length === 1,
+        match: (ctx, args) => args.length === 1 &&
+            (args[0].kind === operandKind_1.OperandKind.IMM || args[0].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             const val = (0, utils_1.resolveExpr16)(ctx, args[0].raw, node.pos, true);
             (0, emit_1.emitBytes)(ctx, [0xCD, val & 0xFF, val >> 8], node.pos);
         },
         estimate: 3,
+    },
+    // Fallback: unsupported CALL form
+    {
+        match: () => true,
+        encode(ctx, args) {
+            const text = args.map(a => a.raw).join(",");
+            throw new Error(`Unsupported CALL form '${text}' (allowed: CALL nn, CALL cc,nn)`);
+        },
     },
 ];
 // ====================================================================
@@ -155,6 +186,14 @@ exports.RETInstrDefs = [
             (0, emit_1.emitBytes)(ctx, [0xC9], node.pos);
         },
     },
+    // Fallback: unsupported RET form
+    {
+        match: () => true,
+        encode(ctx, args) {
+            const text = args.map(a => a.raw).join(",");
+            throw new Error(`Unsupported RET form '${text}' (allowed: RET, RET cc)`);
+        },
+    },
 ];
 exports.RSTInstrDefs = [
     {
@@ -166,10 +205,19 @@ exports.RSTInstrDefs = [
             (0, emit_1.emitBytes)(ctx, [0xC7 + val], node.pos);
         },
     },
+    // Fallback: unsupported RST form
+    {
+        match: () => true,
+        encode(ctx, args) {
+            const text = args.map(a => a.raw).join(",");
+            throw new Error(`Unsupported RST form '${text}' (allowed: RST n where n=00h..38h step 8)`);
+        },
+    },
 ];
 exports.DJNZInstrDefs = [
     {
-        match: (ctx, args) => args.length === 1,
+        match: (ctx, args) => args.length === 1 &&
+            (args[0].kind === operandKind_1.OperandKind.IMM || args[0].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             const target = args[0].raw;
             // ★ 16bit絶対値として評価（$もOK）
@@ -190,5 +238,13 @@ exports.DJNZInstrDefs = [
             (0, emit_1.emitBytes)(ctx, [0x10, offset & 0xff], node.pos);
         },
         estimate: 2,
+    },
+    // Fallback: unsupported DJNZ form
+    {
+        match: () => true,
+        encode(ctx, args) {
+            const text = args.map(a => a.raw).join(",");
+            throw new Error(`Unsupported DJNZ form '${text}' (allowed: DJNZ e)`);
+        },
     },
 ];

@@ -10,7 +10,7 @@ function cloneTokens(tokens) {
     return tokens.map((t) => ({ ...t }));
 }
 function tokenize(ctx, src) {
-    if (!src || src.trim() === "")
+    if (src == null)
         return [];
     // --- CP/M EOF (0x1A) で打ち切り ---
     const eofIdx = src.indexOf("\x1A");
@@ -19,15 +19,12 @@ function tokenize(ctx, src) {
     }
     const tokens = [];
     const lines = src.split(/\r?\n/);
-    // 👇 空文字1行のみは即終了（eolを出さない）
-    if (lines.length === 1 && lines[0] === "") {
-        return [];
-    }
+    const isTrailingNewline = src.endsWith("\n") || src.endsWith("\r") || src.endsWith("\r\n");
     for (let lineNo = 0; lineNo < lines.length; lineNo++) {
         ctx.currentPos.line = lineNo;
         let line = lines[lineNo];
-        // --- 最終行が空文字なら無視 ---
-        if (lineNo === lines.length - 1 && line === "") {
+        // --- 最終行が空文字なら無視（末尾改行による空行のみ） ---
+        if (lineNo === lines.length - 1 && line === "" && isTrailingNewline) {
             break;
         }
         // --- コメント削除 ---

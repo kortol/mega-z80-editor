@@ -69,11 +69,14 @@ function handlePseudo(ctx, node) {
                 break;
             }
             const includePath = includeArg.value;
+            // --- 🧩 セクション復帰用に現在セクション名を保存 ---
+            const currentSectionName = ctx.sections.get(ctx.currentSection)?.name ?? ".text";
+            ctx.sectionStack.push(currentSectionName);
             // --- 🧩 スコープ切り替え ---
             (0, macro_1.pushMacroScope)(ctx);
             // --- 🧩 既存の include 機構を利用 ---
             const includeNode = { kind: "pseudo", op: "INCLUDE", args: node.args, pos: node.pos };
-            const includedNodes = (0, include_1.handleInclude)(ctx, includeNode);
+            const includedNodes = (0, include_1.handleInclude)(ctx, includeNode, true);
             // --- 🧩 INCLUDE内部をマクロ展開 ---
             const savedNodes = ctx.nodes ?? [];
             ctx.nodes = includedNodes;
@@ -85,6 +88,15 @@ function handlePseudo(ctx, node) {
             // --- 🧩 スコープ戻し（promote=true で昇格） ---
             (0, macro_1.popMacroScope)(ctx);
             node.__included = true;
+            // --- 🧩 INCLUDE終端でセクションを復帰 ---
+            const restoreName = ctx.sectionStack.pop() ?? currentSectionName;
+            const restoreNode = {
+                kind: "pseudo",
+                op: "SECTION",
+                args: [{ value: restoreName }],
+                pos: node.pos,
+            };
+            includedNodes.push(restoreNode);
             // --- 🧩 ノード結合（INCLUDE位置に差し込み） ---
             const insertAt = savedNodes.indexOf(node);
             if (insertAt >= 0) {

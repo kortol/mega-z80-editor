@@ -1,5 +1,5 @@
 import { AsmContext } from "./context";
-import { NodePseudo } from "./parser";
+import { NodePseudo } from "./node";
 import { handleORG } from "./pseudo/org";
 import { handleEND } from "./pseudo/end";
 import { handleEQU, handleSYMLEN } from "./pseudo/equ";

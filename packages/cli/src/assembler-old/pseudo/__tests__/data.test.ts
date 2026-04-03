@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodePseudo } from "../../parser";
+import { NodePseudo } from "../../node";
 import { handlePseudo } from "../../pseudo";
 import * as extern from "../../expr/parseExternExpr";
 import { initCodegen } from "../../codegen/emit";

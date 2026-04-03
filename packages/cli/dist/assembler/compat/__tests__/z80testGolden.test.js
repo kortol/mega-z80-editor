@@ -32,7 +32,7 @@ else {
                 if (!fs_1.default.existsSync(binPath)) {
                     throw new Error(`Missing .bin for fixture: ${base}`);
                 }
-                const ctx = (0, testUtils_1.phaseEmit)(asmPath, "TEST", { parser: "peg" });
+                const ctx = (0, testUtils_1.phaseEmit)(asmPath, "TEST", {});
                 const actual = (0, testUtils_1.getBytes)(ctx);
                 const expected = loadBinBytes(binPath);
                 expect(actual).toEqual(expected);

@@ -11,7 +11,7 @@ describe("P1-E: Relocation Record Generation", () => {
       ;EXT_C: NOP
       END
     `;
-        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, { parser: "peg" });
+        const ctx = (0, testUtils_1.assembleSource)(testUtils_1.phaseEmit, src, {});
         // console.log(ctx);
         const rel = (0, builder_1.buildRelFile)(ctx);
         // console.log(rel);

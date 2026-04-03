@@ -1,6 +1,6 @@
 import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 
 export function encodeED(ctx: AsmContext, node: NodeInstr) {
   const op = node.op.toUpperCase();

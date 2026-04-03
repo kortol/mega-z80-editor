@@ -24,7 +24,6 @@ describe("P2-D-EX-01: INCLUDE loop detection", () => {
 
   test("detect circular INCLUDE (A→B→A)", () => {
     const ctx = createContext();
-    ctx.options.parser = "peg";
     ctx.currentPos.file = fileA;
     const src = fs.readFileSync(fileA, "utf8");
     ctx.nodes = parsePeg(ctx, src);
@@ -53,7 +52,7 @@ describe("P2-D-EX-01: INCLUDE loop detection", () => {
     fs.writeFileSync(mainFile, `SECTION TEXT\nINCLUDE "${subFile}"\nDB 1\n`, "utf8");
 
     const logger = createLogger("quiet");
-    const ctx = assemble(logger, mainFile, outRel, { parser: "peg", relVersion: 2 });
+    const ctx = assemble(logger, mainFile, outRel, { relVersion: 2 });
 
     const textId = Array.from(ctx.sections.values()).find(s => s.name === ".text")?.id;
     const dataId = Array.from(ctx.sections.values()).find(s => s.name === ".data")?.id;
@@ -78,7 +77,7 @@ describe("P2-D-EX-01: INCLUDE loop detection", () => {
     fs.writeFileSync(mainFile, `INCLUDE "${subFile}"\nINCLUDE "${subFile}"\nDB 1\n`, "utf8");
 
     const logger = createLogger("quiet");
-    const ctx = assemble(logger, mainFile, outRel, { parser: "peg", relVersion: 2 });
+    const ctx = assemble(logger, mainFile, outRel, { relVersion: 2 });
 
     expect(ctx.warnings.some(w => w.code === AssemblerErrorCode.IncludeDuplicate)).toBe(true);
     expect(ctx.includeStack.length).toBe(0);

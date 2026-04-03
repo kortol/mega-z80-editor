@@ -1,5 +1,5 @@
 import { AsmContext, defineSymbol } from "../context";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 import { makeError, AssemblerErrorCode, makeWarning } from "../errors";
 import { tokenize } from "../tokenizer";
 import { parseExpr } from "../expr/parserExpr";

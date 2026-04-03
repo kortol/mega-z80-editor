@@ -37,8 +37,8 @@ describe("🧩 Loop macros (REPT / WHILE / IRPC)", () => {
             bodyTokens: [{ text: "DB" }, { text: "\\#" }],
         });
         const out = (0, expandLoopCore_1.expandLoopCore)(node, ctx);
-        // 1反復で "DB", "<index>" の2トークン → 3反復で計6トークン
-        expect(out.length).toBe(6);
+        // 1反復で 1命令 → 3反復で計3ノード
+        expect(out.length).toBe(3);
         const text = tokensAsText(out);
         // 反復ごとに ["DB","0"], ["DB","1"], ["DB","2"]
         expect(text).toEqual(["DB", "0", "DB", "1", "DB", "2"]);
@@ -62,7 +62,7 @@ describe("🧩 Loop macros (REPT / WHILE / IRPC)", () => {
         });
         const out = (0, expandLoopCore_1.expandLoopCore)(node, ctx);
         console.log(out);
-        expect(out.length).toBe(3); // 3反復 * 2トークン
+        expect(out.length).toBe(3); // 3反復 * 1命令
         const text = tokensAsText(out);
         expect(text).toEqual(["DB", "0", "DB", "1", "DB", "2"]);
     });
@@ -85,7 +85,7 @@ describe("🧩 Loop macros (REPT / WHILE / IRPC)", () => {
         const out = (0, expandLoopCore_1.expandLoopCore)(node, ctx);
         // 1反復1トークン × 3文字
         expect(out.length).toBe(3);
-        expect(tokensAsText(out)).toEqual(["A", "B", "C"]);
+        expect(tokensAsText(out)).toEqual(["65", "66", "67"]);
     });
     test("REPT: count=0 なら出力 0 件", () => {
         const ctx = (0, context_1.createAsmContext)();

@@ -158,13 +158,14 @@ function createContext(overrides = {}) {
  * - 現在セクションを自動付与
  * - 再定義時は警告を発行
  */
-function defineSymbol(ctx, name, value, type = "LABEL") {
+function defineSymbol(ctx, name, value, type = "LABEL", pos) {
     const sectionId = ctx.currentSection;
     const existing = ctx.symbols.get(name);
+    const defPos = pos ?? ctx.currentPos;
     if (existing) {
-        ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.RedefSymbol, `Symbol redefined: ${name} (old=${existing.value.toString(16)}, new=${value.toString(16)})`, { pos: ctx.currentPos }));
+        ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.RedefSymbol, `Symbol redefined: ${name} (old=${existing.value.toString(16)}, new=${value.toString(16)})`, { pos: defPos }));
     }
-    ctx.symbols.set(name, { value, sectionId, type });
+    ctx.symbols.set(name, { value, sectionId, type, pos: defPos });
 }
 function makeSourcePos(frame, line, phase, column) {
     return {

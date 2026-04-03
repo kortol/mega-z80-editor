@@ -1,5 +1,5 @@
 import { AsmContext } from "../context";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 import { resolveExpr16 } from "../encoder/utils";
 import { AssemblerErrorCode, makeError } from "../errors";  // 既存makeErrorを利用
 

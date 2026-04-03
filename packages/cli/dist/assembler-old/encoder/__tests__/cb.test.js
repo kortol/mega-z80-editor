@@ -74,4 +74,12 @@ describe("CB prefix", () => {
         (0, encoder_1.encodeInstr)(ctx, makeNode("RES", ["1", "A"]));
         expect(ctx.texts[0].data).toEqual([0xcb, 0x8f]);
     });
+    test("BIT 8,A is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("BIT", ["8", "A"]))).toThrow(/bit index out of range/);
+    });
+    test("RLC (BC) is rejected", () => {
+        const ctx = makeCtx();
+        expect(() => (0, encoder_1.encodeInstr)(ctx, makeNode("RLC", ["(BC)"]))).toThrow(/Invalid 8bit register/);
+    });
 });

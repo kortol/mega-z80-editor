@@ -9,8 +9,9 @@ ADD A, B
 LABEL1: NOP
 DB 1,2,3
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(ctx.errors).toHaveLength(0);
     expect(getBytes(ctx).length).toBeGreaterThan(0);
   });
 });
+

@@ -21,7 +21,7 @@ ENDM
 
   FILLZ 10,0
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     // LD B,10 = 06 0A;  LD (HL),0 = 36 00
     expect(getBytes(ctx)).toEqual([0x06, 0x0A, 0x36, 0x00]);
   });
@@ -33,7 +33,7 @@ M MACRO COUNT
 ENDM
   M 9
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
 
     // 9+1 は評価器で 10 → 06 0A
     expect(getBytes(ctx)).toEqual([0x06, 0x0A]);
@@ -46,7 +46,7 @@ M MACRO COUNT
 ENDM
   M 7
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     // console.log(ctx.texts);
     // console.log(ctx.errors);
     // console.log(ctx.warnings);
@@ -66,7 +66,7 @@ P MACRO X
 ENDM
   P 65
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     // DB "X",0 → 58h,00h （実装の文字→コード変換に依る） / LD A,65 → 3E 41h
     // 少なくとも末尾 3E 41 を確認
     expect(getBytes(ctx).slice(-2)).toEqual([0x3E, 65]);
@@ -79,7 +79,7 @@ F MACRO A,B
 ENDM
   F 10
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     console.log(ctx.errors);
     expect(ctx.errors).toHaveLength(1);
     // expect(() => assembleSource(phaseEmit, src)).toThrow(/expected 2 args/i);
@@ -92,7 +92,7 @@ F MACRO A,B
 ENDM
   F 1,2,3
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(ctx.errors).toHaveLength(1);
     // expect(() => assembleSource(phaseEmit, src)).toThrow(/expected 2 args/i);
   });
@@ -105,7 +105,7 @@ ENDM
 
   LD 1,2
 `;
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(getBytes(ctx)).toEqual([0x01, 0x02]);
   });
 
@@ -115,7 +115,7 @@ LD MACRO X,Y
   DB X,Y
 ENDM
 `;
-    const ctx = assembleSource(phaseEmit, src, { strictMacro: true, parser: "peg" }, "TEST");
+    const ctx = assembleSource(phaseEmit, src, { strictMacro: true }, "TEST");
     // console.log(ctx.options);
     expect(ctx.warnings).toHaveLength(0);
     expect(ctx.errors).toHaveLength(1);
@@ -134,7 +134,7 @@ ENDM
   LOOPMAC
 `;
 
-    const ctx = assembleSource(phaseEmit, src, { parser: "peg" });
+    const ctx = assembleSource(phaseEmit, src, {  });
     console.log(ctx);
     // 展開後: 各マクロで別々のローカルラベルが生成される
     const expandedLabels = Array.from(ctx.symbols.keys()).filter(k =>
@@ -150,3 +150,4 @@ ENDM
     expect(uniqueCount).toBe(2);
   });
 });
+
