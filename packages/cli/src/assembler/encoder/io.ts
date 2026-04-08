@@ -50,7 +50,8 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
           op: node.op,
           phase: "assemble",
           pos: node.pos,
-        }
+        },
+        sectionId: ctx.currentSection ?? 0,
       });
     } else {
       if (port < 0 || port > 0xff)
@@ -77,6 +78,7 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
           phase: "assemble",
           pos: node.pos,
         },
+        sectionId: ctx.currentSection ?? 0,
       });
     } else {
       if (port < 0 || port > 0xff)
@@ -139,5 +141,5 @@ export function encodeIO(ctx: AsmContext, node: NodeInstr) {
     return;
   }
 
-  throw new Error(`Unsupported IO instruction ${op} ${args.join(",")}`);
+  throw new Error(`Unsupported IO instruction ${op} ${args.join(",")} at ${node.pos.file}:${node.pos.line}`);
 }

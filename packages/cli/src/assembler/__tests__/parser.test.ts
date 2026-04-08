@@ -243,5 +243,13 @@ describe("parser", () => {
       { kind: "pseudo", op: "EXITM", args: [] },
     ]);
   });
+
+  test("PUBLIC OUT should stay pseudo (not label+OUT instruction)", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, "PUBLIC OUT");
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "PUBLIC", args: [{ value: "OUT" }] },
+    ]);
+  });
 });
 

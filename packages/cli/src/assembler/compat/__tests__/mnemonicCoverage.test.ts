@@ -101,7 +101,7 @@ function extractEncoderMnemonics(encoderText: string, tableText: string): string
   for (const match of encoderText.matchAll(/case \"([A-Z0-9]+)\"/g)) {
     set.add(match[1]);
   }
-  for (const match of tableText.matchAll(/^\s*([A-Z]{2,6}):/gm)) {
+  for (const match of tableText.matchAll(/^\s*([A-Z0-9]{2,6}):/gm)) {
     set.add(match[1]);
   }
   return Array.from(set).sort();

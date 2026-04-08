@@ -225,7 +225,10 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         continue;
       }
 
-      // LABEL 単独行（コロン無し）: macro/命令/疑似命令でない場合はラベル扱い
+      // LABEL 単独行（コロン無し）の限定救済:
+      // すべてmacroInvoke扱いにすると z80test の `data` など通常ラベルが落ちる。
+      // 一方で `FOO` のような大文字トークンは未定義マクロ検出を優先したいので、
+      // 小文字を含む識別子のみラベルとして救済する。
       if (!labelName && instr.type === "macroInvoke") {
         const rawArgs = instr.args ?? [];
         const name = String(instr.name);
@@ -233,7 +236,8 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         const isPseudoSelf = pseudoOps.has(nameUpper);
         const isOpcodeSelf = ctx.opcodes?.has(canon(nameUpper, ctx));
         const isMacroSelf = hasMacro(name);
-        if (rawArgs.length === 0 && !isPseudoSelf && !isOpcodeSelf && !isMacroSelf) {
+        const looksLikeLabel = /[a-z]/.test(name);
+        if (rawArgs.length === 0 && !isPseudoSelf && !isOpcodeSelf && !isMacroSelf && looksLikeLabel) {
           nodes.push(makeLabel(name, linePos));
           continue;
         }
@@ -243,6 +247,16 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
       // parser上は「macroInvoke(name=LABEL, args=[OPCODE, ...])」になるため救済する
       if (!labelName && instr.type === "macroInvoke") {
         const rawArgs = instr.args ?? [];
+        const selfUpper = String(instr.name).toUpperCase();
+        const isPseudoSelf = pseudoOps.has(selfUpper);
+        if (isPseudoSelf) {
+          if (selfUpper === "DEFL" && rawArgs.length >= 2) {
+            nodes.push(makePseudo("SET", [{ key: String(rawArgs[0]), value: String(rawArgs[1]) }], linePos));
+          } else {
+            nodes.push(makePseudo(selfUpper, rawArgs.map((v: any) => ({ value: String(v) })), linePos));
+          }
+          continue;
+        }
         const firstArg = rawArgs[0];
         if (firstArg != null && String(firstArg).trim() !== "") {
           const opCandidate = String(firstArg);
@@ -289,6 +303,31 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
           const pos = linePos;
           const flatArgs = [String(instr.name), ...(instr.args ?? []).map((a: any) => (a == null ? "" : String(a)))];
 
+          if (leadingOp === "IFDIF" && flatArgs.length >= 2) {
+            nodes.push(makePseudo("IFDIF", [{ value: flatArgs[0] }, { value: flatArgs[1] }], pos));
+          } else {
+            nodes.push(makePseudo(leadingOp, flatArgs.map((v: string) => ({ value: v })), pos));
+          }
+          continue;
+        }
+      }
+
+      // IFDEF/EXTERNAL/PUBLIC などが
+      // parser上「label + instruction」に分割されるケースを疑似命令へ救済する
+      if (labelName && !labelColon && instr.type === "instruction") {
+        const leadingOp = String(labelName).toUpperCase();
+        const leadingPseudo = new Set([
+          "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF",
+          "GLOBAL", "PUBLIC", "LOCAL",
+          "EXTERNAL", "EXT",
+          "TITLE", "LIST", "PAGE",
+        ]);
+        if (leadingPseudo.has(leadingOp)) {
+          const pos = linePos;
+          const flatArgs = [
+            String(instr.mnemonic),
+            ...(instr.operands ?? []).map((a: any) => operandToRaw(a)),
+          ];
           if (leadingOp === "IFDIF" && flatArgs.length >= 2) {
             nodes.push(makePseudo("IFDIF", [{ value: flatArgs[0] }, { value: flatArgs[1] }], pos));
           } else {
