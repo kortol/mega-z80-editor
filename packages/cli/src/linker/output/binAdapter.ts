@@ -1,5 +1,6 @@
 import { BaseTextAdapter } from "./common/baseTextAdapter";
 import { LinkResult } from "../core/types";
+import { writeOutputFile } from "./common/outputUtils";
 
 export class BinOutputAdapter extends BaseTextAdapter {
   readonly ext = ".abs";
@@ -9,10 +10,20 @@ export class BinOutputAdapter extends BaseTextAdapter {
     super();
   }
 
-  generateText(): string | Uint8Array {
+  private getPrimarySegment(): { range: { min: number; max: number }; data: Uint8Array } {
     if (this.result.segments.length === 0) throw new Error("No segments");
     const seg = this.result.segments[0];
     if (!seg.data) throw new Error("Segment has no data");
+    return { range: seg.range, data: seg.data };
+  }
+
+  generateText(): string | Uint8Array {
+    const seg = this.getPrimarySegment();
+    return seg.data;
+  }
+
+  generateDumpText(): string {
+    const seg = this.getPrimarySegment();
 
     // HEX表現を生成（16バイト単位）
     const lines: string[] = [];
@@ -23,5 +34,16 @@ export class BinOutputAdapter extends BaseTextAdapter {
       lines.push(`${addr}: ${hex}`);
     }
     return lines.join("\n");
+  }
+
+  write(targetFile: string, verbose = false): void {
+    const bin = this.generateText();
+    writeOutputFile(targetFile, bin, verbose, this.tag);
+
+    // Keep a text dump next to .com outputs for debugging parity.
+    if (/\.com$/i.test(targetFile)) {
+      const dump = this.generateDumpText();
+      writeOutputFile(`${targetFile}.dmp`, dump, verbose, "[DMP]");
+    }
   }
 }

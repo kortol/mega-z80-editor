@@ -67,6 +67,22 @@ export function writeRelV2(mod: RelModuleV2, outPath: string) {
     w(`S ${sym.name} ${addrHex}${secName}`);
   }
 
+  // --- Relocations / unresolved refs ---
+  for (const fx of mod.fixups ?? []) {
+    const sym = mod.symbols[fx.symIndex];
+    if (!sym) continue;
+    const offHex = fx.offset.toString(16).padStart(4, "0").toUpperCase();
+    const expr =
+      fx.addend && fx.addend !== 0
+        ? `${sym.name}${fx.addend > 0 ? `+${fx.addend}` : `${fx.addend}`}`
+        : sym.name;
+    const secName =
+      fx.sectionId != null && mod.sections[fx.sectionId]
+        ? ` ${mod.sections[fx.sectionId].name}`
+        : "";
+    w(`R ${offHex} ${expr}${secName}`);
+  }
+
   // --- Entry point ---
   if (mod.entry !== undefined) {
     const entryHex = mod.entry.toString(16).padStart(4, "0").toUpperCase();

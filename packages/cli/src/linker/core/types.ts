@@ -1,7 +1,19 @@
 // src/linker/core/types.ts
-export interface RelSymbol { name: string; addr: number; }
-export interface RelText { addr: number; bytes: number[]; }
-export interface RelRef { addr: number; sym: string; }
+export interface RelSymbol {
+  name: string;
+  addr: number;
+  section?: string;
+}
+export interface RelText {
+  addr: number;
+  bytes: number[];
+  section?: string;
+}
+export interface RelRef {
+  addr: number;
+  sym: string;
+  section?: string;
+}
 
 export interface RelModule {
   name: string;

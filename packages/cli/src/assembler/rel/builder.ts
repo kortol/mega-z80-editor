@@ -69,9 +69,18 @@ export function buildRelFile(ctx: AsmContext): RelFile {
   // }
 
   // S
+  // If PUBLIC/GLOBAL symbols are declared, emit only those exports.
+  // Otherwise keep backward-compatible behavior and emit all defined symbols.
+  const exportFilterEnabled = ctx.exportSymbols.size > 0;
   for (const [sym, entry] of ctx.symbols.entries()) {
-    if (!ctx.exportSymbols.has(sym)) {
+    if (typeof entry !== "number" && entry.type === "EXTERN") {
       continue;
+    }
+    if (exportFilterEnabled) {
+      const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
+      if (!ctx.exportSymbols.has(key)) {
+        continue;
+      }
     }
     const addr = typeof entry === "number" ? entry : entry.value;
     const sectionId = typeof entry === "number" ? 0 : entry.sectionId ?? 0;
@@ -177,8 +186,13 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
 
   // 2) Symbols（暫定：ABS/REL/EXT の3種のみ）
   const symbols: RelSymbolV2[] = [];
+  const exportFilterEnabled = ctx.exportSymbols.size > 0;
   // - 定義済み: REL（暫定で sectionId=0/TEXT）or ABS（EQUなどで将来拡張）
   for (const [name, val] of ctx.symbols.entries()) {
+    if (exportFilterEnabled) {
+      const key = ctx.caseInsensitive ? name.toUpperCase() : name;
+      if (!ctx.exportSymbols.has(key)) continue;
+    }
     if (typeof val === "number") {
       symbols.push({
         name,

@@ -9,32 +9,76 @@ export function linkModules(mods: RelModule[]): LinkResult {
   const texts: { addr: number; bytes: number[] }[] = [];
   const refs: { addr: number; sym: string }[] = [];
   let entry: number | undefined;
+  const sectionBase = new Map<string, number>();
+  const singleSectionByMod = new Map<number, string | undefined>();
+  const sectionKey = (modIndex: number, section?: string) => `${modIndex}::${section ?? ""}`;
+  const normalizeSection = (section?: string) => (section ?? "CSEG").toUpperCase();
+  const isAbsoluteSection = (section?: string) => normalizeSection(section) === "ASEG";
+
+  // Section-based placement pass (CSEG/DSEG/COMMON/ASEG).
+  let cursor = 0;
+  mods.forEach((mod, modIndex) => {
+    const grouped = new Map<string, { min: number; max: number }>();
+    for (const t of mod.texts) {
+      const sec = t.section ?? "CSEG";
+      const g = grouped.get(sec) ?? { min: Number.MAX_SAFE_INTEGER, max: -1 };
+      g.min = Math.min(g.min, t.addr);
+      g.max = Math.max(g.max, t.addr + t.bytes.length - 1);
+      grouped.set(sec, g);
+    }
+    singleSectionByMod.set(modIndex, grouped.size === 1 ? Array.from(grouped.keys())[0] : undefined);
+
+    for (const [sec, range] of grouped.entries()) {
+      if (range.max < 0) {
+        sectionBase.set(sectionKey(modIndex, sec), 0);
+        continue;
+      }
+      if (isAbsoluteSection(sec) || range.min > 0) {
+        sectionBase.set(sectionKey(modIndex, sec), 0);
+        cursor = Math.max(cursor, range.max + 1);
+      } else {
+        const base = cursor;
+        sectionBase.set(sectionKey(modIndex, sec), base);
+        cursor = Math.max(cursor, base + range.max + 1);
+      }
+    }
+  });
 
   // パス1: シンボル収集
-  for (const mod of mods) {
+  mods.forEach((mod, modIndex) => {
     for (const s of mod.symbols) {
+      const sec = s.section ?? singleSectionByMod.get(modIndex);
+      const base = sectionBase.get(sectionKey(modIndex, sec)) ?? 0;
+      const resolvedAddr = s.addr + base;
       if (symbols.has(s.name)) {
         const existing = symbols.get(s.name)!;
         // EXTERN仮定義 → 上書きOK
         if (existing.addr === 0) {
-          symbols.set(s.name, { bank: 0, addr: s.addr });
+          symbols.set(s.name, { bank: 0, addr: resolvedAddr });
           continue;
         }
         // 同一値の重複定義は許容（複数モジュールで共通定数を定義するケース）
-        if (existing.addr === s.addr) {
+        if (existing.addr === resolvedAddr) {
           continue;
         }
         throw new Error(`Duplicate symbol '${s.name}'`);
       }
-      symbols.set(s.name, { bank: 0, addr: s.addr });
+      symbols.set(s.name, { bank: 0, addr: resolvedAddr });
     }
 
 
-    texts.push(...mod.texts);
-    refs.push(...mod.refs);
+    texts.push(...mod.texts.map((t) => {
+      const base = sectionBase.get(sectionKey(modIndex, t.section ?? singleSectionByMod.get(modIndex))) ?? 0;
+      return { addr: t.addr + base, bytes: t.bytes };
+    }));
+    refs.push(...mod.refs.map((r) => {
+      const base = sectionBase.get(sectionKey(modIndex, r.section ?? singleSectionByMod.get(modIndex))) ?? 0;
+      return { addr: r.addr + base, sym: r.sym };
+    }));
 
     if (mod.entry !== undefined && entry === undefined) {
-      entry = mod.entry;
+      const base = sectionBase.get(sectionKey(modIndex, singleSectionByMod.get(modIndex))) ?? 0;
+      entry = mod.entry + base;
     }
 
     // extern宣言の登録
@@ -43,7 +87,7 @@ export function linkModules(mods: RelModule[]): LinkResult {
         symbols.set(x, { bank: 0, addr: 0 }); // 仮定義
       }
     }
-  }
+  });
 
   // ★ リゾルブコンテキスト生成
   const ctx: LinkResolveContext = {
@@ -70,7 +114,6 @@ export function linkModules(mods: RelModule[]): LinkResult {
   for (const t of texts) {
     for (let i = 0; i < t.bytes.length; i++) {
       const addr = t.addr + i;
-      if (mem[addr] !== 0) throw new Error(`Overlap at ${addr.toString(16)}`);
       mem[addr] = t.bytes[i];
       minUsed = Math.min(minUsed, addr);
       maxUsed = Math.max(maxUsed, addr);
