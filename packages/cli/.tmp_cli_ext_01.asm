@@ -1,3 +1,0 @@
-ORG 0x8000
-MULUB A,B
-END
