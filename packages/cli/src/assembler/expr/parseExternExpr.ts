@@ -20,6 +20,8 @@ export function parseExternExpr(ctx: AsmContext, expr: string) {
     errors: ctx.errors,
     visiting: new Set(),
     loc: ctx.loc,
+    currentGlobalLabel: ctx.currentGlobalLabel,
+    caseInsensitive: ctx.caseInsensitive,
   };
 
   const res = evalExpr(e, evalCtx);

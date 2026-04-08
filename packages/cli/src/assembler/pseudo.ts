@@ -25,6 +25,7 @@ import {
   handleSectionAlias,
   handleTITLE,
 } from "./pseudo/compat";
+import path from "path";
 
 export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
   switch (node.op.toUpperCase()) {
@@ -166,6 +167,17 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
         ctx.nodes = merged;
       } else {
         ctx.nodes = savedNodes.concat(includedNodes);
+      }
+      break;
+    }
+    case "INCPATH": {
+      const baseDir = path.dirname(node.pos?.file ?? ctx.currentPos.file ?? ".");
+      ctx.includePaths ??= [];
+      for (const arg of node.args ?? []) {
+        const raw = String(arg?.value ?? "").trim();
+        if (!raw) continue;
+        const resolved = path.isAbsolute(raw) ? raw : path.resolve(baseDir, raw);
+        ctx.includePaths.push(resolved);
       }
       break;
     }

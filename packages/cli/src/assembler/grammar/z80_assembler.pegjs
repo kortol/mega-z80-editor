@@ -54,13 +54,16 @@ EmptyLine
   = _ EOL { return makeNode('empty', {}, location()); }
 
 Label
-  = name:(Identifier / DotIdentifier) &(_ ":" ! "=") _ ":" {
+  = name:(Identifier / DotIdentifier / ReservedWordIdent / ExtendedMnemonicIdent) &(_ ":" ! "=") _ ":" {
       return makeNode('label', { name: name.name, colon: true }, location());
     }
   / name:DotIdentifier &(__ Instruction) __ {
       return makeNode('label', { name: name.name, colon: false }, location());
     }
-  / name:Identifier &(__ Instruction) __ {
+  / name:DotIdentifier &(_ Comment? EOL) {
+      return makeNode('label', { name: name.name, colon: false }, location());
+    }
+  / name:Identifier &(__ ! "." NonMacroInstruction) __ {
       return makeNode('label', { name: name.name, colon: false }, location());
     }
 
@@ -69,26 +72,37 @@ Instruction
   / OpCode
   / MacroInvoke
 
+NonMacroInstruction
+  = Directive
+  / OpCode
+
 // ディレクティブ
-Directive
-  = OrgDirective
-  / DbDirective
-  / DzDirective
-  / DwDirective
-  / DsDirective
-  / EquDirective
-  / SetDirective
-  / EndDirective
-  / IfDirective
-  / ElseIfDirective
-  / ElseDirective
-  / EndIfDirective
-  / IfIdnDirective
-  / ExternDirective
-  / SectionDirective
-  / IncludeDirective
-  / AlignDirective
-  / SymLenDirective
+  Directive
+    = OrgDirective
+    / DbDirective
+    / DzDirective
+    / DwDirective
+    / DsDirective
+    / DeflDirective
+    / DefmDirective
+    / DcDirective
+    / EquDirectiveLabel
+    / EquDirective
+    / SetDirective
+    / EndDirective
+    / IfDirective
+    / ElseIfDirective
+    / ElseDirective
+    / EndIfDirective
+    / IfIdnDirective
+    / ExternDirective
+    / ExtDirective
+    / ExternalDirective
+    / SectionDirective
+    / IncludeDirective
+    / IncPathDirective
+    / AlignDirective
+    / SymLenDirective
   / Word32Directive
   / GenericDotDirective
 
@@ -112,18 +126,38 @@ DwDirective
       return makeNode('directive', { name: op.toUpperCase(), values }, location());
     }
 
-DsDirective
-  = op:("DS"i / "DEFS"i) __ size:Expression {
-      return makeNode('directive', { name: op.toUpperCase(), size }, location());
-    }
+  DsDirective
+    = op:("DS"i / "DEFS"i) __ size:Expression {
+        return makeNode('directive', { name: op.toUpperCase(), size }, location());
+      }
+
+  DeflDirective
+    = name:SymbolIdentifier __ "DEFL"i __ value:Expression {
+        return makeNode('directive', { name: 'DEFL', symbol: name.name, value }, location());
+      }
+
+  DefmDirective
+    = "DEFM"i __ values:ExpressionList {
+        return makeNode('directive', { name: 'DEFM', values }, location());
+      }
+
+  DcDirective
+    = "DC"i __ values:ExpressionList {
+        return makeNode('directive', { name: 'DC', values }, location());
+      }
 
 EquDirective
-  = name:Identifier __ "EQU"i __ value:Expression {
+  = name:SymbolIdentifier __ "EQU"i __ value:Expression {
       return makeNode('directive', { name: 'EQU', symbol: name.name, value }, location());
     }
 
+EquDirectiveLabel
+  = "EQU"i __ value:Expression {
+      return makeNode('directive', { name: 'EQU', symbol: null, value }, location());
+    }
+
 SetDirective
-  = name:Identifier _ ":=" _ value:Expression {
+  = name:SymbolIdentifier _ ":=" _ value:Expression {
       return makeNode('directive', { name: 'SET', symbol: name.name, value }, location());
     }
 
@@ -157,15 +191,25 @@ IfIdnDirective
       return makeNode('directive', { name: 'IFIDN', left, right }, location());
     }
 
-ExternDirective
-  = "EXTERN"i __ symbols:IdentifierList fromClause:(_ "FROM"i _ (StringLiteral / Identifier))? {
-      const from = fromClause ? fromClause[3] : undefined;
-      return makeNode('directive', {
-        name: 'EXTERN',
-        symbols: symbols.map(s => s.name),
-        from,
-      }, location());
-    }
+  ExternDirective
+    = "EXTERN"i __ symbols:IdentifierList fromClause:(_ "FROM"i _ (StringLiteral / Identifier))? {
+        const from = fromClause ? fromClause[3] : undefined;
+        return makeNode('directive', {
+          name: 'EXTERN',
+          symbols: symbols.map(s => s.name),
+          from,
+        }, location());
+      }
+
+  ExtDirective
+    = "EXT"i __ symbols:IdentifierList {
+        return makeNode('directive', { name: 'EXT', symbols: symbols.map(s => s.name) }, location());
+      }
+
+  ExternalDirective
+    = "EXTERNAL"i __ symbols:IdentifierList {
+        return makeNode('directive', { name: 'EXTERNAL', symbols: symbols.map(s => s.name) }, location());
+      }
 
 SectionDirective
   = "SECTION"i __ name:Identifier opts:SectionOpts? {
@@ -183,9 +227,19 @@ IncludeDirective
       return makeNode('directive', { name: 'INCLUDE', path }, location());
     }
 
+IncPathDirective
+  = "INCPATH"i __ paths:IncludePathList {
+      return makeNode('directive', { name: 'INCPATH', paths }, location());
+    }
+
 IncludePath
   = StringLiteral
   / IncludeBare
+
+IncludePathList
+  = first:IncludePath rest:(_ "," _ IncludePath)* {
+      return [first, ...rest.map(r => r[3])];
+    }
 
 IncludeBare
   = raw:$([^;\r\n]+) {
@@ -238,9 +292,14 @@ MacroParams
   / _ "(" _ list:MacroParamList? _ ")" { return list ?? []; }
 
 MacroParamList
-  = first:Identifier rest:(_ "," _ Identifier)* {
-      return [first.name, ...rest.map(r => r[3].name)];
+  = first:MacroParam rest:(_ "," _ MacroParam)* {
+      return [first, ...rest.map(r => r[3])];
     }
+
+  MacroParam
+    = name:MacroParamName def:(_ ":" _ Expression)? {
+        return def ? { name, default: def[3] } : { name };
+      }
 
 MacroBody
   = parts:(LocalMacroBlock / NestedRept / NestedIrp / NestedIrpc / NestedWhile / MacroLine)* { return parts.join(""); }
@@ -249,7 +308,7 @@ MacroLine
   = !EndmLine !EndrLine !EndwLine text:$([^\r\n]*) EOL { return text + "\n"; }
 
 NestedRept
-  = text:$(_ ("REPT"i / "REPEAT"i) __ [^\r\n]* EOL body:MacroBody EndrLine) { return text; }
+  = text:$(_ ("REPEAT"i / "REPT"i) __ [^\r\n]* EOL body:MacroBody EndrLineNested) { return text; }
 
 NestedIrp
   = text:$(_ "IRP"i __ [^\r\n]* EOL body:MacroBody EndmLine) { return text; }
@@ -264,7 +323,10 @@ EndmLine
   = _ "ENDM"i _ Comment? (EOL / EOF) { return; }
 
 EndrLine
-  = _ ("ENDR"i / "ENDM"i) _ Comment? (EOL / EOF) { return; }
+  = _ ("ENDREPEAT"i / "ENDR"i / "ENDM"i) _ Comment? (EOL / EOF) { return; }
+
+  EndrLineNested
+    = _ ("ENDREPEAT"i / "ENDR"i / "ENDM"i) _ Comment? (EOL / EOF) { return; }
 
 EndwLine
   = _ "ENDW"i _ Comment? (EOL / EOF) { return; }
@@ -282,12 +344,17 @@ MacroInvokeArgs
   / _ "(" _ list:MacroArgList? _ ")" { return list ?? []; }
 
 MacroArgList
-  = first:MacroArg rest:(_ "," _ MacroArg)* {
-      return [first, ...rest.map(r => r[3])];
+  = first:MacroArg? rest:(_ "," _ MacroArg?)+ {
+      const head = first ?? "";
+      return [head, ...rest.map(r => r[3] ?? "")];
+    }
+  / first:MacroArg rest:(_ "," _ MacroArg?)* {
+      return [first, ...rest.map(r => r[3] ?? "")];
     }
 
 MacroArg
-  = raw:$([^,\r\n;)]+) { return raw.trim(); }
+  = s:StringLiteral { return s.raw ?? `"${s.value ?? ""}"`; }
+  / raw:$([^,\r\n;)]+) { return raw.trim(); }
 
 // マクロループ
 MacroLoop
@@ -297,7 +364,7 @@ MacroLoop
   / WhileBlock
 
 ReptBlock
-  = _ op:("REPT"i / "REPEAT"i) __ count:Expression _ Comment? EOL body:MacroBody EndrLine {
+  = _ op:("REPEAT"i / "REPT"i) __ count:Expression _ Comment? EOL body:MacroBody EndrLine {
       return makeNode('macroLoop', { op: 'REPT', count, body }, location());
     }
 
@@ -435,10 +502,10 @@ IoInstruction
 // その他の命令
 MiscInstruction
   = mnemonic:("NOP"i / "HALT"i / "DI"i / "EI"i / "NEG"i / "CPL"i / "CCF"i / "SCF"i / "DAA"i /
-              "LDI"i / "LDIR"i / "LDD"i / "LDDR"i /
-              "CPI"i / "CPIR"i / "CPD"i / "CPDR"i /
-              "INI"i / "INIR"i / "IND"i / "INDR"i /
-              "OUTI"i / "OTIR"i / "OUTD"i / "OTDR"i /
+              "LDIR"i / "LDI"i / "LDDR"i / "LDD"i /
+              "CPIR"i / "CPI"i / "CPDR"i / "CPD"i /
+              "INIR"i / "INI"i / "INDR"i / "IND"i /
+              "OTIR"i / "OUTI"i / "OTDR"i / "OUTD"i /
               "RRD"i / "RLD"i) {
       return makeNode('instruction', { mnemonic: mnemonic.toUpperCase(), operands: [] }, location());
     }
@@ -474,9 +541,12 @@ Operand
     }
 
 Indirect
-  = "(" _ operand:(Register16 / Expression) _ ")" {
+  = "(" _ operand:(Register16 / Expression) _ ")" !(_ ExprOpStart) {
       return makeNode('indirect', { operand }, location());
     }
+
+ExprOpStart
+  = ("<<" / ">>" / "<=" / ">=" / "==" / "!=" / [+\-*/%<>^&|])
 
 IndirectIndexed
   = "(" _ base:("IX"i / "IY"i) offset:(_ [+\-] _ Expression)? _ ")" {
@@ -510,7 +580,7 @@ Condition
 
 // 式
 ExpressionList
-  = first:(StringLiteral / Expression) rest:(_ "," _ (StringLiteral / Expression))* {
+  = first:Expression rest:(_ "," _ Expression)* {
       return [first, ...rest.map(r => r[3])];
     }
 
@@ -555,8 +625,12 @@ Primary
   / DecimalNumber
   / AtCounter
   / CurrentAddress
+  / ExprIdentifier
+
+ExprIdentifier
+  = Identifier
   / DotIdentifier
-  / Identifier
+  / ReservedWordIdent
 
 AtCounter
   = "@#" {
@@ -568,21 +642,21 @@ CurrentAddress
 
 // 数値リテラル
 HexNumber
-  = "0x"i value:$(HexDigit+) {
+  = "0x"i value:$(HexDigit+) !IdentifierPart {
       return makeNode('number', { base: 16, value: parseInt(value, 16) }, location());
     }
-  / "$" value:$(HexDigit+) {
+  / "$" value:$(HexDigit+) !IdentifierPart {
       return makeNode('number', { base: 16, value: parseInt(value, 16) }, location());
     }
-  / value:$(HexDigit+) "H"i {
+  / value:$(HexDigit+) "H"i !IdentifierPart {
       return makeNode('number', { base: 16, value: parseInt(value, 16) }, location());
     }
 
 BinaryNumber
-  = "0b"i value:$([01]+) {
+  = "0b"i value:$([01]+) !IdentifierPart {
       return makeNode('number', { base: 2, value: parseInt(value, 2) }, location());
     }
-  / value:$([01]+) "B"i {
+  / value:$([01]+) "B"i !IdentifierPart {
       return makeNode('number', { base: 2, value: parseInt(value, 2) }, location());
     }
 
@@ -596,12 +670,15 @@ HexDigit
 
 // 文字列リテラル
 StringLiteral
-  = "\"" chars:$([^\"\r\n]*) "\"" {
+  = "\"" chars:$((EscapedChar / [^\"\r\n])*) "\"" {
       return withRaw(makeNode('string', { value: chars }, location()), text());
     }
-  / "'" chars:$([^'\r\n]*) "'" {
+  / "'" chars:$((EscapedChar / [^'\r\n])*) "'" {
       return withRaw(makeNode('string', { value: chars }, location()), text());
     }
+
+EscapedChar
+  = "\\" [^\r\n]
 
 // 識別子
 Identifier
@@ -614,6 +691,16 @@ DotIdentifier
       return makeNode('identifier', { name: "." + name }, location());
     }
 
+ReservedWordIdent
+  = name:$(ReservedWord) {
+      return makeNode('identifier', { name }, location());
+    }
+
+ExtendedMnemonicIdent
+  = name:$(ExtendedMnemonic) {
+      return makeNode('identifier', { name }, location());
+    }
+
 SymbolIdentifier
   = Identifier
   / DotIdentifier
@@ -622,8 +709,11 @@ IfIdnArg
   = StringLiteral
   / SymbolIdentifier
 
-MacroName
-  = name:$([A-Za-z_][A-Za-z0-9_]*) { return name; }
+  MacroName
+    = name:$([A-Za-z_][A-Za-z0-9_]*) { return name; }
+
+  MacroParamName
+    = name:$([A-Za-z_@][A-Za-z0-9_@]* ("." [A-Za-z0-9_@]+)*) { return name; }
 
 IdentifierList
   = first:Identifier rest:(_ "," _ Identifier)* {
@@ -637,7 +727,7 @@ IdentifierPart
 ReservedWord
   = ("ORG"i / "DB"i / "DEFB"i / "DZ"i / "DW"i / "DEFW"i / "DS"i / "DEFS"i / "EQU"i / "SET"i / "END"i /
      "IF"i / "ELSEIF"i / "ELSE"i / "ENDIF"i / "IFIDN"i / "IFDIF"i / "IFDEF"i / "IFNDEF"i / "IFB"i / "IFNB"i /
-     "EXTERN"i / "EXTERNAL"i / "SECTION"i / "INCLUDE"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
+     "EXTERN"i / "EXTERNAL"i / "SECTION"i / "INCLUDE"i / "INCPATH"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
      "DEFL"i / "DEFM"i / "DC"i / "GLOBAL"i / "PUBLIC"i / "LOCAL"i / "ASEG"i / "CSEG"i / "DSEG"i / "COMMON"i /
      "LIST"i / "PAGE"i / "TITLE"i / "EXITM"i /
      "MACRO"i / "ENDM"i / "REPT"i / "REPEAT"i / "ENDR"i / "WHILE"i / "ENDW"i / "IRP"i / "IRPC"i / "LOCALMACRO"i /

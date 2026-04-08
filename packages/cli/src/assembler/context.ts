@@ -26,6 +26,14 @@ export type AsmOptions = {
   virtualFiles?: Map<string, string>;
   /** 既定 false（オーバーフロー範囲外を警告として扱う） */
   strictOverflow?: boolean;
+  /** .sym 出力 */
+  sym?: boolean;
+  /** .lst 出力 */
+  lst?: boolean;
+  /** 既定のシンボル長 (.SYMLEN) */
+  symLen?: number;
+  /** INCLUDE 検索パス */
+  includePaths?: string[];
 };
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)
@@ -173,6 +181,7 @@ export interface AsmContext {
   includeStack: SourceFrame[];   // INCLUDE 呼出し階層
   includeCache: Set<string>;     // 重複防止（#pragma once 相当）
   sectionStack: string[];        // INCLUDE中のSECTION復帰用
+  includePaths?: string[];       // INCLUDE 検索パス
 
   // --- マクロ管理 ---
   macroTable: Map<string, NodeMacroDef>;
@@ -204,6 +213,8 @@ export interface AsmContext {
     title?: string;
     page?: number;
   };
+  // --- local label resolution ---
+  currentGlobalLabel?: string;
 }
 
 /* =====================================================================================
@@ -287,7 +298,7 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     externs: new Set<string>(),
     exportSymbols: new Set<string>(),
     modeWord32: false,
-    modeSymLen: 6,
+    modeSymLen: 32,
     caseInsensitive: true,
     options: { caseSensitive: false, strictMacro: false, relVersion: 2, verbose: false },
     texts: [],
@@ -301,6 +312,7 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     includeStack: [],
     includeCache: new Set<string>(),
     sectionStack: [],
+    includePaths: [],
 
     macroTable: new Map<string, NodeMacroDef>(),
     macroTableStack: [],
@@ -327,10 +339,18 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     listingControl: {
       enabled: true,
     },
+    currentGlobalLabel: undefined,
   };
 
   // deepMerge で overrides を取り込み（Map/Set/Array を複製して採用）
   const merged = deepMerge(defaults, overrides);
+
+  if (merged.options?.symLen != null) {
+    merged.modeSymLen = merged.options.symLen;
+  }
+  if (merged.options?.includePaths) {
+    merged.includePaths = [...merged.options.includePaths];
+  }
 
   // logger の最終確定（ctx.id でプレフィクス）
   merged.logger = overrides.logger ?? logger;
@@ -373,21 +393,22 @@ export function defineSymbol(
   type: SymbolEntry["type"] = "LABEL",
   pos?: SourcePos,
 ) {
+  const resolved = canon(resolveLocalLabel(ctx, name), ctx);
   const sectionId = ctx.currentSection;
-  const existing = ctx.symbols.get(name);
+  const existing = ctx.symbols.get(resolved);
   const defPos = pos ?? ctx.currentPos;
 
   if (existing) {
     ctx.warnings.push(
       makeWarning(
         AssemblerErrorCode.RedefSymbol,
-        `Symbol redefined: ${name} (old=${existing.value.toString(16)}, new=${value.toString(16)})`,
+        `Symbol redefined: ${resolved} (old=${existing.value.toString(16)}, new=${value.toString(16)})`,
         { pos: defPos },
       )
     );
   }
 
-  ctx.symbols.set(name, { value, sectionId, type, pos: defPos });
+  ctx.symbols.set(resolved, { value, sectionId, type, pos: defPos });
 }
 
 export function makeSourcePos(
@@ -430,6 +451,13 @@ export function createSourcePos(
 /** 共通のキー正規化（caseSensitive が false のとき大文字化） */
 export const canon = (s: string, ctx: AsmContext) =>
   ctx.options.caseSensitive ? s : s.toUpperCase();
+
+/** Resolve dot-local labels against current global label. */
+export function resolveLocalLabel(ctx: AsmContext, name: string): string {
+  if (!name?.startsWith(".")) return name;
+  if (!ctx.currentGlobalLabel) return name;
+  return `${ctx.currentGlobalLabel}${name}`;
+}
 
 
 // =====================================================================================

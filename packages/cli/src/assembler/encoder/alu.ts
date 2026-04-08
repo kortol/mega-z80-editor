@@ -81,6 +81,17 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
     },
   });
 
+  // --- A,(HL) ---
+  defs.push({
+    match: (ctx, [dst, src]) =>
+      !!dst && !!src &&
+      dst.kind === OperandKind.REG8 && dst.raw === "A" &&
+      src.kind === OperandKind.REG_IND && src.raw === "(HL)",
+    encode(ctx, [dst, src], node) {
+      emitBytes(ctx, [base | 0x06], node.pos);
+    },
+  });
+
   // --- A,(IX+d)/(IY+d) ---
   defs.push({
     match: (ctx, [dst, src]) =>
@@ -105,6 +116,15 @@ export function makeALUDefs(op: string, opts?: { has16bit?: boolean; allowImplic
         if (!info) throw new Error(`Invalid ALU operand ${src.raw}`);
         const opcode = base | info.code;
         emitBytes(ctx, info.prefix ? [info.prefix, opcode] : [opcode], node.pos);
+      },
+    });
+
+    // --- (HL) (暗黙A) ---
+    defs.push({
+      match: (ctx, [src]) =>
+        src.kind === OperandKind.REG_IND && src.raw === "(HL)",
+      encode(ctx, [src], node) {
+        emitBytes(ctx, [base | 0x06], node.pos);
       },
     });
 
@@ -217,21 +237,23 @@ function encodeALU(
   } else if (node.args.length === 2) {
     dst = node.args[0]; // 拡張形: AND A,C
     src = node.args[1];
-    if (dst !== "A") {
+    if (dst.toUpperCase() !== "A") {
       throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
     }
   } else {
     throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
   }
 
+  const srcUpper = src.toUpperCase();
+
   // --- レジスタ版
   if (isReg8(src)) {
-    const opcode = base | regCode(src);
+    const opcode = base | regCode(srcUpper);
     emitBytes(ctx, [opcode], node.pos);
     return;
   }
   // --- (HL)版
-  if (src === "(HL)") {
+  if (srcUpper === "(HL)") {
     emitBytes(ctx, [hlOpcode], node.pos);
     return;
   }
@@ -261,25 +283,27 @@ function encodeALU(
  */
 function encodeADD(ctx: AsmContext, node: NodeInstr) {
   const [dst, src] = node.args;
-  if (dst === "A") {
+  const dstUpper = String(dst ?? "").toUpperCase();
+  const srcUpper = String(src ?? "").toUpperCase();
+  if (dstUpper === "A") {
     return encodeALU(ctx, node, 0x80, 0xc6, 0x86);
   }
   // 16bit: ADD HL,ss
-  if (dst === "HL" && ["BC", "DE", "HL", "SP"].includes(src)) {
+  if (dstUpper === "HL" && ["BC", "DE", "HL", "SP"].includes(srcUpper)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, HL: 0x29, SP: 0x39 };
-    emitBytes(ctx, [table[src]], node.pos);
+    emitBytes(ctx, [table[srcUpper]], node.pos);
     return;
   }
   // 16bit: ADD IX,rr
-  if (dst === "IX" && ["BC", "DE", "IX", "SP"].includes(src)) {
+  if (dstUpper === "IX" && ["BC", "DE", "IX", "SP"].includes(srcUpper)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, IX: 0x29, SP: 0x39 };
-    emitBytes(ctx, [0xdd, table[src]], node.pos);
+    emitBytes(ctx, [0xdd, table[srcUpper]], node.pos);
     return;
   }
   // 16bit: ADD IY,rr
-  if (dst === "IY" && ["BC", "DE", "IY", "SP"].includes(src)) {
+  if (dstUpper === "IY" && ["BC", "DE", "IY", "SP"].includes(srcUpper)) {
     const table: Record<string, number> = { BC: 0x09, DE: 0x19, IY: 0x29, SP: 0x39 };
-    emitBytes(ctx, [0xfd, table[src]], node.pos);
+    emitBytes(ctx, [0xfd, table[srcUpper]], node.pos);
     return;
   }
   throw new Error(`Unsupported ADD form at line ${node.pos.line}`);
@@ -289,7 +313,7 @@ function encodeADD(ctx: AsmContext, node: NodeInstr) {
  * ADC
  */
 function encodeADC(ctx: AsmContext, node: NodeInstr) {
-  if (node.args[0] === "A") {
+  if (String(node.args[0] ?? "").toUpperCase() === "A") {
     return encodeALU(ctx, node, 0x88, 0xce, 0x8e);
   }
   throw new Error(`Unsupported ADC form at line ${node.pos.line}`);
@@ -306,7 +330,7 @@ function encodeSUB(ctx: AsmContext, node: NodeInstr) {
  * SBC
  */
 function encodeSBC(ctx: AsmContext, node: NodeInstr) {
-  if (node.args[0] === "A") {
+  if (String(node.args[0] ?? "").toUpperCase() === "A") {
     return encodeALU(ctx, node, 0x98, 0xde, 0x9e);
   }
   throw new Error(`Unsupported SBC form at line ${node.pos.line}`);

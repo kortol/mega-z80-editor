@@ -38,12 +38,17 @@ export interface NodeLabel {
 export interface NodeMacroDef {
   kind: "macroDef";
   name: string;
-  params: string[];
+  params: MacroParam[];
   bodyTokens: Token[];
   startPos: SourcePos;
   endPos: SourcePos;
   pos: SourcePos;
   isLocal: boolean;
+}
+
+export interface MacroParam {
+  name: string;
+  default?: string;
 }
 
 export interface NodeMacroInvoke {
@@ -72,4 +77,3 @@ export interface NodeLoopBase {
   strLiteral?: string;
   symbolName?: string;
 }
-

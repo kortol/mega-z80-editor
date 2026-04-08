@@ -1,7 +1,7 @@
 import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
-import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler/context";
+import { AsmContext, AsmOptions, canon, createContext, defineSymbol } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
@@ -92,6 +92,12 @@ export function assemble(
     logger,
     options,
   });
+  if (options.symLen != null) {
+    ctx.modeSymLen = options.symLen;
+  }
+  if (options.includePaths && options.includePaths.length > 0) {
+    ctx.includePaths = [...options.includePaths];
+  }
   initCodegen(ctx, { withDefaultSections: true });
 
   // PASS 0 : トークン化と構文解析
@@ -166,6 +172,9 @@ export function runEmit(ctx: AsmContext) {
     switch (node.kind) {
       case "label":
         if (!isConditionActive(ctx)) { skipListing = true; break; }
+        if (!node.name.startsWith(".")) {
+          ctx.currentGlobalLabel = canon(node.name, ctx);
+        }
         defineSymbol(ctx, node.name, ctx.loc, "LABEL", node.pos);
         break;
       case "pseudo":
@@ -241,14 +250,18 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
   }
 
   // SYM 出力
-  writeSymFile(ctx, outputFile);
+  if (ctx.options.sym) {
+    writeSymFile(ctx, outputFile);
+  }
 
   ctx.logger?.info(`relVersion:${relVersion}`);
   // LST 出力
-  if (relVersion === 2) {
-    writeLstFileV2(ctx, outputFile, ctx.source ?? '');
-  } else {
-    writeLstFile(ctx, outputFile, ctx.source ?? '');
+  if (ctx.options.lst) {
+    if (relVersion === 2) {
+      writeLstFileV2(ctx, outputFile, ctx.source ?? '');
+    } else {
+      writeLstFile(ctx, outputFile, ctx.source ?? '');
+    }
   }
 
   // ------------------------------------------------------------

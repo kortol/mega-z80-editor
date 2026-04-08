@@ -10,8 +10,8 @@ function resolveIncludePath(fileName: string, ctx: AsmContext): string | null {
   const abs1 = path.resolve(baseDir, fileName);
   if (fs.existsSync(abs1)) return fs.realpathSync(abs1);
 
-  if ((ctx as any).includePaths) {
-    for (const dir of (ctx as any).includePaths as string[]) {
+  if (ctx.includePaths && ctx.includePaths.length > 0) {
+    for (const dir of ctx.includePaths) {
       const candidate = path.resolve(dir, fileName);
       if (fs.existsSync(candidate)) return fs.realpathSync(candidate);
     }

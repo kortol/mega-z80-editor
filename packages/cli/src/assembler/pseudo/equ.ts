@@ -3,9 +3,10 @@ import { NodePseudo } from "../node";
 import { makeError, AssemblerErrorCode, makeWarning } from "../errors";
 import { tokenize } from "../tokenizer";
 import { parseExpr } from "../expr/parserExpr";
-import { evalExpr, EvalContext } from "../expr/eval";
+import { evalExpr, makeEvalCtx } from "../expr/eval";
 
 export function handleEQU(ctx: AsmContext, node: NodePseudo) {
+  if (ctx.phase !== "analyze") return;
   if (node.args.length !== 1) {
     throw new Error(`EQU requires two arguments at line ${node.pos.line}`);
   }
@@ -34,14 +35,7 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
   // 即値を評価（EQUは式を許可）
   const tokens = tokenize(ctx, valStr).filter((t) => t.kind !== "eol");
   const e = parseExpr(tokens);
-  const evalCtx: EvalContext = {
-    symbols: ctx.symbols,
-    externs: ctx.externs,
-    pass: 1,
-    errors: ctx.errors,
-    visiting: new Set(),
-    loc: ctx.loc,
-  };
+  const evalCtx = makeEvalCtx(ctx);
   const res = evalExpr(e, evalCtx);
   if (res.kind !== "Const") {
     ctx.errors.push(

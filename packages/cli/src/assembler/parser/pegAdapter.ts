@@ -1,5 +1,5 @@
 import { AsmContext, SourcePos, canon } from "../../assembler/context";
-import { Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler/node";
+import { MacroParam, Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler/node";
 import { tokenize } from "../../assembler/tokenizer";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -45,6 +45,10 @@ function exprToRaw(expr: any): string {
 
 function operandToRaw(op: any): string {
   if (!op) return "";
+  // Normalize register names to uppercase so encoder matches (e.g., "hl" -> "HL").
+  if (op?.type === "register" && typeof op.name === "string") {
+    return op.name.toUpperCase();
+  }
   if (op.raw) return String(op.raw);
   return exprToRaw(op);
 }
@@ -94,8 +98,8 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
   const pseudoOps = new Set([
     "ORG", "DB", "DW", "EQU", "END", "INCLUDE", "MACRO", "ENDM", "REPT", "ENDR",
     "DEFB", "DEFW", "DEFS", "ALIGN", "PUBLIC", "EXTERN", "LOCAL", "SECTION", "SEGMENT", "GLOBAL",
-    "SET", "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32",
-    "DEFL", "DEFM", "DC", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM",
+    "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32",
+    "DEFL", "DEFM", "DC", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM", "INCPATH",
     "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT"
   ]);
 
@@ -117,10 +121,17 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
       const pos = locToPos(ctx, item.pos);
       const endPos = locToPos(ctx, item.pos, true);
       const bodyTokens = tokenizeMacroBody(ctx, item.body ?? "", pos);
+      const params: MacroParam[] = (item.params ?? []).map((p: any) => {
+        if (typeof p === "string") return { name: p };
+        const name = String(p?.name ?? p?.identifier ?? "");
+        const defExpr = p?.default ?? p?.def ?? p?.value;
+        const def = defExpr != null ? exprToRaw(defExpr) : undefined;
+        return def ? { name, default: def } : { name };
+      });
       const def: NodeMacroDef = {
         kind: "macroDef",
         name: item.name,
-        params: item.params ?? [],
+        params,
         bodyTokens,
         startPos: pos,
         endPos,
@@ -200,13 +211,68 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
     if (item.type === "line") {
       const linePos = locToPos(ctx, item.pos);
 
-      const labelName = item.label?.name;
-      const labelColon = Boolean(item.label?.colon);
+      let labelName = item.label?.name;
+      let labelColon = Boolean(item.label?.colon);
       const instr = item.instruction;
       if (!instr) {
+        // ラベル単独行だが、同名マクロがある場合はマクロ呼び出しを優先
+        if (labelName && hasMacro(labelName)) {
+          nodes.push({ kind: "macroInvoke", name: labelName, args: [], pos: linePos } as any);
+          continue;
+        }
         if (labelName) nodes.push(makeLabel(labelName, linePos));
         if (!labelName) nodes.push(makeEmpty(linePos));
         continue;
+      }
+
+      // LABEL 単独行（コロン無し）: macro/命令/疑似命令でない場合はラベル扱い
+      if (!labelName && instr.type === "macroInvoke") {
+        const rawArgs = instr.args ?? [];
+        const name = String(instr.name);
+        const nameUpper = name.toUpperCase();
+        const isPseudoSelf = pseudoOps.has(nameUpper);
+        const isOpcodeSelf = ctx.opcodes?.has(canon(nameUpper, ctx));
+        const isMacroSelf = hasMacro(name);
+        if (rawArgs.length === 0 && !isPseudoSelf && !isOpcodeSelf && !isMacroSelf) {
+          nodes.push(makeLabel(name, linePos));
+          continue;
+        }
+      }
+
+      // LABEL MACRO arg... / LABEL OPCODE ... / LABEL PSEUDO ...
+      // parser上は「macroInvoke(name=LABEL, args=[OPCODE, ...])」になるため救済する
+      if (!labelName && instr.type === "macroInvoke") {
+        const rawArgs = instr.args ?? [];
+        const firstArg = rawArgs[0];
+        if (firstArg != null && String(firstArg).trim() !== "") {
+          const opCandidate = String(firstArg);
+          const opUpper = opCandidate.toUpperCase();
+          const isPseudoLead = pseudoOps.has(opUpper);
+          const isOpcodeLead = ctx.opcodes?.has(canon(opUpper, ctx));
+          const isMacroLead = hasMacro(opCandidate);
+          if (isPseudoLead || isOpcodeLead || isMacroLead) {
+            labelName = String(instr.name);
+            labelColon = false;
+            nodes.push(makeLabel(labelName, linePos));
+            const restArgs = rawArgs.slice(1).map((a: any) => (a == null ? "" : String(a)));
+
+            if (isPseudoLead) {
+              if (opUpper === "EQU" || opUpper === "SET" || opUpper === "DEFL") {
+                const value = restArgs[0] ?? "";
+                nodes.push(makePseudo(opUpper === "DEFL" ? "SET" : opUpper, [{ key: labelName, value: String(value) }], linePos));
+              } else if (opUpper === "IFDIF" && restArgs.length >= 2) {
+                nodes.push(makePseudo("IFDIF", [{ value: restArgs[0] }, { value: restArgs[1] }], linePos));
+              } else {
+                nodes.push(makePseudo(opUpper, restArgs.map((v: string) => ({ value: v })), linePos));
+              }
+            } else if (isOpcodeLead) {
+              nodes.push(makeInstr(opUpper, restArgs, linePos));
+            } else {
+              nodes.push({ kind: "macroInvoke", name: opCandidate, args: restArgs, pos: linePos } as any);
+            }
+            continue;
+          }
+        }
       }
 
       // IFDEF FOO / EXTERNAL BAR / TITLE NAME などが
@@ -221,7 +287,7 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         ]);
         if (leadingPseudo.has(leadingOp)) {
           const pos = linePos;
-          const flatArgs = [String(instr.name), ...(instr.args ?? []).map((a: string) => String(a))];
+          const flatArgs = [String(instr.name), ...(instr.args ?? []).map((a: any) => (a == null ? "" : String(a)))];
 
           if (leadingOp === "IFDIF" && flatArgs.length >= 2) {
             nodes.push(makePseudo("IFDIF", [{ value: flatArgs[0] }, { value: flatArgs[1] }], pos));
@@ -235,10 +301,7 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
       // FOO EQU 10 / FOO SET 20 などのラベル横並びシンタックスを対応
       if (labelName && instr.type === "macroInvoke") {
         const op = String(instr.name).toUpperCase();
-        const args = instr.args ?? [];
-        if (labelColon && op === "EQU") {
-          throw new Error("EQU cannot be used with label");
-        }
+        const args = (instr.args ?? []).map((a: any) => (a == null ? "" : String(a)));
         if (op === "EQU" || op === "SET" || op === "DEFL") {
           const value = args[0] ?? "";
           nodes.push(makePseudo(op === "DEFL" ? "SET" : op, [{ key: labelName, value: String(value) }], linePos));
@@ -246,7 +309,15 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         }
       }
 
-      if (labelName) {
+      let skipLabel = false;
+      if (labelName && instr.type === "directive") {
+        const op = String(instr.name ?? "").toUpperCase();
+        if (op === "EQU" && !instr.symbol) {
+          skipLabel = true;
+        }
+      }
+
+      if (labelName && !skipLabel) {
         nodes.push(makeLabel(labelName, linePos));
       }
 
@@ -273,9 +344,23 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
           case "DEFS":
             nodes.push(makePseudo(op, [{ value: exprToRaw(instr.size) }], pos));
             break;
-          case "EQU":
-            nodes.push(makePseudo("EQU", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
+          case "DEFL":
+            nodes.push(makePseudo("SET", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
             break;
+          case "DEFM":
+            nodes.push(makePseudo("DB", toPseudoArgsFromValues(instr.values ?? []), pos));
+            break;
+          case "DC":
+            nodes.push(makePseudo("DC", toPseudoArgsFromValues(instr.values ?? []), pos));
+            break;
+          case "EQU": {
+            const symbol = instr.symbol ?? labelName;
+            if (!symbol) {
+              throw new Error(`EQU missing symbol at line ${pos.line}`);
+            }
+            nodes.push(makePseudo("EQU", [{ key: String(symbol), value: exprToRaw(instr.value) }], pos));
+            break;
+          }
           case "SET":
             nodes.push(makePseudo("SET", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
             break;
@@ -313,6 +398,12 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
             nodes.push(makePseudo("EXTERN", args, pos));
             break;
           }
+          case "EXT":
+          case "EXTERNAL": {
+            const args = (instr.symbols ?? []).map((s: string) => ({ value: s }));
+            nodes.push(makePseudo(op, args, pos));
+            break;
+          }
           case "SECTION": {
             const args: { key?: string; value: string }[] = [{ value: instr.section }];
             if (instr.align) {
@@ -324,6 +415,14 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
           case "INCLUDE": {
             const val = instr.path?.value ?? instr.path?.name ?? exprToRaw(instr.path);
             nodes.push(makePseudo("INCLUDE", [{ value: val }], pos));
+            break;
+          }
+          case "INCPATH": {
+            const paths = (instr.paths ?? []).map((p: any) => {
+              const val = p?.value ?? p?.name ?? exprToRaw(p);
+              return { value: String(val) };
+            });
+            nodes.push(makePseudo("INCPATH", paths, pos));
             break;
           }
           case "ALIGN":
@@ -345,7 +444,7 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
       if (instr.type === "macroInvoke") {
         const pos = locToPos(ctx, instr.pos ?? item.pos);
         const op = String(instr.name).toUpperCase();
-        const invokeArgs = instr.args ?? [];
+        const invokeArgs = (instr.args ?? []).map((a: any) => (a == null ? "" : String(a)));
 
         if (pseudoOps.has(op)) {
           if (op === "DEFL") {

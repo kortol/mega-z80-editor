@@ -64,6 +64,11 @@ program
   .command("as <input> <output>")
   .description("Assemble .asm into .rel")
   .option("--rel-version <version>", "Specify the .rel version (1 or 2)", "2")
+  .option("--sym", "Generate .sym file")
+  .option("--lst", "Generate .lst file")
+  .option("--symlen <n>", "Default symbol length (.SYMLEN)", "32")
+  .option("-I, --include <path...>", "Add include search path(s)")
+  .option("--inc <path...>", "Add include search path(s) (alias)")
   .option("--verbose", "Show detailed output")
   .option("--quiet", "Suppress logs")
   .action((input, output, opts) => {
@@ -74,11 +79,23 @@ program
         : "normal";
     const logger = createLogger(logLevel);
     const relVersion = opts.relVersion === "2" ? 2 : 1;
+    const includePaths = [
+      ...(opts.include ?? []),
+      ...(opts.inc ?? []),
+    ];
+    const symLen = Number(opts.symlen);
 
     const out = new Console(opts.verbose);
 
     try {
-      assemble(logger, input, output, { verbose: !!opts.verbose, relVersion });
+      assemble(logger, input, output, {
+        verbose: !!opts.verbose,
+        relVersion,
+        sym: !!opts.sym,
+        lst: !!opts.lst,
+        symLen: Number.isFinite(symLen) ? symLen : undefined,
+        includePaths,
+      });
       out.success(`Assembled: ${input} → ${output}`);
     } catch (err: any) {
       out.error(`Assembly failed: ${err.message}`);

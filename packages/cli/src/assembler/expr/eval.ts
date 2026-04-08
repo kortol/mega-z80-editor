@@ -10,6 +10,9 @@ export interface EvalContext {
   errors: any[];                       // 発生したエラーを蓄積
   visiting: Set<string>;               // 現在評価中のシンボル
   loc: number;                         // ★ 現在アドレス（$用）
+  // local label resolution (optional)
+  currentGlobalLabel?: string;
+  caseInsensitive?: boolean;
 }
 
 export function makeEvalCtx(ac: AsmContext): EvalContext {
@@ -21,6 +24,8 @@ export function makeEvalCtx(ac: AsmContext): EvalContext {
     errors: ac.errors,
     visiting: new Set<string>(),
     loc: ac.loc,                       // ★ $ 用に現在アドレスも持たせる
+    currentGlobalLabel: ac.currentGlobalLabel,
+    caseInsensitive: ac.caseInsensitive,
   };
 }
 
@@ -38,7 +43,8 @@ export function evalConst(expr: any, ctx: AsmContext): number {
       const [, sym, op, rhsRaw] = m;
       const rhs = parseInt(rhsRaw, 10);
       const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
-      const symEntry = ctx.symbols.get(key);
+      const resolved = resolveLocalSymbolName(key, ctx);
+      const symEntry = ctx.symbols.get(resolved);
       const lhs = symEntry?.value ?? 0;
 
       switch (op) {
@@ -57,7 +63,9 @@ export function evalConst(expr: any, ctx: AsmContext): number {
   if (typeof expr?.value === "number") return expr.value;
   if (typeof expr?.value === "function") return expr.value();  // ✅関数なら実行
   if (typeof expr.text === "string") {
-    const sym = ctx.symbols.get(ctx.caseInsensitive ? expr.text.toUpperCase() : expr.text);
+    const key = ctx.caseInsensitive ? expr.text.toUpperCase() : expr.text;
+    const resolved = resolveLocalSymbolName(key, ctx);
+    const sym = ctx.symbols.get(resolved);
     if (sym) return sym.value;
   }
 
@@ -77,38 +85,39 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
       if (expr.name === "$") {
         return { kind: "Const", value: ctx.loc ?? 0 };
       }
+      const resolvedName = resolveLocalSymbolName(expr.name, ctx);
       // 定義済みなら即値 or 再帰評価
-      if (ctx.symbols.has(expr.name)) {
-        const entry = ctx.symbols.get(expr.name)!;
+      if (ctx.symbols.has(resolvedName)) {
+        const entry = ctx.symbols.get(resolvedName)!;
         if (typeof (entry as any).value === "number") {
           return { kind: "Const", value: (entry as any).value };
         } else if (typeof entry === "number") {
           // 古いMapを扱うコード互換用（後方互換）
           return { kind: "Const", value: entry };
         } else {
-          if (ctx.visiting.has(expr.name)) {
+          if (ctx.visiting.has(resolvedName)) {
             ctx.errors.push(
               makeError(
                 AssemblerErrorCode.ExprCircularRef,
-                `Circular reference detected: ${expr.name}`
+                `Circular reference detected: ${resolvedName}`
               )
             );
             return { kind: "Error", code: AssemblerErrorCode.ExprCircularRef };
           }
-          ctx.visiting.add(expr.name);
+          ctx.visiting.add(resolvedName);
           const res = evalExpr(entry as any, ctx);
-          ctx.visiting.delete(expr.name);
+          ctx.visiting.delete(resolvedName);
           return res;
         }
       }
       // 外部 or 未定義は Reloc として返す（ここではエラーを積まない）
-      if (ctx.externs.has(expr.name)) {
-        return { kind: "Reloc", sym: expr.name, addend: 0 };
+      if (ctx.externs.has(resolvedName)) {
+        return { kind: "Reloc", sym: resolvedName, addend: 0 };
       }
 
       // ★ undefined symbol → エラー＋Reloc
-      ctx.errors.push(makeError(AssemblerErrorCode.ExprUndefinedSymbol, `Undefined symbol: ${expr.name}`));
-      return { kind: "Reloc", sym: expr.name, addend: 0 };
+      ctx.errors.push(makeError(AssemblerErrorCode.ExprUndefinedSymbol, `Undefined symbol: ${resolvedName}`));
+      return { kind: "Reloc", sym: resolvedName, addend: 0 };
     }
 
     case "Unary": {
@@ -201,6 +210,15 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
       );
       return { kind: "Error", code: AssemblerErrorCode.ExprNaN };
   }
+}
+
+function resolveLocalSymbolName(name: string, ctx: { currentGlobalLabel?: string; caseInsensitive?: boolean }): string {
+  let resolved = name;
+  if (name?.startsWith(".")) {
+    const base = ctx.currentGlobalLabel;
+    if (base) resolved = `${base}${name}`;
+  }
+  return ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
 }
 
 function evalBinary(op: string, left: number, right: number, ctx: EvalContext): number {

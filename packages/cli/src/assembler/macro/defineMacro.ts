@@ -1,11 +1,12 @@
 import { AssemblerErrorCode, makeWarning } from "../errors";
 import { AsmContext, canon, SourcePos } from "../context";
 import { Token } from "../tokenizer";
+import type { MacroParam } from "../node";
 import path from "path";
 
 export function defineMacro(
   name: string,
-  params: string[],
+  params: MacroParam[],
   bodyTokens: Token[],
   ctx: AsmContext,
   defPos: SourcePos,

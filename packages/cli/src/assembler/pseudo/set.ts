@@ -1,6 +1,6 @@
 import { AsmContext } from "../context";
 import { AssemblerErrorCode, makeError } from "../errors";
-import { evalExpr, EvalContext } from "../expr/eval";
+import { evalExpr, makeEvalCtx } from "../expr/eval";
 import { parseExpr } from "../expr/parserExpr";
 import { NodePseudo } from "../node";
 import { tokenize } from "../tokenizer";
@@ -35,15 +35,7 @@ export function handleSET(ctx: AsmContext, node: NodePseudo) {
   const cleaned = valStr.replace(/,/g, " ");
   const tokens = tokenize(ctx, cleaned).filter((t) => t.kind !== "eol");
   const e = parseExpr(tokens);
-  const evalCtx: EvalContext = {
-    symbols: ctx.symbols,
-    externs: ctx.externs,
-    pass: 1,
-    errors: ctx.errors,
-    visiting: new Set(),
-    loc: ctx.loc,
-  };
-
+  const evalCtx = makeEvalCtx(ctx);
   const res = evalExpr(e, evalCtx);
   if (res.kind !== "Const") {
     ctx.errors.push(

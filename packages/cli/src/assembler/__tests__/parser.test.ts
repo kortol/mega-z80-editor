@@ -149,9 +149,12 @@ describe("parser", () => {
     ]);
   });
 
-  test("label + EQU is invalid", () => {
+  test("label + EQU is allowed (compatibility-first)", () => {
     const ctx = makeCtx();
-    expect(() => parseLines(ctx, "FOO: EQU 10")).toThrow(/EQU cannot be used/);
+    const nodes = parseLines(ctx, "FOO: EQU 10");
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], pos: { line: 0, file: "test.asm" } },
+    ]);
   });
 
   test("parse INCLUDE directive", () => {

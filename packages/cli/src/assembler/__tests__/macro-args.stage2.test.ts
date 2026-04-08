@@ -85,6 +85,28 @@ ENDM
     // expect(() => assembleSource(phaseEmit, src)).toThrow(/expected 2 args/i);
   });
 
+  test("デフォルト値: 省略した引数を補完する", () => {
+    const src = `
+M MACRO A,B:2,C:3
+  DB A,B,C
+ENDM
+  M 9
+`;
+    const ctx = assembleSource(phaseEmit, src, {  });
+    expect(getBytes(ctx)).toEqual([0x09, 0x02, 0x03]);
+  });
+
+  test("省略表記: 空引数はデフォルト値で補完する", () => {
+    const src = `
+M MACRO A,B:2,C:3
+  DB A,B,C
+ENDM
+  M 9,,5
+`;
+    const ctx = assembleSource(phaseEmit, src, {  });
+    expect(getBytes(ctx)).toEqual([0x09, 0x02, 0x05]);
+  });
+
   test("引数過剰", () => {
     const src = `
 F MACRO A,B

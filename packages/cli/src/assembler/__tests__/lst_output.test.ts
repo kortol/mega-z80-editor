@@ -26,7 +26,7 @@ describe("P2-D-EX-02: INCLUDE trace in listing", () => {
 
   test("generate LST with include trace", () => {
     const logger = createLogger("verbose");
-    const ctx = assemble(logger, fileA, outRel, { verbose: false, relVersion: 2 });
+    const ctx = assemble(logger, fileA, outRel, { verbose: false, relVersion: 2, lst: true });
 
     expect(fs.existsSync(outLst)).toBe(true);
 
@@ -81,7 +81,7 @@ describe("P2-D-EX-06: LST v2 non-data formatting", () => {
 
   test("LST shows ALIGN and DS with chunked bytes", () => {
     const logger = createLogger("quiet");
-    assemble(logger, fileA, outRel, { verbose: false, relVersion: 2 });
+    assemble(logger, fileA, outRel, { verbose: false, relVersion: 2, lst: true });
 
     const lst = fs.readFileSync(outLst, "utf8");
     expect(lst).toContain("; --- SECTION: .text ---");
@@ -119,7 +119,7 @@ describe("P2-D-07: .sym includes def file", () => {
 
   test("sym lines include basename", () => {
     const logger = createLogger("quiet");
-    assemble(logger, fileA, outRel, { verbose: false, relVersion: 2 });
+    assemble(logger, fileA, outRel, { verbose: false, relVersion: 2, sym: true });
 
     const sym = fs.readFileSync(outSym, "utf8");
     expect(sym).toMatch(/FOO\s+000AH\s+LABEL\s+main\.asm/i);

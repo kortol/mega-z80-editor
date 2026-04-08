@@ -3,7 +3,7 @@ import { handlePseudo } from "../../pseudo";
 import { NodePseudo } from "../../node";
 
 function makeCtx(): AsmContext {
-    return createContext({ moduleName: "TEST" });
+    return createContext({ moduleName: "TEST", phase: "analyze", currentPos: { file: "test.asm", line: 1, phase: "analyze" } });
 }
 
 function makeNode(op: string, args: { key: string, value: string }[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodePseudo {
@@ -34,6 +34,7 @@ describe("pseudo - EQU", () => {
     test("case insensitive option treats foo=FOO", () => {
         const ctx = makeCtx();
         ctx.caseInsensitive = true;
+        ctx.options.caseSensitive = false;
         handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "5" }]));
         expect(ctx.symbols.get("FOO")?.value).toBe(5);
     });
@@ -41,6 +42,7 @@ describe("pseudo - EQU", () => {
     test("case sensitive mode treats foo != FOO", () => {
         const ctx = makeCtx();
         ctx.caseInsensitive = false;
+        ctx.options.caseSensitive = true;
         handlePseudo(ctx, makeNode("EQU", [{ key: "FOO", value: "5" }]));
         handlePseudo(ctx, makeNode("EQU", [{ key: "foo", value: "6" }]));
         expect(ctx.symbols.get("FOO")?.value).toBe(5);

@@ -6,7 +6,7 @@
     "mz80": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm run build:parser && tsc -p tsconfig.build.json && node tools/copy-parser.js",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js --help",
     "test": "set USERPROFILE=%CD%&& set HOMEPATH=%CD%&& set HOME=%CD%&& jest --runInBand",
@@ -16,7 +16,6 @@
     "build:grammar": "npm run gen:mnemonics && npm run build:parser"
   },
   "dependencies": {
-    "chalk": "^5.6.2",
     "commander": "^12.1.0",
     "pino": "^10.1.0",
     "yaml": "^2.6.0"
