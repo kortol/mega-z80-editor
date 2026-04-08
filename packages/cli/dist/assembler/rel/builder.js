@@ -58,6 +58,9 @@ function buildRelFile(ctx) {
     // }
     // S
     for (const [sym, entry] of ctx.symbols.entries()) {
+        if (!ctx.exportSymbols.has(sym)) {
+            continue;
+        }
         const addr = typeof entry === "number" ? entry : entry.value;
         const sectionId = typeof entry === "number" ? 0 : entry.sectionId ?? 0;
         records.push({

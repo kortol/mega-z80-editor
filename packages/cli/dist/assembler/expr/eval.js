@@ -13,6 +13,8 @@ function makeEvalCtx(ac) {
         errors: ac.errors,
         visiting: new Set(),
         loc: ac.loc, // ★ $ 用に現在アドレスも持たせる
+        currentGlobalLabel: ac.currentGlobalLabel,
+        caseInsensitive: ac.caseInsensitive,
     };
 }
 function evalConst(expr, ctx) {
@@ -28,7 +30,8 @@ function evalConst(expr, ctx) {
             const [, sym, op, rhsRaw] = m;
             const rhs = parseInt(rhsRaw, 10);
             const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
-            const symEntry = ctx.symbols.get(key);
+            const resolved = resolveLocalSymbolName(key, ctx);
+            const symEntry = ctx.symbols.get(resolved);
             const lhs = symEntry?.value ?? 0;
             switch (op) {
                 case "<": return lhs < rhs ? 1 : 0;
@@ -48,7 +51,9 @@ function evalConst(expr, ctx) {
     if (typeof expr?.value === "function")
         return expr.value(); // ✅関数なら実行
     if (typeof expr.text === "string") {
-        const sym = ctx.symbols.get(ctx.caseInsensitive ? expr.text.toUpperCase() : expr.text);
+        const key = ctx.caseInsensitive ? expr.text.toUpperCase() : expr.text;
+        const resolved = resolveLocalSymbolName(key, ctx);
+        const sym = ctx.symbols.get(resolved);
         if (sym)
             return sym.value;
     }
@@ -67,9 +72,10 @@ function evalExpr(expr, ctx) {
             if (expr.name === "$") {
                 return { kind: "Const", value: ctx.loc ?? 0 };
             }
+            const resolvedName = resolveLocalSymbolName(expr.name, ctx);
             // 定義済みなら即値 or 再帰評価
-            if (ctx.symbols.has(expr.name)) {
-                const entry = ctx.symbols.get(expr.name);
+            if (ctx.symbols.has(resolvedName)) {
+                const entry = ctx.symbols.get(resolvedName);
                 if (typeof entry.value === "number") {
                     return { kind: "Const", value: entry.value };
                 }
@@ -78,23 +84,23 @@ function evalExpr(expr, ctx) {
                     return { kind: "Const", value: entry };
                 }
                 else {
-                    if (ctx.visiting.has(expr.name)) {
-                        ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprCircularRef, `Circular reference detected: ${expr.name}`));
+                    if (ctx.visiting.has(resolvedName)) {
+                        ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprCircularRef, `Circular reference detected: ${resolvedName}`));
                         return { kind: "Error", code: errors_1.AssemblerErrorCode.ExprCircularRef };
                     }
-                    ctx.visiting.add(expr.name);
+                    ctx.visiting.add(resolvedName);
                     const res = evalExpr(entry, ctx);
-                    ctx.visiting.delete(expr.name);
+                    ctx.visiting.delete(resolvedName);
                     return res;
                 }
             }
             // 外部 or 未定義は Reloc として返す（ここではエラーを積まない）
-            if (ctx.externs.has(expr.name)) {
-                return { kind: "Reloc", sym: expr.name, addend: 0 };
+            if (ctx.externs.has(resolvedName)) {
+                return { kind: "Reloc", sym: resolvedName, addend: 0 };
             }
             // ★ undefined symbol → エラー＋Reloc
-            ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprUndefinedSymbol, `Undefined symbol: ${expr.name}`));
-            return { kind: "Reloc", sym: expr.name, addend: 0 };
+            ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprUndefinedSymbol, `Undefined symbol: ${resolvedName}`));
+            return { kind: "Reloc", sym: resolvedName, addend: 0 };
         }
         case "Unary": {
             const v = evalExpr(expr.expr, ctx);
@@ -172,6 +178,15 @@ function evalExpr(expr, ctx) {
             ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprNaN, `Unknown expression node kind: ${expr.kind}`));
             return { kind: "Error", code: errors_1.AssemblerErrorCode.ExprNaN };
     }
+}
+function resolveLocalSymbolName(name, ctx) {
+    let resolved = name;
+    if (name?.startsWith(".")) {
+        const base = ctx.currentGlobalLabel;
+        if (base)
+            resolved = `${base}${name}`;
+    }
+    return ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
 }
 function evalBinary(op, left, right, ctx) {
     let result;

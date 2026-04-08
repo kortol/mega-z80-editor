@@ -8,6 +8,7 @@ exports.defineSymbol = defineSymbol;
 exports.makeSourcePos = makeSourcePos;
 exports.cloneSourcePos = cloneSourcePos;
 exports.createSourcePos = createSourcePos;
+exports.resolveLocalLabel = resolveLocalLabel;
 exports.pushLoop = pushLoop;
 exports.popLoop = popLoop;
 exports.currentLoop = currentLoop;
@@ -97,7 +98,7 @@ function createAsmContext(overrides = {}) {
         externs: new Set(),
         exportSymbols: new Set(),
         modeWord32: false,
-        modeSymLen: 6,
+        modeSymLen: 32,
         caseInsensitive: true,
         options: { caseSensitive: false, strictMacro: false, relVersion: 2, verbose: false },
         texts: [],
@@ -110,6 +111,7 @@ function createAsmContext(overrides = {}) {
         includeStack: [],
         includeCache: new Set(),
         sectionStack: [],
+        includePaths: [],
         macroTable: new Map(),
         macroTableStack: [],
         expansionStack: [],
@@ -129,9 +131,16 @@ function createAsmContext(overrides = {}) {
         listingControl: {
             enabled: true,
         },
+        currentGlobalLabel: undefined,
     };
     // deepMerge で overrides を取り込み（Map/Set/Array を複製して採用）
     const merged = deepMerge(defaults, overrides);
+    if (merged.options?.symLen != null) {
+        merged.modeSymLen = merged.options.symLen;
+    }
+    if (merged.options?.includePaths) {
+        merged.includePaths = [...merged.options.includePaths];
+    }
     // logger の最終確定（ctx.id でプレフィクス）
     merged.logger = overrides.logger ?? logger;
     merged.verbose = merged.options?.verbose ?? merged.verbose ?? false;
@@ -163,13 +172,14 @@ function createContext(overrides = {}) {
  * - 再定義時は警告を発行
  */
 function defineSymbol(ctx, name, value, type = "LABEL", pos) {
+    const resolved = (0, exports.canon)(resolveLocalLabel(ctx, name), ctx);
     const sectionId = ctx.currentSection;
-    const existing = ctx.symbols.get(name);
+    const existing = ctx.symbols.get(resolved);
     const defPos = pos ?? ctx.currentPos;
     if (existing) {
-        ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.RedefSymbol, `Symbol redefined: ${name} (old=${existing.value.toString(16)}, new=${value.toString(16)})`, { pos: defPos }));
+        ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.RedefSymbol, `Symbol redefined: ${resolved} (old=${existing.value.toString(16)}, new=${value.toString(16)})`, { pos: defPos }));
     }
-    ctx.symbols.set(name, { value, sectionId, type, pos: defPos });
+    ctx.symbols.set(resolved, { value, sectionId, type, pos: defPos });
 }
 function makeSourcePos(frame, line, phase, column) {
     return {
@@ -197,6 +207,14 @@ function createSourcePos(file, line, column, phase, parent) {
 /** 共通のキー正規化（caseSensitive が false のとき大文字化） */
 const canon = (s, ctx) => ctx.options.caseSensitive ? s : s.toUpperCase();
 exports.canon = canon;
+/** Resolve dot-local labels against current global label. */
+function resolveLocalLabel(ctx, name) {
+    if (!name?.startsWith("."))
+        return name;
+    if (!ctx.currentGlobalLabel)
+        return name;
+    return `${ctx.currentGlobalLabel}${name}`;
+}
 /**
  * 新しい LoopFrame を push する
  */

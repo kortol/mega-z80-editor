@@ -15,7 +15,7 @@ function resolveIncludePath(fileName, ctx) {
     const abs1 = path_1.default.resolve(baseDir, fileName);
     if (fs_1.default.existsSync(abs1))
         return fs_1.default.realpathSync(abs1);
-    if (ctx.includePaths) {
+    if (ctx.includePaths && ctx.includePaths.length > 0) {
         for (const dir of ctx.includePaths) {
             const candidate = path_1.default.resolve(dir, fileName);
             if (fs_1.default.existsSync(candidate))

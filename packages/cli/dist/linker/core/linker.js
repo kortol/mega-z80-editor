@@ -17,6 +17,10 @@ function linkModules(mods) {
                     symbols.set(s.name, { bank: 0, addr: s.addr });
                     continue;
                 }
+                // 同一値の重複定義は許容（複数モジュールで共通定数を定義するケース）
+                if (existing.addr === s.addr) {
+                    continue;
+                }
                 throw new Error(`Duplicate symbol '${s.name}'`);
             }
             symbols.set(s.name, { bank: 0, addr: s.addr });

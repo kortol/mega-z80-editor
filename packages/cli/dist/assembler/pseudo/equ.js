@@ -8,6 +8,8 @@ const tokenizer_1 = require("../tokenizer");
 const parserExpr_1 = require("../expr/parserExpr");
 const eval_1 = require("../expr/eval");
 function handleEQU(ctx, node) {
+    if (ctx.phase !== "analyze")
+        return;
     if (node.args.length !== 1) {
         throw new Error(`EQU requires two arguments at line ${node.pos.line}`);
     }
@@ -28,14 +30,7 @@ function handleEQU(ctx, node) {
     // 即値を評価（EQUは式を許可）
     const tokens = (0, tokenizer_1.tokenize)(ctx, valStr).filter((t) => t.kind !== "eol");
     const e = (0, parserExpr_1.parseExpr)(tokens);
-    const evalCtx = {
-        symbols: ctx.symbols,
-        externs: ctx.externs,
-        pass: 1,
-        errors: ctx.errors,
-        visiting: new Set(),
-        loc: ctx.loc,
-    };
+    const evalCtx = (0, eval_1.makeEvalCtx)(ctx);
     const res = (0, eval_1.evalExpr)(e, evalCtx);
     if (res.kind !== "Const") {
         ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprNotConstant, `EQU value must be constant at line ${node.pos.line}`));

@@ -86,12 +86,21 @@ function stripLocalMacroBlocks(tokens) {
 function rewriteTokensForMacro(def, inv) {
     const argMap = new Map();
     const params = def.params ?? [];
-    const args = inv.args ?? [];
-    if (params.length !== args.length) {
-        throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroArgCountMismatch, `Macro '${def.name}' expects ${params.length} args, got ${args.length}`, { pos: inv.pos });
+    const rawArgs = inv.args ?? [];
+    if (rawArgs.length > params.length) {
+        throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroArgTooMany, `Macro '${def.name}' expects at most ${params.length} args, got ${rawArgs.length}`, { pos: inv.pos });
     }
+    const args = params.map((p, i) => {
+        const raw = rawArgs[i];
+        if (raw == null || raw === "") {
+            if (p.default != null)
+                return p.default;
+            throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroArgTooFew, `Macro '${def.name}' expects ${params.length} args, got ${rawArgs.length}`, { pos: inv.pos });
+        }
+        return raw;
+    });
     // 大文字キーで統一（caseInsensitive 環境で安全）
-    params.forEach((p, i) => argMap.set(p.toUpperCase(), args[i]));
+    params.forEach((p, i) => argMap.set(p.name.toUpperCase(), args[i]));
     // ローカルラベルを一意化（%%xxx）
     const localMap = new Map();
     let seq = 0;

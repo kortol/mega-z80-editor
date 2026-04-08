@@ -40,6 +40,60 @@ function parse(ctx, tokens) {
     const nodes = [];
     let line = [];
     let skipUntil = null;
+    function splitByComma(tokens) {
+        const parts = [];
+        let current = [];
+        let lastWasComma = false;
+        for (const t of tokens) {
+            if (t.kind === "comma") {
+                parts.push(current);
+                current = [];
+                lastWasComma = true;
+                continue;
+            }
+            current.push(t);
+            lastWasComma = false;
+        }
+        if (current.length > 0 || lastWasComma) {
+            parts.push(current);
+        }
+        return parts;
+    }
+    function parseMacroParamsFromLine(tokens, pos) {
+        const params = [];
+        if (tokens.length === 0)
+            return params;
+        const segments = splitByComma(tokens);
+        for (const seg of segments) {
+            if (seg.length === 0)
+                continue;
+            const nameTok = seg[0];
+            if (nameTok.kind !== "ident") {
+                throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroInvalidParamName, `Invalid macro parameter name: ${seg.map(t => t.text).join("")}`, { pos });
+            }
+            const name = nameTok.text;
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+                throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroInvalidParamName, `Invalid macro parameter name: ${name}`, { pos: nameTok.pos });
+            }
+            if (seg.length === 1) {
+                params.push({ name });
+                continue;
+            }
+            if (seg[1].kind !== "colon") {
+                throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroInvalidParamName, `Invalid macro parameter syntax: ${seg.map(t => t.text).join("")}`, { pos: nameTok.pos });
+            }
+            const defTokens = seg.slice(2);
+            const defText = defTokens.map(t => t.text).join("").trim();
+            params.push(defText.length > 0 ? { name, default: defText } : { name });
+        }
+        return params;
+    }
+    function parseMacroInvokeArgs(tokens) {
+        if (tokens.length === 0)
+            return [];
+        const segments = splitByComma(tokens);
+        return segments.map(seg => seg.map(t => t.text).join("").trim());
+    }
     function flushLine(eolPos) {
         if (line.length === 0) {
             if (eolPos) {
@@ -68,9 +122,20 @@ function parse(ctx, tokens) {
             const afterColon = line.slice(2);
             if (afterColon.length >= 1 &&
                 afterColon[0].kind === "ident" &&
-                afterColon[0].text.toUpperCase() === "EQU") {
-                // FOO: EQU ... → NG
-                throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.InvalidEquSyntax, `EQU cannot be used with label syntax at line ${line[0].pos.line}`);
+                ["EQU", "SET", "DEFL"].includes(afterColon[0].text.toUpperCase())) {
+                // FOO: EQU ... / FOO: SET ... / FOO: DEFL ...
+                const op = afterColon[0].text.toUpperCase();
+                const valueTokens = afterColon
+                    .slice(1)
+                    .filter((t) => t.kind !== "comma")
+                    .map((t) => t.text);
+                nodes.push({
+                    kind: "pseudo",
+                    op: op === "DEFL" ? "SET" : op,
+                    args: [{ key: label, value: valueTokens.join(", ") }],
+                    pos: line[0].pos,
+                });
+                return nodes;
             }
             nodes.push({
                 kind: "label",
@@ -106,21 +171,41 @@ function parse(ctx, tokens) {
             }
             const bodyTokens = [];
             let endPos = null;
-            // 終端語：WHILEはENDW、他はENDM
-            const terminator = op === "WHILE" ? "ENDW" : (rawOp === "REPEAT" ? "ENDR" : "ENDM");
+            // 終端語：WHILEはENDW、他はENDM/ENDR/ENDREPEAT を許容
+            const terminators = op === "WHILE"
+                ? ["ENDW"]
+                : ["ENDM", "ENDR", "ENDREPEAT"];
+            const loopStartOps = ["REPT", "REPEAT", "IRP", "IRPC", "WHILE"];
+            const loopEndOps = ["ENDM", "ENDR", "ENDREPEAT", "ENDW"];
             // 現在行の最後のトークン位置から先を走査して本文収集
             const startIdx = tokens.indexOf(line[line.length - 1]) + 1;
+            let depth = 0;
             for (let i = startIdx; i < tokens.length; i++) {
                 const t = tokens[i];
-                if (t.kind === "ident" && t.text.toUpperCase() === terminator) {
-                    endPos = t.pos;
-                    break;
+                if (t.kind === "ident") {
+                    const text = t.text.toUpperCase();
+                    if (loopStartOps.includes(text)) {
+                        depth++;
+                        bodyTokens.push(t);
+                        continue;
+                    }
+                    if (loopEndOps.includes(text)) {
+                        if (depth > 0) {
+                            depth--;
+                            bodyTokens.push(t);
+                            continue;
+                        }
+                        if (terminators.includes(text)) {
+                            endPos = t.pos;
+                            break;
+                        }
+                    }
                 }
                 bodyTokens.push(t);
             }
             // 終端が見つからないのはエラー
             if (!endPos) {
-                throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.SyntaxError, `Missing ${terminator} for ${op}`, { pos: line[0].pos });
+                throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.SyntaxError, `Missing ${terminators[0]} for ${op}`, { pos: line[0].pos });
             }
             // ノード化
             const loopNode = {
@@ -160,17 +245,7 @@ function parse(ctx, tokens) {
             const startPos = line[0].pos;
             // 🟩 LOCALMACROは isLocal = true の macroDef ノードとして登録（ENDMまで読む）
             // （※ defineMacro() は expandMacros() 側で呼び出す）
-            const params = [];
-            // 残りトークンをカンマ区切りでパラメタ抽出
-            const rawParams = line.slice(2).map(t => t.text).join(" ");
-            if (rawParams.trim().length > 0) {
-                for (const p of rawParams.split(",").map(s => s.trim())) {
-                    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p)) {
-                        throw (0, errors_1.makeError)(errors_1.AssemblerErrorCode.MacroInvalidParamName, `Invalid macro parameter name: ${p}`, { pos: line[identPos].pos });
-                    }
-                    params.push(p);
-                }
-            }
+            const params = parseMacroParamsFromLine(line.slice(2), line[identPos].pos);
             const bodyTokens = [];
             let foundEndm = false;
             let macroDepth = 0;
@@ -221,10 +296,11 @@ function parse(ctx, tokens) {
             const name = line[0].text;
             const def = (0, macro_1.getDefByName)(ctx, name); // ← ★ ローカルも見える！
             if (def) {
+                const macroArgs = parseMacroInvokeArgs(line.slice(1));
                 nodes.push({
                     kind: "macroInvoke",
                     name,
-                    args: [], // 引数対応は後続（P2-Kで）
+                    args: macroArgs,
                     pos: line[0].pos,
                 });
                 return nodes;
@@ -342,13 +418,7 @@ function parse(ctx, tokens) {
         //     : (n as NodeMacroDef).name === line[0].text)
         // ) as NodeMacroDef | undefined;
         // if (definedMacro) {
-        const macroArgs = line
-            .slice(1)
-            .map(t => t.text)
-            .join(" ")
-            .split(",")
-            .map(s => s.trim())
-            .filter(Boolean);
+        const macroArgs = parseMacroInvokeArgs(line.slice(1));
         nodes.push({
             kind: "macroInvoke",
             name: line[0].text,
@@ -434,6 +504,7 @@ function isPseudo(op) {
         "DSEG",
         "COMMON",
         "INCLUDE",
+        "INCPATH",
         "ALIGN",
         "IF",
         "IFDEF",

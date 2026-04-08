@@ -113,6 +113,12 @@ function assemble(logger, inputFile, outputFile, options) {
         logger,
         options,
     });
+    if (options.symLen != null) {
+        ctx.modeSymLen = options.symLen;
+    }
+    if (options.includePaths && options.includePaths.length > 0) {
+        ctx.includePaths = [...options.includePaths];
+    }
     (0, emit_1.initCodegen)(ctx, { withDefaultSections: true });
     // PASS 0 : トークン化と構文解析
     const source = fs.readFileSync(inputFile, "utf-8");
@@ -178,6 +184,9 @@ function runEmit(ctx) {
                 if (!(0, conditional_1.isConditionActive)(ctx)) {
                     skipListing = true;
                     break;
+                }
+                if (!node.name.startsWith(".")) {
+                    ctx.currentGlobalLabel = (0, context_1.canon)(node.name, ctx);
                 }
                 (0, context_1.defineSymbol)(ctx, node.name, ctx.loc, "LABEL", node.pos);
                 break;
@@ -259,14 +268,18 @@ function finalizeOutput(ctx, outputFile, relVersion) {
         ctx.output.generatedAt = new Date();
     }
     // SYM 出力
-    writeSymFile(ctx, outputFile);
+    if (ctx.options.sym) {
+        writeSymFile(ctx, outputFile);
+    }
     ctx.logger?.info(`relVersion:${relVersion}`);
     // LST 出力
-    if (relVersion === 2) {
-        (0, listing_1.writeLstFileV2)(ctx, outputFile, ctx.source ?? '');
-    }
-    else {
-        (0, listing_1.writeLstFile)(ctx, outputFile, ctx.source ?? '');
+    if (ctx.options.lst) {
+        if (relVersion === 2) {
+            (0, listing_1.writeLstFileV2)(ctx, outputFile, ctx.source ?? '');
+        }
+        else {
+            (0, listing_1.writeLstFile)(ctx, outputFile, ctx.source ?? '');
+        }
     }
     // ------------------------------------------------------------
     // Verbose出力

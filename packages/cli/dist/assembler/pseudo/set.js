@@ -22,14 +22,7 @@ function handleSET(ctx, node) {
     const cleaned = valStr.replace(/,/g, " ");
     const tokens = (0, tokenizer_1.tokenize)(ctx, cleaned).filter((t) => t.kind !== "eol");
     const e = (0, parserExpr_1.parseExpr)(tokens);
-    const evalCtx = {
-        symbols: ctx.symbols,
-        externs: ctx.externs,
-        pass: 1,
-        errors: ctx.errors,
-        visiting: new Set(),
-        loc: ctx.loc,
-    };
+    const evalCtx = (0, eval_1.makeEvalCtx)(ctx);
     const res = (0, eval_1.evalExpr)(e, evalCtx);
     if (res.kind !== "Const") {
         ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.ExprNotConstant, `SET value must be constant at line ${node.pos.line}`, { pos: node.pos }));

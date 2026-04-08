@@ -19,6 +19,8 @@ function parseExternExpr(ctx, expr) {
         errors: ctx.errors,
         visiting: new Set(),
         loc: ctx.loc,
+        currentGlobalLabel: ctx.currentGlobalLabel,
+        caseInsensitive: ctx.caseInsensitive,
     };
     const res = (0, eval_1.evalExpr)(e, evalCtx);
     if (res.kind === "Reloc") {

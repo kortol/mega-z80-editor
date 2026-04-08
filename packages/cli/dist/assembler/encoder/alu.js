@@ -79,6 +79,15 @@ function makeALUDefs(op, opts) {
             (0, emit_1.emitBytes)(ctx, info.prefix ? [info.prefix, opcode] : [opcode], node.pos);
         },
     });
+    // --- A,(HL) ---
+    defs.push({
+        match: (ctx, [dst, src]) => !!dst && !!src &&
+            dst.kind === operandKind_1.OperandKind.REG8 && dst.raw === "A" &&
+            src.kind === operandKind_1.OperandKind.REG_IND && src.raw === "(HL)",
+        encode(ctx, [dst, src], node) {
+            (0, emit_1.emitBytes)(ctx, [base | 0x06], node.pos);
+        },
+    });
     // --- A,(IX+d)/(IY+d) ---
     defs.push({
         match: (ctx, [dst, src]) => !!dst && !!src &&
@@ -101,6 +110,13 @@ function makeALUDefs(op, opts) {
                     throw new Error(`Invalid ALU operand ${src.raw}`);
                 const opcode = base | info.code;
                 (0, emit_1.emitBytes)(ctx, info.prefix ? [info.prefix, opcode] : [opcode], node.pos);
+            },
+        });
+        // --- (HL) (暗黙A) ---
+        defs.push({
+            match: (ctx, [src]) => src.kind === operandKind_1.OperandKind.REG_IND && src.raw === "(HL)",
+            encode(ctx, [src], node) {
+                (0, emit_1.emitBytes)(ctx, [base | 0x06], node.pos);
             },
         });
         // --- (IX+d)/(IY+d) (暗黙A) ---
@@ -200,21 +216,22 @@ hlOpcode // (HL)
     else if (node.args.length === 2) {
         dst = node.args[0]; // 拡張形: AND A,C
         src = node.args[1];
-        if (dst !== "A") {
+        if (dst.toUpperCase() !== "A") {
             throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
         }
     }
     else {
         throw new Error(`Unsupported ${node.op} form at line ${node.pos.line}`);
     }
+    const srcUpper = src.toUpperCase();
     // --- レジスタ版
     if ((0, utils_1.isReg8)(src)) {
-        const opcode = base | (0, utils_1.regCode)(src);
+        const opcode = base | (0, utils_1.regCode)(srcUpper);
         (0, emit_1.emitBytes)(ctx, [opcode], node.pos);
         return;
     }
     // --- (HL)版
-    if (src === "(HL)") {
+    if (srcUpper === "(HL)") {
         (0, emit_1.emitBytes)(ctx, [hlOpcode], node.pos);
         return;
     }
@@ -244,25 +261,27 @@ hlOpcode // (HL)
  */
 function encodeADD(ctx, node) {
     const [dst, src] = node.args;
-    if (dst === "A") {
+    const dstUpper = String(dst ?? "").toUpperCase();
+    const srcUpper = String(src ?? "").toUpperCase();
+    if (dstUpper === "A") {
         return encodeALU(ctx, node, 0x80, 0xc6, 0x86);
     }
     // 16bit: ADD HL,ss
-    if (dst === "HL" && ["BC", "DE", "HL", "SP"].includes(src)) {
+    if (dstUpper === "HL" && ["BC", "DE", "HL", "SP"].includes(srcUpper)) {
         const table = { BC: 0x09, DE: 0x19, HL: 0x29, SP: 0x39 };
-        (0, emit_1.emitBytes)(ctx, [table[src]], node.pos);
+        (0, emit_1.emitBytes)(ctx, [table[srcUpper]], node.pos);
         return;
     }
     // 16bit: ADD IX,rr
-    if (dst === "IX" && ["BC", "DE", "IX", "SP"].includes(src)) {
+    if (dstUpper === "IX" && ["BC", "DE", "IX", "SP"].includes(srcUpper)) {
         const table = { BC: 0x09, DE: 0x19, IX: 0x29, SP: 0x39 };
-        (0, emit_1.emitBytes)(ctx, [0xdd, table[src]], node.pos);
+        (0, emit_1.emitBytes)(ctx, [0xdd, table[srcUpper]], node.pos);
         return;
     }
     // 16bit: ADD IY,rr
-    if (dst === "IY" && ["BC", "DE", "IY", "SP"].includes(src)) {
+    if (dstUpper === "IY" && ["BC", "DE", "IY", "SP"].includes(srcUpper)) {
         const table = { BC: 0x09, DE: 0x19, IY: 0x29, SP: 0x39 };
-        (0, emit_1.emitBytes)(ctx, [0xfd, table[src]], node.pos);
+        (0, emit_1.emitBytes)(ctx, [0xfd, table[srcUpper]], node.pos);
         return;
     }
     throw new Error(`Unsupported ADD form at line ${node.pos.line}`);
@@ -271,7 +290,7 @@ function encodeADD(ctx, node) {
  * ADC
  */
 function encodeADC(ctx, node) {
-    if (node.args[0] === "A") {
+    if (String(node.args[0] ?? "").toUpperCase() === "A") {
         return encodeALU(ctx, node, 0x88, 0xce, 0x8e);
     }
     throw new Error(`Unsupported ADC form at line ${node.pos.line}`);
@@ -286,7 +305,7 @@ function encodeSUB(ctx, node) {
  * SBC
  */
 function encodeSBC(ctx, node) {
-    if (node.args[0] === "A") {
+    if (String(node.args[0] ?? "").toUpperCase() === "A") {
         return encodeALU(ctx, node, 0x98, 0xde, 0x9e);
     }
     throw new Error(`Unsupported SBC form at line ${node.pos.line}`);

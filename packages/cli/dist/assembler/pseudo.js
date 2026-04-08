@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handlePseudo = handlePseudo;
 const org_1 = require("./pseudo/org");
@@ -16,6 +19,7 @@ const conditional_1 = require("./pseudo/conditional");
 const set_1 = require("./pseudo/set");
 const data_2 = require("./pseudo/data");
 const compat_1 = require("./pseudo/compat");
+const path_1 = __importDefault(require("path"));
 function handlePseudo(ctx, node) {
     switch (node.op.toUpperCase()) {
         case "IF":
@@ -141,6 +145,18 @@ function handlePseudo(ctx, node) {
             }
             else {
                 ctx.nodes = savedNodes.concat(includedNodes);
+            }
+            break;
+        }
+        case "INCPATH": {
+            const baseDir = path_1.default.dirname(node.pos?.file ?? ctx.currentPos.file ?? ".");
+            ctx.includePaths ??= [];
+            for (const arg of node.args ?? []) {
+                const raw = String(arg?.value ?? "").trim();
+                if (!raw)
+                    continue;
+                const resolved = path_1.default.isAbsolute(raw) ? raw : path_1.default.resolve(baseDir, raw);
+                ctx.includePaths.push(resolved);
             }
             break;
         }

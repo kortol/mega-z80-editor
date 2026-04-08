@@ -20,6 +20,34 @@ function tokenize(ctx, src) {
     const tokens = [];
     const lines = src.split(/\r?\n/);
     const isTrailingNewline = src.endsWith("\n") || src.endsWith("\r") || src.endsWith("\r\n");
+    function findCommentIndex(line) {
+        let inSingle = false;
+        let inDouble = false;
+        let escape = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (ch === "\\" && (inSingle || inDouble)) {
+                escape = true;
+                continue;
+            }
+            if (ch === "'" && !inDouble) {
+                inSingle = !inSingle;
+                continue;
+            }
+            if (ch === "\"" && !inSingle) {
+                inDouble = !inDouble;
+                continue;
+            }
+            if (ch === ";" && !inSingle && !inDouble) {
+                return i;
+            }
+        }
+        return -1;
+    }
     for (let lineNo = 0; lineNo < lines.length; lineNo++) {
         ctx.currentPos.line = lineNo;
         let line = lines[lineNo];
@@ -28,7 +56,7 @@ function tokenize(ctx, src) {
             break;
         }
         // --- コメント削除 ---
-        const commentIdx = line.indexOf(";");
+        const commentIdx = findCommentIndex(line);
         if (commentIdx >= 0)
             line = line.substring(0, commentIdx);
         ctx.currentPos.column = 0;
@@ -87,18 +115,18 @@ function tokenize(ctx, src) {
             }
             // --- 文字リテラル ---
             if (rest[0] === "'") {
-                if (/^'.'/.test(rest) && rest.length >= 3 && rest[2] === "'") {
-                    const text = rest.slice(0, 3); // 'A'
-                    const value = parseNumber(text);
-                    tokens.push({ kind: "num", text, value, pos: (0, context_1.cloneSourcePos)(ctx.currentPos) });
-                    ctx.currentPos.column += 3;
-                    continue;
-                }
-                else if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
+                if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
                     const text = rest.slice(0, 4); // '\n' とか '\''
                     const value = parseNumber(text);
                     tokens.push({ kind: "num", text, value, pos: (0, context_1.cloneSourcePos)(ctx.currentPos) });
                     ctx.currentPos.column += 4;
+                    continue;
+                }
+                else if (/^'[^\\]'/.test(rest) && rest.length >= 3 && rest[2] === "'") {
+                    const text = rest.slice(0, 3); // 'A'
+                    const value = parseNumber(text);
+                    tokens.push({ kind: "num", text, value, pos: (0, context_1.cloneSourcePos)(ctx.currentPos) });
+                    ctx.currentPos.column += 3;
                     continue;
                 }
                 else {
@@ -243,8 +271,17 @@ function parseNumber(text) {
     if (/^'\\n'$/.test(text)) {
         return 10;
     }
+    if (/^'\\r'$/.test(text)) {
+        return 13;
+    }
+    if (/^'\\t'$/.test(text)) {
+        return 9;
+    }
     if (/^'\\''$/.test(text)) {
         return 0x27; // シングルクォート
+    }
+    if (/^'\\\\'$/.test(text)) {
+        return 0x5c; // バックスラッシュ
     }
     // 16進
     if (/^0X[0-9A-F]+$/.test(s)) {

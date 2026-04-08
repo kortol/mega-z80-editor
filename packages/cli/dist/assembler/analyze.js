@@ -20,7 +20,8 @@ function runAnalyze(ctx) {
     ctx.loc = 0;
     ctx.relocs = []; // ✅ 追加: Reloc情報を毎回初期化
     ctx.condStack = [];
-    for (const node of ctx.nodes ?? []) {
+    for (let i = 0; i < (ctx.nodes?.length ?? 0); i++) {
+        const node = ctx.nodes[i];
         switch (node.kind) {
             // // --- 🧩 マクロ定義登録 (P2-E-02) ---
             // case "macroDef": {
@@ -54,6 +55,9 @@ function runAnalyze(ctx) {
             case "label":
                 if (!(0, conditional_1.isConditionActive)(ctx))
                     break;
+                if (!node.name.startsWith(".")) {
+                    ctx.currentGlobalLabel = (0, context_1.canon)(node.name, ctx);
+                }
                 (0, context_1.defineSymbol)(ctx, node.name, ctx.loc, "LABEL", node.pos);
                 break;
             case "pseudo":
@@ -63,7 +67,14 @@ function runAnalyze(ctx) {
                 }
                 if (!(0, conditional_1.isConditionActive)(ctx))
                     break;
-                (0, pseudo_1.handlePseudo)(ctx, node);
+                {
+                    const op = node.op.toUpperCase();
+                    (0, pseudo_1.handlePseudo)(ctx, node);
+                    if (op === "INCLUDE") {
+                        // INCLUDE 展開で nodes が差し替わるため、同じ index から再処理
+                        i--;
+                    }
+                }
                 break;
             case "instr":
                 if (!(0, conditional_1.isConditionActive)(ctx))

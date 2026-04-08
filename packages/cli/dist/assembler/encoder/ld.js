@@ -221,14 +221,18 @@ exports.ldInstr = [
 ];
 function encodeLD(ctx, node) {
     const [dst, src] = node.args;
+    const dstStr = String(dst ?? "");
+    const srcStr = String(src ?? "");
+    const dstUpper = dstStr.toUpperCase();
+    const srcUpper = srcStr.toUpperCase();
     // --- LD A,(BC)/(DE) ---
-    if (dst === "A" && (src === "(BC)" || src === "(DE)")) {
-        (0, emit_1.emitBytes)(ctx, [src === "(BC)" ? 0x0a : 0x1a], node.pos);
+    if (dstUpper === "A" && (srcUpper === "(BC)" || srcUpper === "(DE)")) {
+        (0, emit_1.emitBytes)(ctx, [srcUpper === "(BC)" ? 0x0a : 0x1a], node.pos);
         return;
     }
     // --- LD (BC)/(DE),A ---
-    if ((dst === "(BC)" || dst === "(DE)") && src === "A") {
-        (0, emit_1.emitBytes)(ctx, [dst === "(BC)" ? 0x02 : 0x12], node.pos);
+    if ((dstUpper === "(BC)" || dstUpper === "(DE)") && srcUpper === "A") {
+        (0, emit_1.emitBytes)(ctx, [dstUpper === "(BC)" ? 0x02 : 0x12], node.pos);
         return;
     }
     // --- LD r,(IX+d)/(IY+d) ---
@@ -248,15 +252,27 @@ function encodeLD(ctx, node) {
         }
     }
     // --- LD IX,nn / LD IY,nn ---
-    if ((dst === "IX" || dst === "IY") && (0, utils_1.isImm16)(ctx, src)) {
-        const val = (0, utils_1.resolveValue)(ctx, src);
-        const prefix = dst === "IX" ? 0xdd : 0xfd;
+    if ((dstUpper === "IX" || dstUpper === "IY") &&
+        !(0, utils_1.isMemAddress)(srcStr) &&
+        !(0, utils_1.parseIndexAddr)(ctx, srcStr) &&
+        !(0, utils_1.isReg8)(srcStr) &&
+        !(0, utils_1.isReg16)(srcStr) &&
+        srcUpper !== "IX" &&
+        srcUpper !== "IY") {
+        const val = (0, utils_1.resolveExpr16)(ctx, srcStr, node.pos);
+        const prefix = dstUpper === "IX" ? 0xdd : 0xfd;
         (0, emit_1.emitBytes)(ctx, [prefix, 0x21, val & 0xff, (val >> 8) & 0xff], node.pos);
         return;
     }
-    // --- LD (HL),n --- ←★ここを追加
-    if (dst === "(HL)" && ((0, utils_1.isImm16)(ctx, src) || typeof src === "string" && /^\d+$/.test(src))) {
-        const val = (0, utils_1.resolveValue)(ctx, src) & 0xff;
+    // --- LD (HL),n ---
+    if (dstUpper === "(HL)" &&
+        !(0, utils_1.isMemAddress)(srcStr) &&
+        !(0, utils_1.parseIndexAddr)(ctx, srcStr) &&
+        !(0, utils_1.isReg8)(srcStr) &&
+        !(0, utils_1.isReg16)(srcStr) &&
+        srcUpper !== "IX" &&
+        srcUpper !== "IY") {
+        const val = (0, utils_1.resolveExpr8)(ctx, srcStr, node.pos);
         (0, emit_1.emitBytes)(ctx, [0x36, val], node.pos);
         return;
     }
@@ -273,35 +289,33 @@ function encodeLD(ctx, node) {
         }
     }
     // --- LD (nn),rr (BC/DE/SP) ---
-    if (dst?.startsWith?.("(") && (src === "BC" || src === "DE" || src === "SP")) {
-        const _dst = dst.slice(1, -1);
+    if (dstStr.startsWith("(") && (srcUpper === "BC" || srcUpper === "DE" || srcUpper === "SP")) {
+        const _dst = dstStr.slice(1, -1);
         const val = (0, utils_1.resolveExpr16)(ctx, _dst, node.pos);
         const regCodeMap = {
             BC: 0x43,
             DE: 0x53,
             SP: 0x73,
         };
-        (0, emit_1.emitBytes)(ctx, [0xed, regCodeMap[src], val & 0xff, val >> 8], node.pos);
+        (0, emit_1.emitBytes)(ctx, [0xed, regCodeMap[srcUpper], val & 0xff, val >> 8], node.pos);
         return;
     }
     // --- LD IX/IY,(nn) ---
-    if ((dst === "IX" || dst === "IY") && (0, utils_1.isMemAddress)(src)) {
-        const _src = src.slice(1, -1);
+    if ((dstUpper === "IX" || dstUpper === "IY") && (0, utils_1.isMemAddress)(srcStr)) {
+        const _src = srcStr.slice(1, -1);
         const val = (0, utils_1.resolveExpr16)(ctx, _src, node.pos);
-        const prefix = dst === "IX" ? 0xdd : 0xfd;
+        const prefix = dstUpper === "IX" ? 0xdd : 0xfd;
         (0, emit_1.emitBytes)(ctx, [prefix, 0x2a, val & 0xff, val >> 8], node.pos);
         return;
     }
     // --- LD (nn),IX/IY ---
-    if ((0, utils_1.isMemAddress)(dst) && (src === "IX" || src === "IY")) {
-        const _dst = dst.slice(1, -1);
+    if ((0, utils_1.isMemAddress)(dstStr) && (srcUpper === "IX" || srcUpper === "IY")) {
+        const _dst = dstStr.slice(1, -1);
         const val = (0, utils_1.resolveExpr16)(ctx, _dst, node.pos);
-        const prefix = src === "IX" ? 0xdd : 0xfd;
+        const prefix = srcUpper === "IX" ? 0xdd : 0xfd;
         (0, emit_1.emitBytes)(ctx, [prefix, 0x22, val & 0xff, val >> 8], node.pos);
         return;
     }
-    const dstStr = String(dst ?? "");
-    const srcStr = String(src ?? "");
     const bothMem = dstStr.startsWith("(") && srcStr.startsWith("(");
     if (bothMem) {
         throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory-to-memory is invalid)`);
