@@ -27,3 +27,10 @@ tools/emulator/*
 # temporary files
 **/.tmp_tests
 **/.tmp_tests/**
+*.tmp_*
+**/.tmp_*
+
+# external imported examples
+examples/Z80-Optimized-Routines/
+examples/bbcbasic-z80/
+examples/z80float/
