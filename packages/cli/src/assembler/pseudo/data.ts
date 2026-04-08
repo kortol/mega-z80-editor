@@ -279,7 +279,7 @@ export function handleDS(ctx: AsmContext, node: NodePseudo) {
   const ext = parseExternExpr(ctx, valStr);
   if (ext) {
     ctx.unresolved.push({
-      addr: getLC(ctx), symbol: ext.symbol, size: 0 as 1 | 2 | 4, addend: ext.addend, requester: {                  // ✅ 追加
+      addr: getLC(ctx), symbol: ext.symbol, size: 0 as 1 | 2 | 4, addend: ext.addend, sectionId: ctx.currentSection ?? 0, requester: {                  // ✅ 追加
         op: "DS",
         phase: "assemble",
         pos: node.pos,

@@ -269,6 +269,7 @@ function encodeALU(
           phase: "assemble",
           pos: node.pos,
         },
+        sectionId: ctx.currentSection ?? 0,
       });
     } else {
       emitBytes(ctx, [immOpcode, val & 0xff], node.pos);

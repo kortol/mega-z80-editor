@@ -67,6 +67,7 @@ export function isReg16(r: string): boolean {
 
 /** 8bit レジスタコード (for opcode encoding) */
 export function regCode(r: string): number {
+  const key = r.toUpperCase();
   const table: Record<string, number> = {
     B: 0,
     C: 1,
@@ -77,15 +78,16 @@ export function regCode(r: string): number {
     "(HL)": 6,
     A: 7,
   };
-  if (!(r in table)) throw new Error(`Invalid 8bit register: ${r}`);
-  return table[r];
+  if (!(key in table)) throw new Error(`Invalid 8bit register: ${r}`);
+  return table[key];
 }
 
 /** 16bit レジスタコード (for opcode encoding) */
 export function reg16Code(r: string): number {
+  const key = r.toUpperCase();
   const table: Record<string, number> = { BC: 0, DE: 1, HL: 2, SP: 3 };
-  if (!(r in table)) throw new Error(`Invalid 16bit register: ${r}`);
-  return table[r];
+  if (!(key in table)) throw new Error(`Invalid 16bit register: ${r}`);
+  return table[key];
 }
 
 /* -------------------- 即値 -------------------- */
@@ -153,7 +155,8 @@ export function resolveExpr8(
   pos: SourcePos,
   strict?: boolean,
   rejectReloc = false,
-  relative = false
+  relative = false,
+  relocOffset = 1
 ): number {
   const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
   const prevErrCount = ctx.errors.length;
@@ -170,9 +173,10 @@ export function resolveExpr8(
     // --- pass2 のときだけ記録 ---
     if (ctx.phase === "emit") {
       const relocEntry: any = {
-        addr: ctx.loc + 1,
+        addr: ctx.loc + relocOffset,
         symbol: res.sym,
         size: 1,
+        sectionId: ctx.currentSection ?? 0,
       };
       if (res.addend && res.addend !== 0) relocEntry.addend = res.addend;
       if (relative) relocEntry.relative = true;
@@ -220,7 +224,14 @@ export function resolveExpr8(
 }
 
 
-export function resolveExpr16(ctx: AsmContext, expr: string, pos: SourcePos, strict?: boolean, rejectReloc = false): number {
+export function resolveExpr16(
+  ctx: AsmContext,
+  expr: string,
+  pos: SourcePos,
+  strict?: boolean,
+  rejectReloc = false,
+  relocOffset = 1
+): number {
   const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
   const prevErrCount = ctx.errors.length;
   const tokens = tokenize(ctx, expr).filter(t => t.kind !== "eol");
@@ -238,10 +249,11 @@ export function resolveExpr16(ctx: AsmContext, expr: string, pos: SourcePos, str
     // --- pass2 のときだけ記録 ---
     if (ctx.phase === "emit") {
       const relocEntry: UnresolvedEntry = {
-        addr: ctx.loc + 1,
+        addr: ctx.loc + relocOffset,
         symbol: res.sym,
         addend: Number(res.addend ?? 0),
         size: 2 as 1 | 2 | 4,
+        sectionId: ctx.currentSection ?? 0,
         requester: {                    // ✅ 追加！
           op: "ENCODER",                // 呼び出し元フェーズ
           phase: "assemble",

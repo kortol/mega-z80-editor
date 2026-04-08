@@ -54,6 +54,7 @@ export interface UnresolvedEntry {
   addr: number;                  // 参照アドレス
   symbol: string;                // 未解決シンボル名
   size: 1 | 2 | 4;               // バイト幅
+  sectionId?: number;            // 参照セクション
   relative?: boolean;            // JR/DJNZ 相対なら true
   addend?: number;               // 式中の ±n
   requester: RequesterInfo;
@@ -152,7 +153,7 @@ export interface AsmContext {
 
   // --- モード/オプション ---
   modeWord32: boolean;           // `.WORD32` 拡張（通常false）
-  modeSymLen: number;            // `.SYMLEN` 基準（通常6）
+  modeSymLen: number;            // `.SYMLEN` 基準（通常32）
   caseInsensitive: boolean;      // 大文字小文字を区別しない場合 true
   options: AsmOptions;
 

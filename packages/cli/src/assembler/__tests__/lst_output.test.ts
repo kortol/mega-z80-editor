@@ -128,6 +128,70 @@ describe("P2-D-07: .sym includes def file", () => {
   });
 });
 
+describe("P2-D-08: LST marks relocatable operand bytes", () => {
+  const tmpDir = path.resolve(__dirname, "__tmp_lst_reloc__");
+  const fileA = path.join(tmpDir, "main.asm");
+  const outRel = path.join(tmpDir, "main.rel");
+  const outLst = outRel.replace(/\.rel$/, ".lst");
+
+  beforeAll(() => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(
+      fileA,
+      [
+        "EXTERN FOO",
+        "JP FOO",
+        "END",
+      ].join("\n"),
+      "utf8"
+    );
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("reloc bytes are rendered as ** in byte dump", () => {
+    const logger = createLogger("quiet");
+    assemble(logger, fileA, outRel, { verbose: false, relVersion: 2, lst: true });
+
+    const lst = fs.readFileSync(outLst, "utf8");
+    expect(lst).toMatch(/\n0000\s+C3 \*\* \*\*\s+JP FOO/);
+  });
+});
+
+describe("P2-D-09: LST marks ED-prefixed 16bit operand bytes", () => {
+  const tmpDir = path.resolve(__dirname, "__tmp_lst_reloc_ed__");
+  const fileA = path.join(tmpDir, "main.asm");
+  const outRel = path.join(tmpDir, "main.rel");
+  const outLst = outRel.replace(/\.rel$/, ".lst");
+
+  beforeAll(() => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(
+      fileA,
+      [
+        "EXTERN HIMEM",
+        "LD SP,(HIMEM)",
+        "END",
+      ].join("\n"),
+      "utf8"
+    );
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("ED opcode bytes stay visible and only 16bit operand is masked", () => {
+    const logger = createLogger("quiet");
+    assemble(logger, fileA, outRel, { verbose: false, relVersion: 2, lst: true });
+
+    const lst = fs.readFileSync(outLst, "utf8");
+    expect(lst).toMatch(/\n0000\s+ED 7B \*\* \*\*\s+LD\s+SP,\(HIMEM\)/);
+  });
+});
+
 // 正規化: 改行・空白を一定化
 function normalize(str: string) {
   return str.replace(/\r\n/g, "\n").trim();

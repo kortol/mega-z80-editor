@@ -20,9 +20,9 @@ export function writeLstFile(ctx: AsmContext, outputFile: string, source: string
       .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
       .join(" ");
 
-    // --- line補完（undefined対策） ---
-    const lineNo = t.pos.line && t.pos.line > 0 ? t.pos.line : 1;
-    const src = srcLines[lineNo - 1]?.trim() ?? "";
+    // pos.line is 0-based in assembler internals.
+    const lineIdx = Number.isInteger(t.pos.line) && t.pos.line >= 0 ? t.pos.line : 0;
+    const src = srcLines[lineIdx]?.trim() ?? "";
 
     lines.push(
       `${t.addr.toString(16).padStart(4, "0").toUpperCase()}  ${bytes.padEnd(12)}  ${src}`
@@ -82,7 +82,8 @@ export function writeLstFileV2(ctx: AsmContext, outputFile: string, _source: str
       const srcLine = fileSrc[t.pos.line]?.trim() ?? "";
       const text = t.text ?? srcLine;
 
-      const dump = writeDumpLine(t.addr, t.bytes, text);
+      const mask = buildRelocMask(ctx, sec.id, t.addr, t.bytes.length, t.pos.file, t.pos.line);
+      const dump = writeDumpLine(t.addr, t.bytes, text, mask);
       if (dump) lines.push(...dump.split("\n"));
 
       prevStack = stack;
@@ -132,24 +133,65 @@ function getStackDiff(prev: string[], next: string[]) {
   };
 }
 
-function writeDumpLine(addr: number, bytes: number[], text?: string): string {
+function writeDumpLine(addr: number, bytes: number[], text?: string, relocMask?: boolean[]): string {
+  const src = (text ?? "").trimEnd();
+  if (src.trimStart().startsWith(";")) {
+    return src;
+  }
+
   const addrStr = addr.toString(16).padStart(4, "0").toUpperCase();
   if (!bytes || bytes.length === 0) {
-    const emptyBytes = "".padEnd(9, " ");
-    return `${addrStr}  ${emptyBytes}       ${text ?? ""}`.trimEnd();
+    return src;
   }
-  const hex = bytes.map(b => b.toString(16).padStart(2, "0").toUpperCase());
+  const hex = bytes.map((b, i) =>
+    relocMask?.[i] ? "**" : b.toString(16).padStart(2, "0").toUpperCase()
+  );
   const lines: string[] = [];
   for (let i = 0; i < hex.length; i += 4) {
     const chunk = hex.slice(i, i + 4).join(" ");
     const chunkStr = chunk.padEnd(9, " ");
     if (i === 0) {
-      lines.push(`${addrStr}  ${chunkStr}       ${text ?? ""}`.trimEnd());
+      lines.push(`${addrStr}  ${chunkStr}       ${src}`.trimEnd());
     } else {
       lines.push(`    ${chunkStr}`.trimEnd());
     }
   }
   return lines.join("\n");
+}
+
+function buildRelocMask(
+  ctx: AsmContext,
+  sectionId: number,
+  addr: number,
+  len: number,
+  file: string,
+  line: number
+): boolean[] {
+  const mask = new Array<boolean>(len).fill(false);
+  const unresolved = ctx.unresolved ?? [];
+
+  for (const u of unresolved) {
+    if ((u.sectionId ?? sectionId) !== sectionId) continue;
+    let marked = false;
+    const sz = Math.max(0, u.size ?? 0);
+    for (let i = 0; i < sz; i++) {
+      const p = u.addr + i - addr;
+      if (p >= 0 && p < len) {
+        mask[p] = true;
+        marked = true;
+      }
+    }
+    if (marked) continue;
+
+    // Fallback: when relocation address cannot be mapped exactly, mark tail bytes on same source line.
+    if (u.requester?.pos?.file === file && u.requester?.pos?.line === line && sz > 0) {
+      for (let i = 0; i < Math.min(sz, len); i++) {
+        mask[len - 1 - i] = true;
+      }
+    }
+  }
+
+  return mask;
 }
 
 function formatIncludeEnter(info?: IncludeFrameInfo): string {
