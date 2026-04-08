@@ -80,6 +80,7 @@ function isReg16(r) {
 }
 /** 8bit レジスタコード (for opcode encoding) */
 function regCode(r) {
+    const key = r.toUpperCase();
     const table = {
         B: 0,
         C: 1,
@@ -90,16 +91,17 @@ function regCode(r) {
         "(HL)": 6,
         A: 7,
     };
-    if (!(r in table))
+    if (!(key in table))
         throw new Error(`Invalid 8bit register: ${r}`);
-    return table[r];
+    return table[key];
 }
 /** 16bit レジスタコード (for opcode encoding) */
 function reg16Code(r) {
+    const key = r.toUpperCase();
     const table = { BC: 0, DE: 1, HL: 2, SP: 3 };
-    if (!(r in table))
+    if (!(key in table))
         throw new Error(`Invalid 16bit register: ${r}`);
-    return table[r];
+    return table[key];
 }
 /* -------------------- 即値 -------------------- */
 /** 8bit 即値かどうか */
@@ -150,7 +152,7 @@ function parseIndexAddr(ctx, v) {
     }
     return { prefix, disp };
 }
-function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = false) {
+function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = false, relocOffset = 1) {
     const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
     const prevErrCount = ctx.errors.length;
     const tokens = (0, tokenizer_1.tokenize)(ctx, expr).filter(t => t.kind !== "eol");
@@ -164,9 +166,10 @@ function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = fa
         // --- pass2 のときだけ記録 ---
         if (ctx.phase === "emit") {
             const relocEntry = {
-                addr: ctx.loc + 1,
+                addr: ctx.loc + relocOffset,
                 symbol: res.sym,
                 size: 1,
+                sectionId: ctx.currentSection ?? 0,
             };
             if (res.addend && res.addend !== 0)
                 relocEntry.addend = res.addend;
@@ -205,7 +208,7 @@ function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = fa
     }
     throw new Error(`Unexpected evalExpr result at line ${pos.line}`);
 }
-function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false) {
+function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false, relocOffset = 1) {
     const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
     const prevErrCount = ctx.errors.length;
     const tokens = (0, tokenizer_1.tokenize)(ctx, expr).filter(t => t.kind !== "eol");
@@ -222,10 +225,11 @@ function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false) {
         // --- pass2 のときだけ記録 ---
         if (ctx.phase === "emit") {
             const relocEntry = {
-                addr: ctx.loc + 1,
+                addr: ctx.loc + relocOffset,
                 symbol: res.sym,
                 addend: Number(res.addend ?? 0),
                 size: 2,
+                sectionId: ctx.currentSection ?? 0,
                 requester: {
                     op: "ENCODER", // 呼び出し元フェーズ
                     phase: "assemble",

@@ -48,30 +48,31 @@ describe("resolveExpr8/16", () => {
     test("EXT", () => {
       const val = resolveExpr8(ctx, "EXT", pos);
       expect(val).toBe(0);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", size: 1,
-      });
+      }));
+      expect(ctx.unresolved[0].sectionId).toBe(0);
     });
 
     test("EXT+1", () => {
       resolveExpr8(ctx, "EXT+1", pos);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 1, size: 1,
-      });
+      }));
     });
 
     test("1+EXT (入れ替え)", () => {
       resolveExpr8(ctx, "1+EXT", pos);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 1, size: 1,
-      });
+      }));
     });
 
     test("EXT-1", () => {
       resolveExpr16(ctx, "EXT-1", pos);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: -1, size: 2, "requester": { "op": "ENCODER", "phase": "assemble", pos: { "line": 0, file: "test.asm", phase: "analyze" } },
-      });
+      }));
     });
 
     test("5-EXT はエラー", () => {
@@ -86,23 +87,23 @@ describe("resolveExpr8/16", () => {
   describe("外部＋内部", () => {
     test("EXT+FOO => unresolved(addend=10)", () => {
       resolveExpr8(ctx, "EXT+FOO", pos);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 10, size: 1,
-      });
+      }));
     });
 
     test("FOO+EXT => unresolved(addend=10)", () => {
       resolveExpr8(ctx, "FOO+EXT", pos);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 10, size: 1,
-      });
+      }));
     });
 
     test("EXT-FOO => unresolved(addend=-10)", () => {
       resolveExpr8(ctx, "EXT-FOO", pos);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: -10, size: 1,
-      });
+      }));
     });
 
     test("FOO-EXT はエラー", () => {

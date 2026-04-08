@@ -262,7 +262,7 @@ function handleDS(ctx, node) {
     const ext = (0, parseExternExpr_1.parseExternExpr)(ctx, valStr);
     if (ext) {
         ctx.unresolved.push({
-            addr: (0, emit_1.getLC)(ctx), symbol: ext.symbol, size: 0, addend: ext.addend, requester: {
+            addr: (0, emit_1.getLC)(ctx), symbol: ext.symbol, size: 0, addend: ext.addend, sectionId: ctx.currentSection ?? 0, requester: {
                 op: "DS",
                 phase: "assemble",
                 pos: node.pos,

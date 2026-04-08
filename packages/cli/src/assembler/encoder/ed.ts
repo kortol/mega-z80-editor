@@ -1,76 +1,84 @@
 import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
 import { NodeInstr } from "../node";
+import { classifyOperand } from "../operand/classifyOperand";
+import { InstrDef } from "./types";
+
+const edNoArgTable: Record<string, number> = {
+  LDI: 0xa0,
+  LDIR: 0xb0,
+  LDD: 0xa8,
+  LDDR: 0xb8,
+  CPI: 0xa1,
+  CPIR: 0xb1,
+  CPD: 0xa9,
+  CPDR: 0xb9,
+  INI: 0xa2,
+  INIR: 0xb2,
+  IND: 0xaa,
+  INDR: 0xba,
+  OUTI: 0xa3,
+  OTIR: 0xb3,
+  OUTD: 0xab,
+  OTDR: 0xbb,
+  NEG: 0x44,
+  RETN: 0x45,
+  RETI: 0x4d,
+  RRD: 0x67,
+  RLD: 0x6f,
+};
+
+export const edNoArgInstr: InstrDef[] = [
+  {
+    match: (_ctx, args) => args.length === 0,
+    encode(ctx, _args, node) {
+      const op = node.op.toUpperCase();
+      const opcode = edNoArgTable[op];
+      if (opcode == null) throw new Error(`Unsupported ED instruction ${op}`);
+      emitBytes(ctx, [0xed, opcode], node.pos);
+    },
+    estimate: 2,
+  },
+  {
+    match: () => true,
+    encode(_ctx, args, node) {
+      const op = node.op.toUpperCase();
+      throw new Error(`Unsupported ED instruction ${op} ${args.map(a => a.raw).join(",")}`);
+    },
+    estimate: 2,
+  },
+];
+
+export const imInstr: InstrDef[] = [
+  {
+    match: (_ctx, args) => args.length === 1,
+    encode(ctx, [arg], node) {
+      const mode = parseInt(arg.raw, 10);
+      const codes = [0x46, 0x56, 0x5e];
+      if (Number.isNaN(mode) || mode < 0 || mode > 2) {
+        throw new Error(`Invalid IM mode: ${arg.raw}`);
+      }
+      emitBytes(ctx, [0xed, codes[mode]], node.pos);
+    },
+    estimate: 2,
+  },
+  {
+    match: () => true,
+    encode(_ctx, _args) {
+      throw new Error("IM requires one argument");
+    },
+    estimate: 2,
+  },
+];
 
 export function encodeED(ctx: AsmContext, node: NodeInstr) {
-  const op = node.op.toUpperCase();
-  const args = node.args.map((a) => a.toUpperCase());
-
-  // 単純マップ
-  const table: Record<string, number> = {
-    LDI: 0xA0,
-    LDIR: 0xB0,
-    LDD: 0xA8,
-    LDDR: 0xB8,
-    CPI: 0xA1,
-    CPIR: 0xB1,
-    CPD: 0xA9,
-    CPDR: 0xB9,
-    INI: 0xA2,
-    INIR: 0xB2,
-    IND: 0xAA,
-    INDR: 0xBA,
-    OUTI: 0xA3,
-    OTIR: 0xB3,
-    OUTD: 0xAB,
-    OTDR: 0xBB,
-    NEG: 0x44,
-    RETN: 0x45,
-    RETI: 0x4D,
-    RRD: 0x67,
-    RLD: 0x6F,
-  };
-
-  if (op in table && args.length === 0) {
-    emitBytes(ctx, [0xED, table[op]], node.pos);
-    return;
-  }
-
-  // LD A,I / LD A,R / LD I,A / LD R,A
-  const ldTable: Record<string, number> = {
-    "LD A,I": 0x57,
-    "LD A,R": 0x5F,
-    "LD I,A": 0x47,
-    "LD R,A": 0x4F,
-  };
-  const key = [op, ...args].join(" ");
-  if (ldTable[key]) {
-    emitBytes(ctx, [0xED, ldTable[op]], node.pos);
-    return;
-  }
-
-  // IM n
-  if (op === "IM") {
-    if (args.length !== 1) throw new Error("IM requires one argument");
-    const mode = parseInt(args[0], 10);
-    const codes = [0x46, 0x56, 0x5E];
-    if (isNaN(mode) || mode < 0 || mode > 2) {
-      throw new Error(`Invalid IM mode: ${args[0]}`);
+  const defs = node.op.toUpperCase() === "IM" ? imInstr : edNoArgInstr;
+  const args = node.args.map(s => classifyOperand(ctx, s));
+  for (const def of defs) {
+    if (def.match(ctx, args)) {
+      def.encode(ctx, args, node);
+      return;
     }
-    emitBytes(ctx, [0xED, codes[mode]], node.pos);
-    return;
   }
-
-  const supported = [
-    "LDI/LDIR/LDD/LDDR",
-    "CPI/CPIR/CPD/CPDR",
-    "INI/INIR/IND/INDR",
-    "OUTI/OTIR/OUTD/OTDR",
-    "NEG/RETN/RETI/RRD/RLD",
-    "LD A,I / LD A,R / LD I,A / LD R,A",
-    "IM 0/1/2",
-  ];
-  throw new Error(
-    `Unsupported ED instruction ${op} ${args.join(",")} (supported: ${supported.join("; ")})`
-  );
+  throw new Error(`Unsupported ED instruction ${node.op} ${node.args.join(",")}`);
 }

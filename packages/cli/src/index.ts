@@ -8,6 +8,7 @@ import { createLogger } from "./logger";
 // P1 assembler / linker を import
 import { assemble } from "./cli/mz80-as";
 import { link } from "./cli/mz80-link";
+import { dbgBinary } from "./cli/mz80-dbg";
 import { Console } from "./console";
 
 const program = new Command();
@@ -117,6 +118,29 @@ program
       link(inputs, output, opts);
     } catch (err: any) {
       console.error(`❌ Link failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+// === サブコマンド: dbg ===
+program
+  .command("dbg <input>")
+  .description("Debug binary image (.com/.bin): hexdump + lightweight decode")
+  .option("--sym <file>", "symbol file for annotation (.sym)")
+  .option("--base <addr>", "base address (default: 0100H for .com, 0000H otherwise)")
+  .option("--from <addr>", "start address for dump/decode")
+  .option("--bytes <n>", "number of bytes for hexdump", "128")
+  .option("--decode <n>", "number of decoded instructions", "24")
+  .option("--cmd <script>", "command script (e.g. \"break add 0100h; run 1000; regs\")")
+  .option("--cpm", "run minimal CP/M execution from entry with BDOS hook")
+  .option("--entry <addr>", "entry address for --cpm (default: 0100H)")
+  .option("--steps <n>", "max instruction steps for --cpm", "200000")
+  .option("--trace", "trace CPU state each step for --cpm")
+  .action((input, opts) => {
+    try {
+      dbgBinary(input, opts);
+    } catch (err: any) {
+      console.error(`❌ Debug failed: ${err.message}`);
       process.exit(1);
     }
   });

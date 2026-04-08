@@ -51,9 +51,19 @@ function emitBytes(ctx, data, pos) {
     if (!sec)
         throw new Error(`emitBytes: invalid section (id=${ctx.currentSection})`);
     const addr = sec.lc;
-    sec.bytes.push(...data);
+    const required = addr + data.length;
+    if (sec.bytes.length < required) {
+        sec.bytes.length = required;
+        for (let i = 0; i < required; i++) {
+            if (sec.bytes[i] === undefined)
+                sec.bytes[i] = 0x00;
+        }
+    }
+    for (let i = 0; i < data.length; i++) {
+        sec.bytes[addr + i] = data[i] & 0xff;
+    }
     sec.lc += data.length;
-    sec.size = Math.max(sec.size, sec.lc);
+    sec.size = Math.max(sec.size, sec.lc, sec.bytes.length);
     ctx.texts.push({
         addr,
         data,
@@ -86,6 +96,7 @@ function emitFixup(ctx, symbol, size = 2, requester, addend = 0, pos) {
         addr,
         symbol,
         size,
+        sectionId: ctx.currentSection ?? 0,
         addend,
         requester,
     });

@@ -247,6 +247,7 @@ hlOpcode // (HL)
                     phase: "assemble",
                     pos: node.pos,
                 },
+                sectionId: ctx.currentSection ?? 0,
             });
         }
         else {

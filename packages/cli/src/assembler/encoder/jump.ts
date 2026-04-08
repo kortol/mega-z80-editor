@@ -88,10 +88,16 @@ export const JRInstrDefs: InstrDef[] = [
     encode(ctx, args, node) {
       const cond = args[0].raw.toUpperCase();
       const target = args[1].raw;
+      const opcode = { NZ: 0x20, Z: 0x28, NC: 0x30, C: 0x38 }[cond] ?? 0x20;
 
       // ★ 16bit絶対値として評価（$含む式OK）
+      const errCountBefore = ctx.errors.length;
       const val = resolveExpr16(ctx, target, node.pos, false, false);
-      if (ctx.errors.length > 0) return;
+      if (ctx.errors.length > errCountBefore) {
+        // Keep LC stable even on expression errors.
+        emitBytes(ctx, [opcode, 0x00], node.pos);
+        return;
+      }
 
       // ★ offset計算（target - (loc + 2)）
       const offset = val - (ctx.loc + 2);
@@ -103,11 +109,12 @@ export const JRInstrDefs: InstrDef[] = [
           message: `JR target out of range (${offset}) at line ${node.pos.line}`,
           pos: node.pos,
         });
+        // Keep LC stable even on range errors.
+        emitBytes(ctx, [opcode, 0x00], node.pos);
         return;
       }
 
-      const opcode = { NZ: 0x20, Z: 0x28, NC: 0x30, C: 0x38 }[cond];
-      emitBytes(ctx, [opcode ?? 0, offset & 0xff], node.pos);
+      emitBytes(ctx, [opcode, offset & 0xff], node.pos);
     },
     estimate: 2,
   },
@@ -119,8 +126,12 @@ export const JRInstrDefs: InstrDef[] = [
     encode(ctx, args, node) {
       const target = args[0].raw;
 
+      const errCountBefore = ctx.errors.length;
       const val = resolveExpr16(ctx, target, node.pos, false, false);
-      if (ctx.errors.length > 0) return;
+      if (ctx.errors.length > errCountBefore) {
+        emitBytes(ctx, [0x18, 0x00], node.pos);
+        return;
+      }
 
       const offset = val - (ctx.loc + 2);
 
@@ -130,6 +141,7 @@ export const JRInstrDefs: InstrDef[] = [
           message: `JR target out of range (${offset}) at line ${node.pos.line}`,
           pos: node.pos,
         });
+        emitBytes(ctx, [0x18, 0x00], node.pos);
         return;
       }
 
@@ -249,8 +261,12 @@ export const DJNZInstrDefs: InstrDef[] = [
       const target = args[0].raw;
 
       // ★ 16bit絶対値として評価（$もOK）
+      const errCountBefore = ctx.errors.length;
       const val = resolveExpr16(ctx, target, node.pos, false, false);
-      if (ctx.errors.length > 0) return;
+      if (ctx.errors.length > errCountBefore) {
+        emitBytes(ctx, [0x10, 0x00], node.pos);
+        return;
+      }
 
       // ★ offset計算（target - (loc + 2)）
       const offset = val - (ctx.loc + 2);
@@ -262,6 +278,7 @@ export const DJNZInstrDefs: InstrDef[] = [
           message: `DJNZ target out of range (${offset}) at line ${node.pos.line}`,
           pos: node.pos,
         });
+        emitBytes(ctx, [0x10, 0x00], node.pos);
         return;
       }
 

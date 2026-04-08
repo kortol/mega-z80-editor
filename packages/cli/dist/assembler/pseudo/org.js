@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleORG = handleORG;
 const utils_1 = require("../encoder/utils");
-const errors_1 = require("../errors"); // 既存makeErrorを利用
+const errors_1 = require("../errors");
 function handleORG(ctx, node) {
     if (node.args.length !== 1) {
         throw new Error(`ORG requires exactly one argument at line ${node.pos.line}`);
@@ -20,9 +20,13 @@ function handleORG(ctx, node) {
         return;
     }
     const sec = ctx.sections.get(ctx.currentSection);
-    // LC逆行禁止チェック
-    if (val < sec.lc) {
-        ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.OrgBackward, `ORG moved backward in section ${sec.name} (line ${node.pos.line})`));
+    // M80互換: ORG の前進・後退を許可（現在セクションのLoCを直接設定）
+    if (val < 0 || val > 0xffff) {
+        ctx.errors.push({
+            code: errors_1.AssemblerErrorCode.OrgBackward,
+            message: `ORG out of range in section ${sec.name} (line ${node.pos.line})`,
+            pos: node.pos,
+        });
         return;
     }
     // セクションのLC更新

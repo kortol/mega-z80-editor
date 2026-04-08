@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ldInstr = void 0;
-exports.encodeLD = encodeLD;
 const utils_1 = require("./utils");
 const operandKind_1 = require("../operand/operandKind");
 const errors_1 = require("../errors");
@@ -42,6 +41,26 @@ exports.ldInstr = [
         encode(ctx, [, src], node) {
             const opcode = 0x70 | (0, utils_1.regCode)(src.raw);
             (0, emit_1.emitBytes)(ctx, [opcode], node.pos);
+        },
+    },
+    // --- LD A,(BC)/(DE) ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.REG8 &&
+            dst.raw === "A" &&
+            src.kind === operandKind_1.OperandKind.REG_IND &&
+            (src.raw === "(BC)" || src.raw === "(DE)"),
+        encode(ctx, [, src], node) {
+            (0, emit_1.emitBytes)(ctx, [src.raw === "(BC)" ? 0x0a : 0x1a], node.pos);
+        },
+    },
+    // --- LD (BC)/(DE),A ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.REG_IND &&
+            (dst.raw === "(BC)" || dst.raw === "(DE)") &&
+            src.kind === operandKind_1.OperandKind.REG8 &&
+            src.raw === "A",
+        encode(ctx, [dst], node) {
+            (0, emit_1.emitBytes)(ctx, [dst.raw === "(BC)" ? 0x02 : 0x12], node.pos);
         },
     },
     // --- LD A,I / LD A,R / LD I,A / LD R,A ---
@@ -100,6 +119,29 @@ exports.ldInstr = [
         },
         estimate: 3,
     },
+    // --- LD IX,nn / LD IY,nn ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.REG16X &&
+            (dst.raw === "IX" || dst.raw === "IY") &&
+            (src.kind === operandKind_1.OperandKind.IMM || src.kind === operandKind_1.OperandKind.EXPR),
+        encode(ctx, [dst, src], node) {
+            const val = (0, utils_1.resolveExpr16)(ctx, src.raw, node.pos, undefined, false, 2);
+            const prefix = dst.raw === "IX" ? 0xdd : 0xfd;
+            (0, emit_1.emitBytes)(ctx, [prefix, 0x21, val & 0xff, (val >> 8) & 0xff], node.pos);
+        },
+        estimate: 4,
+    },
+    // --- LD (HL),n ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.REG_IND &&
+            dst.raw === "(HL)" &&
+            (src.kind === operandKind_1.OperandKind.IMM || src.kind === operandKind_1.OperandKind.EXPR),
+        encode(ctx, [, src], node) {
+            const val = (0, utils_1.resolveExpr8)(ctx, src.raw, node.pos);
+            (0, emit_1.emitBytes)(ctx, [0x36, val & 0xff], node.pos);
+        },
+        estimate: 2,
+    },
     // --- LD HL,(nn) ---
     {
         match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.REG16 &&
@@ -122,7 +164,7 @@ exports.ldInstr = [
             // ()を除去
             const _src = src.raw.slice(1, -1);
             // 外部シンボル or 定数式 → 未解決扱いで16bit読み出し命令を擬似生成
-            const val = (0, utils_1.resolveExpr16)(ctx, _src, node.pos);
+            const val = (0, utils_1.resolveExpr16)(ctx, _src, node.pos, undefined, false, 2);
             // Z80には存在しないが、拡張REL生成用としてHL版に合わせる
             // 形式: LD rr,(nn) ≒ prefix(0xED) + code_table[rr] + nn nn
             const regCodeMap = {
@@ -143,6 +185,19 @@ exports.ldInstr = [
         },
         estimate: 4,
     },
+    // --- LD IX/IY,(nn) ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.REG16X &&
+            (dst.raw === "IX" || dst.raw === "IY") &&
+            src.kind === operandKind_1.OperandKind.MEM,
+        encode(ctx, [dst, src], node) {
+            const _src = src.raw.slice(1, -1);
+            const val = (0, utils_1.resolveExpr16)(ctx, _src, node.pos, undefined, false, 2);
+            const prefix = dst.raw === "IX" ? 0xdd : 0xfd;
+            (0, emit_1.emitBytes)(ctx, [prefix, 0x2a, val & 0xff, val >> 8], node.pos);
+        },
+        estimate: 4,
+    },
     // --- LD (nn),HL ---
     {
         match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.MEM &&
@@ -155,6 +210,36 @@ exports.ldInstr = [
             (0, emit_1.emitBytes)(ctx, [0x22, val & 0xff, val >> 8], node.pos);
         },
         estimate: 3,
+    },
+    // --- LD (nn),rr (BC/DE/SP) ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.MEM &&
+            src.kind === operandKind_1.OperandKind.REG16 &&
+            ["BC", "DE", "SP"].includes(src.raw),
+        encode(ctx, [dst, src], node) {
+            const _dst = dst.raw.slice(1, -1);
+            const val = (0, utils_1.resolveExpr16)(ctx, _dst, node.pos, undefined, false, 2);
+            const regCodeMap = {
+                BC: 0x43,
+                DE: 0x53,
+                SP: 0x73,
+            };
+            (0, emit_1.emitBytes)(ctx, [0xed, regCodeMap[src.raw], val & 0xff, val >> 8], node.pos);
+        },
+        estimate: 4,
+    },
+    // --- LD (nn),IX / LD (nn),IY ---
+    {
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.MEM &&
+            src.kind === operandKind_1.OperandKind.REG16X &&
+            (src.raw === "IX" || src.raw === "IY"),
+        encode(ctx, [dst, src], node) {
+            const _dst = dst.raw.slice(1, -1);
+            const val = (0, utils_1.resolveExpr16)(ctx, _dst, node.pos, undefined, false, 2);
+            const prefix = src.raw === "IX" ? 0xdd : 0xfd;
+            (0, emit_1.emitBytes)(ctx, [prefix, 0x22, val & 0xff, val >> 8], node.pos);
+        },
+        estimate: 4,
     },
     // --- LD A,(nn) ---
     {
@@ -218,117 +303,40 @@ exports.ldInstr = [
         },
         estimate: 3,
     },
-];
-function encodeLD(ctx, node) {
-    const [dst, src] = node.args;
-    const dstStr = String(dst ?? "");
-    const srcStr = String(src ?? "");
-    const dstUpper = dstStr.toUpperCase();
-    const srcUpper = srcStr.toUpperCase();
-    // --- LD A,(BC)/(DE) ---
-    if (dstUpper === "A" && (srcUpper === "(BC)" || srcUpper === "(DE)")) {
-        (0, emit_1.emitBytes)(ctx, [srcUpper === "(BC)" ? 0x0a : 0x1a], node.pos);
-        return;
-    }
-    // --- LD (BC)/(DE),A ---
-    if ((dstUpper === "(BC)" || dstUpper === "(DE)") && srcUpper === "A") {
-        (0, emit_1.emitBytes)(ctx, [dstUpper === "(BC)" ? 0x02 : 0x12], node.pos);
-        return;
-    }
-    // --- LD r,(IX+d)/(IY+d) ---
-    if ((0, utils_1.isReg8)(dst)) {
-        const idx = (0, utils_1.parseIndexAddr)(ctx, src);
-        if (idx) {
-            (0, emit_1.emitBytes)(ctx, [idx.prefix, 0x46 | ((0, utils_1.regCode)(dst) << 3), idx.disp], node.pos);
-            return;
-        }
-    }
-    // --- LD (IX+d),r ---
-    {
-        const idx = (0, utils_1.parseIndexAddr)(ctx, dst);
-        if (idx && (0, utils_1.isReg8)(src)) {
-            (0, emit_1.emitBytes)(ctx, [idx.prefix, 0x70 | (0, utils_1.regCode)(src), idx.disp], node.pos);
-            return;
-        }
-    }
-    // --- LD IX,nn / LD IY,nn ---
-    if ((dstUpper === "IX" || dstUpper === "IY") &&
-        !(0, utils_1.isMemAddress)(srcStr) &&
-        !(0, utils_1.parseIndexAddr)(ctx, srcStr) &&
-        !(0, utils_1.isReg8)(srcStr) &&
-        !(0, utils_1.isReg16)(srcStr) &&
-        srcUpper !== "IX" &&
-        srcUpper !== "IY") {
-        const val = (0, utils_1.resolveExpr16)(ctx, srcStr, node.pos);
-        const prefix = dstUpper === "IX" ? 0xdd : 0xfd;
-        (0, emit_1.emitBytes)(ctx, [prefix, 0x21, val & 0xff, (val >> 8) & 0xff], node.pos);
-        return;
-    }
-    // --- LD (HL),n ---
-    if (dstUpper === "(HL)" &&
-        !(0, utils_1.isMemAddress)(srcStr) &&
-        !(0, utils_1.parseIndexAddr)(ctx, srcStr) &&
-        !(0, utils_1.isReg8)(srcStr) &&
-        !(0, utils_1.isReg16)(srcStr) &&
-        srcUpper !== "IX" &&
-        srcUpper !== "IY") {
-        const val = (0, utils_1.resolveExpr8)(ctx, srcStr, node.pos);
-        (0, emit_1.emitBytes)(ctx, [0x36, val], node.pos);
-        return;
-    }
     // --- LD (IX+d),n / LD (IY+d),n ---
     {
-        const idx = (0, utils_1.parseIndexAddr)(ctx, dst);
-        if (idx && src !== undefined) {
-            if ((0, utils_1.isMemAddress)(src) || (0, utils_1.parseIndexAddr)(ctx, src)) {
-                throw new Error(`Unsupported LD form '${dst},${src}' (indexed destination requires immediate)`);
+        match: (ctx, [dst, src]) => dst.kind === operandKind_1.OperandKind.IDX &&
+            (src.kind === operandKind_1.OperandKind.IMM || src.kind === operandKind_1.OperandKind.EXPR),
+        encode(ctx, [dst, src], node) {
+            const prefix = dst.raw.startsWith("(IX") ? 0xdd : 0xfd;
+            const disp = (dst.disp ?? 0) & 0xff;
+            const val = (0, utils_1.resolveExpr8)(ctx, src.raw, node.pos, undefined, false, false, 3);
+            (0, emit_1.emitBytes)(ctx, [prefix, 0x36, disp, val & 0xff], node.pos);
+        },
+        estimate: 4,
+    },
+    // --- Fallback: keep detailed LD diagnostics ---
+    {
+        match: () => true,
+        encode(ctx, [dst, src]) {
+            const dstStr = dst.raw;
+            const srcStr = src.raw;
+            const bothMem = dstStr.startsWith("(") && srcStr.startsWith("(");
+            if (bothMem) {
+                throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory-to-memory is invalid)`);
             }
-            const val = (0, utils_1.resolveExpr8)(ctx, src, node.pos);
-            (0, emit_1.emitBytes)(ctx, [idx.prefix, 0x36, idx.disp, val & 0xff], node.pos);
-            return;
-        }
-    }
-    // --- LD (nn),rr (BC/DE/SP) ---
-    if (dstStr.startsWith("(") && (srcUpper === "BC" || srcUpper === "DE" || srcUpper === "SP")) {
-        const _dst = dstStr.slice(1, -1);
-        const val = (0, utils_1.resolveExpr16)(ctx, _dst, node.pos);
-        const regCodeMap = {
-            BC: 0x43,
-            DE: 0x53,
-            SP: 0x73,
-        };
-        (0, emit_1.emitBytes)(ctx, [0xed, regCodeMap[srcUpper], val & 0xff, val >> 8], node.pos);
-        return;
-    }
-    // --- LD IX/IY,(nn) ---
-    if ((dstUpper === "IX" || dstUpper === "IY") && (0, utils_1.isMemAddress)(srcStr)) {
-        const _src = srcStr.slice(1, -1);
-        const val = (0, utils_1.resolveExpr16)(ctx, _src, node.pos);
-        const prefix = dstUpper === "IX" ? 0xdd : 0xfd;
-        (0, emit_1.emitBytes)(ctx, [prefix, 0x2a, val & 0xff, val >> 8], node.pos);
-        return;
-    }
-    // --- LD (nn),IX/IY ---
-    if ((0, utils_1.isMemAddress)(dstStr) && (srcUpper === "IX" || srcUpper === "IY")) {
-        const _dst = dstStr.slice(1, -1);
-        const val = (0, utils_1.resolveExpr16)(ctx, _dst, node.pos);
-        const prefix = srcUpper === "IX" ? 0xdd : 0xfd;
-        (0, emit_1.emitBytes)(ctx, [prefix, 0x22, val & 0xff, val >> 8], node.pos);
-        return;
-    }
-    const bothMem = dstStr.startsWith("(") && srcStr.startsWith("(");
-    if (bothMem) {
-        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory-to-memory is invalid)`);
-    }
-    if ((0, utils_1.isIdxReg)(dstStr) && (0, utils_1.isIdxReg)(srcStr)) {
-        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (IX/IY register copy is invalid)`);
-    }
-    if (dstStr.startsWith("(") && (0, utils_1.isIdxReg)(srcStr)) {
-        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory <- IX/IY requires (nn),IX/IY or (IX/IY+d),r)`);
-    }
-    if ((0, utils_1.isIdxReg)(dstStr) && srcStr.startsWith("(")) {
-        throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (IX/IY <- memory requires IX/IY,(nn) or r,(IX/IY+d))`);
-    }
-    throw new Error(`Unsupported LD form '${dstStr},${srcStr}'`);
-    // throw new Error(`Unsupported LD form at line ${node.pos.line}: ${JSON.stringify(node)}`);
-}
+            const dstIdx = dst.kind === operandKind_1.OperandKind.REG16X || dst.kind === operandKind_1.OperandKind.REG8X || dst.kind === operandKind_1.OperandKind.IDX;
+            const srcIdx = src.kind === operandKind_1.OperandKind.REG16X || src.kind === operandKind_1.OperandKind.REG8X || src.kind === operandKind_1.OperandKind.IDX;
+            if (dstIdx && srcIdx) {
+                throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (IX/IY register copy is invalid)`);
+            }
+            if (dstStr.startsWith("(") && srcIdx) {
+                throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (memory <- IX/IY requires (nn),IX/IY or (IX/IY+d),r)`);
+            }
+            if (dstIdx && srcStr.startsWith("(")) {
+                throw new Error(`Unsupported LD form '${dstStr},${srcStr}' (IX/IY <- memory requires IX/IY,(nn) or r,(IX/IY+d))`);
+            }
+            throw new Error(`Unsupported LD form '${dstStr},${srcStr}'`);
+        },
+    },
+];

@@ -31,7 +31,7 @@ function handleLOCAL(_ctx, _node) {
 function handleSectionAlias(ctx, node, kind) {
     const name = kind === "CSEG" ? "TEXT"
         : kind === "DSEG" ? "DATA"
-            : kind === "ASEG" ? ".aseg"
+            : kind === "ASEG" ? "ASEG"
                 : "COMMON";
     const sectionNode = { ...node, op: "SECTION", args: [{ value: name }] };
     (0, section_1.handleSECTION)(ctx, sectionNode);
