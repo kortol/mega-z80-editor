@@ -28,6 +28,8 @@ function evalConditionExpr(ctx: AsmContext, exprText: string, pos: any): boolean
     errors: ctx.errors,
     visiting: new Set(),
     loc: ctx.loc,
+    currentGlobalLabel: ctx.currentGlobalLabel,
+    caseInsensitive: ctx.caseInsensitive,
   };
   const res = evalExpr(e, evalCtx);
   if (res.kind === "Const") return res.value !== 0;

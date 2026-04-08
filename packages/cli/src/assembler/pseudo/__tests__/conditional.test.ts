@@ -12,6 +12,16 @@ function makeNode(op: string, args: string[] = []): NodePseudo {
 }
 
 describe("conditional P2-M directives", () => {
+  test("IF expression resolves case-insensitive symbols", () => {
+    const ctx = createContext();
+    ctx.caseInsensitive = true;
+    ctx.symbols.set("POSTCCF", { value: 1, sectionId: 0, type: "CONST" });
+
+    handleConditional(ctx, makeNode("IF", ["postccf"]));
+    expect(isConditionActive(ctx)).toBe(true);
+    handleConditional(ctx, makeNode("ENDIF"));
+  });
+
   test("IFDEF / IFNDEF with symbol and extern", () => {
     const ctx = createContext();
     ctx.symbols.set("FOO", { value: 1, sectionId: 0, type: "CONST" });
@@ -49,4 +59,3 @@ describe("conditional P2-M directives", () => {
     handleConditional(ctx, makeNode("ENDIF"));
   });
 });
-

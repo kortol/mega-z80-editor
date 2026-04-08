@@ -58,4 +58,16 @@ describe("pseudo - EQU", () => {
         // 警告が残っていることを確認
         expect(ctx.warnings[0].message).toMatch(/truncated/i);
     });
+
+    test(".SYMLEN without arg falls back to 32", () => {
+        const ctx = makeCtx();
+        ctx.modeSymLen = 6;
+        handlePseudo(ctx, {
+            kind: "pseudo",
+            op: ".SYMLEN",
+            args: [],
+            pos: { line: 1, file: "test.asm", phase: "analyze" },
+        });
+        expect(ctx.modeSymLen).toBe(32);
+    });
 });

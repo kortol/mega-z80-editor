@@ -26,7 +26,7 @@ export function handleSectionAlias(ctx: AsmContext, node: NodePseudo, kind: "ASE
   const name =
     kind === "CSEG" ? "TEXT"
       : kind === "DSEG" ? "DATA"
-        : kind === "ASEG" ? ".aseg"
+        : kind === "ASEG" ? "ASEG"
           : "COMMON";
   const sectionNode: NodePseudo = { ...node, op: "SECTION", args: [{ value: name }] };
   handleSECTION(ctx, sectionNode);
@@ -71,4 +71,3 @@ export function handleLIST(ctx: AsmContext, node: NodePseudo) {
 export function handleEXITM(ctx: AsmContext, node: NodePseudo) {
   ctx.errors.push(makeError(AssemblerErrorCode.SyntaxError, "EXITM outside macro", { pos: node.pos }));
 }
-

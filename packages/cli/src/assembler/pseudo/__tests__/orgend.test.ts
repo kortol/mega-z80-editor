@@ -37,6 +37,14 @@ describe("pseudo - ORG/END", () => {
       expect(ctx.loc).toBe(0x20);
     });
 
+    test("ORG can move backward in current section (M80 compatible)", () => {
+      const ctx = makeCtx();
+      handlePseudo(ctx, makeNode("ORG", ["200H"]));
+      handlePseudo(ctx, makeNode("ORG", ["100H"]));
+      expect(ctx.loc).toBe(0x100);
+      expect(ctx.errors).toHaveLength(0);
+    });
+
     test("ORG with invalid symbol throws", () => {
       const ctx = makeCtx();
       expect(() => handlePseudo(ctx, makeNode("ORG", ["FOO"])))

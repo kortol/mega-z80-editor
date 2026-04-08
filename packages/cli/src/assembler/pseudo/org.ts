@@ -1,7 +1,7 @@
 import { AsmContext } from "../context";
 import { NodePseudo } from "../node";
 import { resolveExpr16 } from "../encoder/utils";
-import { AssemblerErrorCode, makeError } from "../errors";  // 既存makeErrorを利用
+import { AssemblerErrorCode } from "../errors";
 
 export function handleORG(ctx: AsmContext, node: NodePseudo) {
   if (node.args.length !== 1) {
@@ -25,11 +25,13 @@ export function handleORG(ctx: AsmContext, node: NodePseudo) {
 
   const sec = ctx.sections.get(ctx.currentSection)!;
 
-  // LC逆行禁止チェック
-  if (val < sec.lc) {
-    ctx.errors.push(
-      makeError(AssemblerErrorCode.OrgBackward, `ORG moved backward in section ${sec.name} (line ${node.pos.line})`)
-    );
+  // M80互換: ORG の前進・後退を許可（現在セクションのLoCを直接設定）
+  if (val < 0 || val > 0xffff) {
+    ctx.errors.push({
+      code: AssemblerErrorCode.OrgBackward,
+      message: `ORG out of range in section ${sec.name} (line ${node.pos.line})`,
+      pos: node.pos,
+    });
     return;
   }
 

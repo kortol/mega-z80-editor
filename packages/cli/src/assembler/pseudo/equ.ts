@@ -65,6 +65,6 @@ export function handleEQU(ctx: AsmContext, node: NodePseudo) {
 }
 
 export function handleSYMLEN(ctx: AsmContext, node: NodePseudo) {
-  const arg = node.args?.[0]?.value ?? "6";
+  const arg = node.args?.[0]?.value ?? "32";
   ctx.modeSymLen = parseInt(arg, 10);
 }
