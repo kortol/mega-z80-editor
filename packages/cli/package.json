@@ -10,6 +10,7 @@
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js --help",
     "test": "set USERPROFILE=%CD%&& set HOMEPATH=%CD%&& set HOME=%CD%&& jest --runInBand",
+    "run:bbcbasic-z80": "pwsh -File tools/run-bbcbasic-z80.ps1",
     "import:z80test": "ts-node tools/import-z80test.ts",
     "gen:mnemonics": "ts-node tools/gen-peggy-mnemonics.ts",
     "build:parser": "npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs",
