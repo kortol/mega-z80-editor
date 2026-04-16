@@ -33,10 +33,14 @@ export function dbgBinary(
     bytes?: string;
     decode?: string;
     cpm?: boolean;
+    cpmInteractive?: boolean;
     steps?: string;
     entry?: string;
     trace?: boolean;
+    bdosTrace?: boolean;
     cmd?: string;
+    cpmRoot?: string;
+    tail?: string;
   }
 ) {
   const absInput = path.resolve(inputFile);
@@ -64,7 +68,18 @@ export function dbgBinary(
   console.log(`sym    : ${symPath ?? "(none)"}`);
 
   const core = new Z80DebugCore(!!opts.trace);
+  if (opts.cpm) {
+    core.setAllowOutOfImage(true);
+    core.setCpmInteractive(!!opts.cpmInteractive);
+    core.setCpmBdosTrace(!!opts.bdosTrace);
+  }
+  if (opts.cpmRoot) {
+    core.setCpmRoot(path.resolve(opts.cpmRoot));
+  }
   core.loadImage(data, base);
+  if (opts.tail) {
+    core.setCommandTail(opts.tail);
+  }
   core.setEntry(entry);
 
   if (opts.cmd) {
@@ -94,6 +109,10 @@ export function dbgBinary(
     console.log(`reason : ${result.reason}`);
     console.log(`steps  : ${core.steps}`);
     console.log(`pc/sp  : ${formatHex(core.state.pc)}H / ${formatHex(core.state.sp)}H`);
+    if (result.history && result.history.length > 0) {
+      console.log("history:");
+      console.log(result.history.join(" "));
+    }
     const out = core.getOutput();
     if (out.length > 0) {
       console.log("output :");
@@ -112,4 +131,3 @@ export function dbgBinary(
 }
 
 export { printDisasm };
-

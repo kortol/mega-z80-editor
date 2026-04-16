@@ -9,10 +9,14 @@ export function dbgBinary(
     bytes?: string;
     decode?: string;
     cpm?: boolean;
+    cpmInteractive?: boolean;
     steps?: string;
     entry?: string;
     trace?: boolean;
+    bdosTrace?: boolean;
     cmd?: string;
+    cpmRoot?: string;
+    tail?: string;
   }
 ) {
   runBinaryDebugger(inputFile, opts);
