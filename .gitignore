@@ -23,6 +23,10 @@ Thumbs.db
 
 # emulators
 tools/emulator/*
+tools/sjasmplus/*
+tools/sjasmplus-bin/*
+tools/z88dk-bin/*
+tools/z88dk-win32-2.4.zip
 
 # temporary files
 **/.tmp_tests
@@ -31,6 +35,9 @@ tools/emulator/*
 **/.tmp_*
 
 # external imported examples
-examples/Z80-Optimized-Routines/
-examples/bbcbasic-z80/
-examples/z80float/
+examples/Z80-Optimized-Routines/*
+examples/bbcbasic-z80/*
+examples/z80float/*
+examples/z80test/*
+examples/cpm2-asm/*
+examples/cpm2-plm/*

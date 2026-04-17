@@ -30,6 +30,45 @@ npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80
 mz80 as input.asm output.rel
 ```
 
+## Config (mz80.yaml)
+
+You can set default CLI options in a config file and override them on the command line.
+Use `--config <file>` to switch config files.
+
+Example:
+
+```yaml
+as:
+  relVersion: 2
+  sym: true
+  lst: true
+  symLen: 32
+  includePaths:
+    - ./inc
+    - ./vendor
+
+link:
+  com: true
+  map: true
+  sym: true
+  log: true
+  binFrom: 0x0100
+  binTo: 0x7FFF
+  orgText: 0x0100
+  orgData: 0x8000
+  orgBss: 0x9000
+```
+
+CLI options override config values:
+
+```bash
+# uses config defaults
+mz80 link out.com a.rel b.rel
+
+# override config
+mz80 link --org-data 0xA000 out.com a.rel b.rel
+```
+
 ## Use from Node
 
 ```js
