@@ -1,5 +1,0 @@
-MZ8R
-$SECTION 0 .text size=4 align=1
-$TEXT section=.text
-T 0000 3E 03
-T 0002 3E 02

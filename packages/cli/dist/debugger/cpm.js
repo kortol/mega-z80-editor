@@ -120,7 +120,10 @@ class CpmBdos {
                 state.a = 0x00;
                 break;
             case 11:
-                state.a = 0x00;
+                state.a =
+                    (this.env.interactive?.() && this.env.hasConsoleChar?.())
+                        ? 0xff
+                        : 0x00;
                 break;
             case 12:
                 state.a = 0x22;
@@ -171,6 +174,11 @@ class CpmBdos {
                 break;
             case 36:
                 state.a = this.setRandomRecord(state) ? 0x00 : 0xff;
+                break;
+            case 40:
+                // CP/M 3 style random write with zero fill.
+                // For now, emulate as random write at current record.
+                state.a = this.writeRandom(state);
                 break;
             default:
                 state.a = 0x00;
@@ -341,8 +349,11 @@ class CpmBdos {
         if (!info)
             return false;
         const matches = this.listMatching(info);
-        if (matches.length === 0)
-            return false;
+        if (matches.length === 0) {
+            // BBC BASIC SAVE issues ERA before MAKE. Treat no-match as success so
+            // the create/write path can proceed even when file does not yet exist.
+            return true;
+        }
         for (const file of matches) {
             const p = path.join(this.env.rootDir, file);
             try {

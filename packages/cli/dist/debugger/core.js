@@ -65,6 +65,7 @@ class Z80DebugCore {
         a: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0, f: 0,
         sp: 0xfffe, pc: 0x0100,
         ix: 0x0000, iy: 0x0000,
+        i: 0x00, r: 0x00,
     };
     dmaAddr = 0x0080;
     cpm = null;
@@ -72,6 +73,10 @@ class Z80DebugCore {
     cpmInteractive = false;
     cpmBdosTrace = false;
     inputQueue = [];
+    deferredInputQueue = [];
+    stdinPreloaded = false;
+    pipeInputArmed = false;
+    lastOutChar = 0x00;
     shadow = { a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0 };
     allowOutOfImage = false;
     constructor(trace = false) {
@@ -82,11 +87,12 @@ class Z80DebugCore {
             write8: (addr, value) => this.write8(addr, value),
             getDma: () => this.dmaAddr,
             setDma: (addr) => { this.dmaAddr = addr & 0xffff; },
-            output: (text) => this.out.push(text),
+            output: (text) => this.pushOutput(text),
             rootDir: this.cpmRoot,
             trace: this.cpmBdosTrace,
             interactive: () => this.cpmInteractive,
             readConsoleChar: (blocking) => this.readConsoleChar(blocking),
+            hasConsoleChar: () => this.hasConsoleChar(),
             readConsoleLine: (maxLen) => this.readConsoleLine(maxLen),
         });
     }
@@ -197,26 +203,84 @@ class Z80DebugCore {
     getOutput() {
         return this.out.join("");
     }
+    pushOutput(text) {
+        this.out.push(text);
+        for (let i = 0; i < text.length; i++) {
+            const ch = text.charCodeAt(i) & 0xff;
+            // Arm scripted/pipe input after the first BASIC-style prompt.
+            if (ch === 0x3e /* '>' */ && (this.lastOutChar === 0x00 || this.lastOutChar === 0x0a || this.lastOutChar === 0x0d)) {
+                this.pipeInputArmed = true;
+                this.releaseNextDeferredLine();
+            }
+            this.lastOutChar = ch;
+        }
+    }
+    releaseNextDeferredLine() {
+        if (this.deferredInputQueue.length === 0)
+            return;
+        while (this.deferredInputQueue.length > 0) {
+            const ch = this.deferredInputQueue.shift();
+            this.inputQueue.push(ch);
+            if (ch === 0x0d)
+                break;
+        }
+    }
     readConsoleChar(blocking) {
         if (this.inputQueue.length > 0) {
             return this.inputQueue.shift();
         }
-        if (!blocking) {
-            if (process.stdin.isTTY)
+        if (!process.stdin.isTTY) {
+            this.preloadPipeInput();
+            if (!this.pipeInputArmed && !blocking)
                 return undefined;
-            const buf = Buffer.alloc(1);
-            const n = fs.readSync(0, buf, 0, 1, null);
-            if (n <= 0)
-                return undefined;
-            const ch = buf[0] & 0xff;
-            return ch === 0x0a ? 0x0d : ch;
+            if (this.inputQueue.length > 0)
+                return this.inputQueue.shift();
+            if (blocking && this.deferredInputQueue.length > 0)
+                return this.deferredInputQueue.shift();
+            return blocking ? 0x0d : undefined;
         }
+        if (!blocking)
+            return undefined;
         const buf = Buffer.alloc(1);
         const n = fs.readSync(0, buf, 0, 1, null);
         if (n <= 0)
             return 0x0d;
         const ch = buf[0] & 0xff;
         return ch === 0x0a ? 0x0d : ch;
+    }
+    hasConsoleChar() {
+        if (this.inputQueue.length > 0)
+            return true;
+        if (!process.stdin.isTTY) {
+            this.preloadPipeInput();
+            return this.pipeInputArmed ? this.inputQueue.length > 0 : false;
+        }
+        return false;
+    }
+    preloadPipeInput() {
+        if (this.stdinPreloaded)
+            return;
+        this.stdinPreloaded = true;
+        const buf = Buffer.alloc(4096);
+        let prevWasCr = false;
+        while (true) {
+            const n = fs.readSync(0, buf, 0, buf.length, null);
+            if (n <= 0)
+                break;
+            for (let i = 0; i < n; i++) {
+                const ch = buf[i] & 0xff;
+                if (ch === 0x0a) {
+                    if (!prevWasCr)
+                        this.deferredInputQueue.push(0x0d);
+                    prevWasCr = false;
+                    continue;
+                }
+                this.deferredInputQueue.push(ch);
+                prevWasCr = ch === 0x0d;
+            }
+        }
+        if (this.pipeInputArmed)
+            this.releaseNextDeferredLine();
     }
     readConsoleLine(maxLen) {
         const chars = [];
@@ -388,6 +452,31 @@ class Z80DebugCore {
             f |= Z80DebugCore.FLAG_C;
         this.state.f = f;
     }
+    setLdAirFlags(value) {
+        const oldCarry = this.state.f & Z80DebugCore.FLAG_C;
+        let f = oldCarry;
+        const v = value & 0xff;
+        if (v & 0x80)
+            f |= Z80DebugCore.FLAG_S;
+        if (v === 0)
+            f |= Z80DebugCore.FLAG_Z;
+        if (this.parityEven(v))
+            f |= Z80DebugCore.FLAG_PV;
+        this.state.f = f;
+    }
+    add16WithFlags(lhs, rhs) {
+        const a = lhs & 0xffff;
+        const b = rhs & 0xffff;
+        const sum = a + b;
+        const res = sum & 0xffff;
+        let f = this.state.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV);
+        if (((a & 0x0fff) + (b & 0x0fff)) > 0x0fff)
+            f |= Z80DebugCore.FLAG_H;
+        if (sum > 0xffff)
+            f |= Z80DebugCore.FLAG_C;
+        this.state.f = f;
+        return res;
+    }
     getReg8(code) {
         switch (code & 7) {
             case 0: return this.state.b & 0xff;
@@ -437,6 +526,21 @@ class Z80DebugCore {
             return undefined;
         }
         const res = this.cpm.handle(fn, this.state);
+        // CP/M convention: many callers expect AL as return byte, and CP/M 3
+        // style error probing checks H==FFH after BDOS.
+        // Many CP/M callers branch on flags immediately after CALL 0005H.
+        // Normalize flags from A and avoid stale carry leaking from caller-side ALU ops.
+        const a = this.state.a & 0xff;
+        this.state.l = a;
+        this.state.h = (a === 0xff) ? 0xff : 0x00;
+        let f = 0;
+        if (a & 0x80)
+            f |= Z80DebugCore.FLAG_S;
+        if (a === 0x00)
+            f |= Z80DebugCore.FLAG_Z;
+        if (a === 0xff)
+            f |= Z80DebugCore.FLAG_C;
+        this.state.f = f;
         return res;
     }
     step() {
@@ -468,6 +572,7 @@ class Z80DebugCore {
             console.log(`PC=${formatHex(cpu.pc)} OP=${formatHex(op, 2)} A=${formatHex(cpu.a, 2)} BC=${formatHex((cpu.b << 8) | cpu.c)} DE=${formatHex((cpu.d << 8) | cpu.e)} HL=${formatHex((cpu.h << 8) | cpu.l)} SP=${formatHex(cpu.sp)}`);
         }
         this.steps++;
+        cpu.r = (cpu.r + 1) & 0xff;
         // IX/IY prefix handling (partial)
         if (op === 0xdd || op === 0xfd) {
             const useIy = op === 0xfd;
@@ -610,22 +715,25 @@ class Z80DebugCore {
                     return { stopped: false };
                 }
                 case 0x09: { // ADD IX/IY,BC
-                    setIndex((getIndex() + (((cpu.b << 8) | cpu.c) & 0xffff)) & 0xffff);
+                    const rr = ((cpu.b << 8) | cpu.c) & 0xffff;
+                    setIndex(this.add16WithFlags(getIndex(), rr));
                     cpu.pc = (cpu.pc + 2) & 0xffff;
                     return { stopped: false };
                 }
                 case 0x19: { // ADD IX/IY,DE
-                    setIndex((getIndex() + (((cpu.d << 8) | cpu.e) & 0xffff)) & 0xffff);
+                    const rr = ((cpu.d << 8) | cpu.e) & 0xffff;
+                    setIndex(this.add16WithFlags(getIndex(), rr));
                     cpu.pc = (cpu.pc + 2) & 0xffff;
                     return { stopped: false };
                 }
                 case 0x29: { // ADD IX/IY,IX/IY
-                    setIndex((getIndex() + getIndex()) & 0xffff);
+                    const idx = getIndex();
+                    setIndex(this.add16WithFlags(idx, idx));
                     cpu.pc = (cpu.pc + 2) & 0xffff;
                     return { stopped: false };
                 }
                 case 0x39: { // ADD IX/IY,SP
-                    setIndex((getIndex() + (cpu.sp & 0xffff)) & 0xffff);
+                    setIndex(this.add16WithFlags(getIndex(), cpu.sp & 0xffff));
                     cpu.pc = (cpu.pc + 2) & 0xffff;
                     return { stopped: false };
                 }
@@ -1480,28 +1588,29 @@ class Z80DebugCore {
                 break;
             }
             case 0x09: { // ADD HL,BC
-                const hl = ((cpu.h << 8) | cpu.l) + ((cpu.b << 8) | cpu.c);
+                const hl = this.add16WithFlags((cpu.h << 8) | cpu.l, (cpu.b << 8) | cpu.c);
                 cpu.h = (hl >> 8) & 0xff;
                 cpu.l = hl & 0xff;
                 cpu.pc = (cpu.pc + 1) & 0xffff;
                 break;
             }
             case 0x19: { // ADD HL,DE
-                const hl = ((cpu.h << 8) | cpu.l) + ((cpu.d << 8) | cpu.e);
+                const hl = this.add16WithFlags((cpu.h << 8) | cpu.l, (cpu.d << 8) | cpu.e);
                 cpu.h = (hl >> 8) & 0xff;
                 cpu.l = hl & 0xff;
                 cpu.pc = (cpu.pc + 1) & 0xffff;
                 break;
             }
             case 0x29: { // ADD HL,HL
-                const hl = ((cpu.h << 8) | cpu.l) * 2;
+                const cur = (cpu.h << 8) | cpu.l;
+                const hl = this.add16WithFlags(cur, cur);
                 cpu.h = (hl >> 8) & 0xff;
                 cpu.l = hl & 0xff;
                 cpu.pc = (cpu.pc + 1) & 0xffff;
                 break;
             }
             case 0x39: { // ADD HL,SP
-                const hl = ((cpu.h << 8) | cpu.l) + cpu.sp;
+                const hl = this.add16WithFlags((cpu.h << 8) | cpu.l, cpu.sp);
                 cpu.h = (hl >> 8) & 0xff;
                 cpu.l = hl & 0xff;
                 cpu.pc = (cpu.pc + 1) & 0xffff;
@@ -1744,6 +1853,28 @@ class Z80DebugCore {
             }
             case 0xed: { // ED prefix (partial)
                 const op2 = this.read8(cpu.pc + 1);
+                if (op2 === 0x47) { // LD I,A
+                    cpu.i = cpu.a & 0xff;
+                    cpu.pc = (cpu.pc + 2) & 0xffff;
+                    break;
+                }
+                if (op2 === 0x4f) { // LD R,A
+                    cpu.r = cpu.a & 0xff;
+                    cpu.pc = (cpu.pc + 2) & 0xffff;
+                    break;
+                }
+                if (op2 === 0x57) { // LD A,I
+                    cpu.a = cpu.i & 0xff;
+                    this.setLdAirFlags(cpu.a);
+                    cpu.pc = (cpu.pc + 2) & 0xffff;
+                    break;
+                }
+                if (op2 === 0x5f) { // LD A,R
+                    cpu.a = cpu.r & 0xff;
+                    this.setLdAirFlags(cpu.a);
+                    cpu.pc = (cpu.pc + 2) & 0xffff;
+                    break;
+                }
                 if (op2 === 0xb0) { // LDIR
                     let bc = ((cpu.b << 8) | cpu.c) & 0xffff;
                     let hl = ((cpu.h << 8) | cpu.l) & 0xffff;
