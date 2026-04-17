@@ -631,6 +631,7 @@ ExprIdentifier
   = Identifier
   / DotIdentifier
   / ReservedWordIdent
+  / ExtendedMnemonicIdent
 
 AtCounter
   = "@#" {

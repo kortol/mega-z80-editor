@@ -1,5 +1,5 @@
 // packages\cli\src\assembler\encoder.ts
-import { AsmContext } from "./context";
+import { AsmContext, SectionState } from "./context";
 import { NodeInstr } from "./node";
 import { instrTable } from "./encoder/instrTable";
 import { classifyOperand } from "./operand/classifyOperand";
@@ -19,13 +19,43 @@ export function estimateInstrSize(ctx: AsmContext, node: NodeInstr): number {
       if (def.match(ctx, operand)) {
         if (typeof def.estimate === "function") {
           return def.estimate(ctx, operand, node);
-        } else {
-          return def.estimate ?? 1;
         }
+        if (typeof def.estimate === "number") return def.estimate;
+        return estimateByDryRun(ctx, node, def, operand);
       }
     }
   }
   return 1;
+}
+
+function estimateByDryRun(ctx: AsmContext, node: NodeInstr, def: any, operand: any[]): number {
+  const currentSection = ctx.sections.get(ctx.currentSection);
+  if (!currentSection) return 1;
+
+  const secClone: SectionState = {
+    ...currentSection,
+    bytes: [...(currentSection.bytes ?? [])],
+    lc: ctx.loc,
+  };
+
+  const probe: AsmContext = {
+    ...ctx,
+    texts: [],
+    unresolved: [],
+    relocs: [],
+    errors: [],
+    warnings: [],
+    sections: new Map([[ctx.currentSection, secClone]]),
+    loc: ctx.loc,
+  };
+
+  try {
+    def.encode(probe, operand, node);
+    const sz = probe.loc - ctx.loc;
+    return sz > 0 ? sz : 1;
+  } catch {
+    return 1;
+  }
 }
 
 export function encodeInstr(ctx: AsmContext, node: NodeInstr) {

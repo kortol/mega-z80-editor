@@ -17,6 +17,10 @@ function makeNode(op: string, args: string[] = [], pos: SourcePos = { line: 1, f
 }
 
 describe("pseudo - DB/DW", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   test("DB with numeric list", () => {
     const ctx = makeCtx();
     handlePseudo(ctx, makeNode("DB", ["1", "2", "3"]));
@@ -63,7 +67,8 @@ describe("pseudo - DB/DW", () => {
   test("DW with numeric list", () => {
     const ctx = makeCtx();
     handlePseudo(ctx, makeNode("DW", ["1", "2", "3"]));
-    expect(ctx.texts[0].data).toEqual([1, 0, 2, 0, 3, 0]);
+    const allBytes = ctx.texts.flatMap((t) => t.data);
+    expect(allBytes).toEqual([1, 0, 2, 0, 3, 0]);
   });
 
   // 🧩 NEW: DS（Define Storage）
@@ -119,6 +124,25 @@ describe("pseudo - DB/DW", () => {
 
     // 仮データが [00, 00]
     expect(ctx.texts[0].data).toEqual([0x00, 0x00]);
+  });
+
+  test("DW with local label registers relocation fixup", () => {
+    const ctx = makeCtx();
+    ctx.symbols.set("LBL", {
+      value: 0x1234,
+      type: "LABEL",
+      sectionId: 0,
+      pos: { line: 1, file: "test.asm", phase: "emit" },
+    } as any);
+
+    handlePseudo(ctx, makeNode("DW", ["LBL"]));
+
+    expect(ctx.unresolved.length).toBe(1);
+    const u = ctx.unresolved[0];
+    expect(u.symbol).toBe("LBL");
+    expect(u.size).toBe(2);
+    expect(u.addr).toBe(0);
+    expect(ctx.texts[0].data).toEqual([0x34, 0x12]);
   });
 
   test("DS EXT1-$ registers unresolved (future support)", () => {

@@ -143,4 +143,22 @@ describe("resolveExpr8/16", () => {
       expect(ctx.unresolved[0].size).toBe(2);
     });
   });
+
+  describe("内部LABELの再配置", () => {
+    test("LABEL式は値を返しつつfixupを積む", () => {
+      defineSymbol(ctx, "LBL", 0x0829, "LABEL");
+      const val = resolveExpr16(ctx, "LBL", pos);
+      expect(val).toBe(0x0829);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
+        addr: 1, symbol: "LBL", size: 2,
+      }));
+    });
+
+    test("recordConstLabelReloc=false ではfixupを積まない", () => {
+      defineSymbol(ctx, "LBL2", 0x1234, "LABEL");
+      const val = resolveExpr16(ctx, "LBL2", pos, false, false, 1, false);
+      expect(val).toBe(0x1234);
+      expect(ctx.unresolved).toHaveLength(0);
+    });
+  });
 });

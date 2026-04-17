@@ -1,7 +1,7 @@
 import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
-import { AsmContext, AsmOptions, canon, createContext, defineSymbol } from "../assembler/context";
+import { AsmContext, AsmOptions, canon, createContext } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
@@ -152,13 +152,27 @@ export function assemble(
 // }
 
 export function runEmit(ctx: AsmContext) {
+  const analyzeErrors = ctx.errors.slice();
+  const analyzeWarnings = ctx.warnings.slice();
+
+  runEmitPass(ctx);
+
+  // 1st pass diagnostics are only for label/address priming.
+  ctx.errors = analyzeErrors;
+  ctx.warnings = analyzeWarnings;
+
+  runEmitPass(ctx);
+}
+
+function runEmitPass(ctx: AsmContext) {
   ctx.loc = 0;
+  ctx.texts = [];
   ctx.relocs = [];
   ctx.unresolved = [];
   ctx.condStack = [];
   ctx.listing = [];
   for (const sec of ctx.sections.values()) {
-    sec.lc = 0;
+    sec.lc = sec.orgDefined ? (sec.org ?? 0) : 0;
     sec.bytes = [];
   }
 
@@ -175,7 +189,17 @@ export function runEmit(ctx: AsmContext) {
         if (!node.name.startsWith(".")) {
           ctx.currentGlobalLabel = canon(node.name, ctx);
         }
-        defineSymbol(ctx, node.name, ctx.loc, "LABEL", node.pos);
+        {
+          const key = canon(node.name.startsWith(".") && ctx.currentGlobalLabel
+            ? `${ctx.currentGlobalLabel}${node.name}`
+            : node.name, ctx);
+          ctx.symbols.set(key, {
+            value: ctx.loc,
+            sectionId: ctx.currentSection,
+            type: "LABEL",
+            pos: node.pos,
+          });
+        }
         break;
       case "pseudo":
         if (isConditionalOp(node.op)) {

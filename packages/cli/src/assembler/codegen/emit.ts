@@ -32,6 +32,8 @@ export function initCodegen(ctx: AsmContext, options?: { withDefaultSections?: b
       lc: 0,
       size: 0,
       bytes: [],
+      org: 0,
+      orgDefined: false,
     };
     ctx.sections.set(0, textSec);
   }
@@ -44,7 +46,12 @@ export function emitBytes(ctx: AsmContext, data: number[], pos: SourcePos) {
   const sec = ctx.sections.get(ctx.currentSection);
   if (!sec) throw new Error(`emitBytes: invalid section (id=${ctx.currentSection})`);
 
-  const addr = sec.lc;
+  const useRel = (ctx.output?.relVersion ?? 1) === 2;
+  const base = sec.org ?? 0;
+  const addr = useRel ? (sec.lc - base) : sec.lc;
+  if (addr < 0) {
+    throw new Error(`emitBytes: negative section offset (lc=${sec.lc}, org=${base})`);
+  }
   const required = addr + data.length;
   if (sec.bytes.length < required) {
     sec.bytes.length = required;
@@ -56,7 +63,7 @@ export function emitBytes(ctx: AsmContext, data: number[], pos: SourcePos) {
     sec.bytes[addr + i] = data[i] & 0xff;
   }
   sec.lc += data.length;
-  sec.size = Math.max(sec.size, sec.lc, sec.bytes.length);
+  sec.size = Math.max(sec.size, required, sec.bytes.length);
 
   ctx.texts.push({
     addr,
@@ -85,7 +92,9 @@ export function emitFixup(ctx: AsmContext, symbol: string, size: 1 | 2 | 4 = 2, 
   const sec = ctx.sections.get(ctx.currentSection);
 
   if (!sec) throw new Error(`emitFixup: invalid section`);
-  const addr = sec.lc;
+  const useRel = (ctx.output?.relVersion ?? 1) === 2;
+  const base = sec.org ?? 0;
+  const addr = useRel ? (sec.lc - base) : sec.lc;
 
   // 仮バイト列（0埋め）
   emitBytes(ctx, new Array(size).fill(0x00), pos);
@@ -110,9 +119,10 @@ export function emitSection(
 ) {
   const upper = name.toUpperCase();
   const kind =
-    upper.includes("TEXT") ? "TEXT" :
-      upper.includes("DATA") ? "DATA" :
-        upper.includes("BSS") ? "BSS" : "CUSTOM";
+    upper === "ASEG" ? "ASEG" :
+      upper.includes("TEXT") || upper === "CSEG" ? "TEXT" :
+        upper.includes("DATA") || upper === "DSEG" ? "DATA" :
+          upper.includes("BSS") ? "BSS" : "CUSTOM";
 
   // 現在のセクションを保存
   const prev = ctx.sections.get(ctx.currentSection);
@@ -138,6 +148,8 @@ export function emitSection(
       lc: 0,
       size: 0,
       bytes: [],
+      org: 0,
+      orgDefined: false,
     };
     ctx.sections.set(sec.id, sec);
   }
@@ -185,7 +197,9 @@ export function setLC(ctx: AsmContext, newLC: number) {
   const sec = ctx.sections.get(ctx.currentSection);
   if (sec) {
     sec.lc = newLC;
-    sec.size = Math.max(sec.size, sec.lc);
+    const base = sec.org ?? 0;
+    const rel = Math.max(0, sec.lc - base);
+    sec.size = Math.max(sec.size, rel);
   }
   ctx.loc = newLC;
 }

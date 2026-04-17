@@ -45,7 +45,7 @@ export interface RelHeaderV2 {
   entrySymIndex: number; // -1なら未指定
 }
 
-export type RelSectionKindV2 = "TEXT" | "DATA" | "BSS" | "CUSTOM";
+export type RelSectionKindV2 = "TEXT" | "DATA" | "BSS" | "CUSTOM" | "ASEG";
 
 export interface RelSectionDescV2 {
   id: number;
@@ -54,6 +54,7 @@ export interface RelSectionDescV2 {
   align: number;
   flags: number;      // bitflags (RO/RW/EXEC/ALLOC/LOAD)
   size: number;
+  org?: number;
   /** セクション内バイト列 */
   data: Uint8Array;
   /** 出力時オフセット */
@@ -70,6 +71,9 @@ export interface RelSymbolV2 {
   sectionId: number | null;
   value: number;
   nameStrOff?: number;
+  moduleName?: string;
+  defFile?: string;
+  defLine?: number;
 }
 
 export interface RelFixupV2 {
@@ -90,6 +94,7 @@ export interface RelTextV2 {
 }
 
 export interface RelModuleV2 {
+  moduleName?: string;
   /** ヘッダ情報 */
   header: RelHeaderV2;
   /** セクション情報 */

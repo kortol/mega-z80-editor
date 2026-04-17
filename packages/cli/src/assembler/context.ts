@@ -80,12 +80,14 @@ export interface LstEntry {
 export interface SectionState {
   id: number;
   name: string;
-  kind: "TEXT" | "DATA" | "BSS" | "CUSTOM";
+  kind: "TEXT" | "DATA" | "BSS" | "CUSTOM" | "ASEG";
   align: number;
   flags: number;
   lc: number;
   size: number;
   bytes: number[];
+  org?: number;
+  orgDefined?: boolean;
 }
 
 // 命令定義テーブル型（省略でも可）

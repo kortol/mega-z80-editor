@@ -35,7 +35,6 @@ export const JPInstrDefs: InstrDef[] = [
       if (t === "(HL)") emitBytes(ctx, [0xE9], node.pos);
       else if (t === "(IX)") emitBytes(ctx, [0xDD, 0xE9], node.pos);
       else emitBytes(ctx, [0xFD, 0xE9], node.pos);
-      ctx.loc += ctx.texts.at(-1)!.data.length;
     },
     estimate: (ctx, args) => (args[0].raw.toUpperCase() === "(HL)" ? 1 : 2),
   },
@@ -92,7 +91,7 @@ export const JRInstrDefs: InstrDef[] = [
 
       // ★ 16bit絶対値として評価（$含む式OK）
       const errCountBefore = ctx.errors.length;
-      const val = resolveExpr16(ctx, target, node.pos, false, false);
+      const val = resolveExpr16(ctx, target, node.pos, false, false, 1, false);
       if (ctx.errors.length > errCountBefore) {
         // Keep LC stable even on expression errors.
         emitBytes(ctx, [opcode, 0x00], node.pos);
@@ -127,7 +126,7 @@ export const JRInstrDefs: InstrDef[] = [
       const target = args[0].raw;
 
       const errCountBefore = ctx.errors.length;
-      const val = resolveExpr16(ctx, target, node.pos, false, false);
+      const val = resolveExpr16(ctx, target, node.pos, false, false, 1, false);
       if (ctx.errors.length > errCountBefore) {
         emitBytes(ctx, [0x18, 0x00], node.pos);
         return;
@@ -262,7 +261,7 @@ export const DJNZInstrDefs: InstrDef[] = [
 
       // ★ 16bit絶対値として評価（$もOK）
       const errCountBefore = ctx.errors.length;
-      const val = resolveExpr16(ctx, target, node.pos, false, false);
+      const val = resolveExpr16(ctx, target, node.pos, false, false, 1, false);
       if (ctx.errors.length > errCountBefore) {
         emitBytes(ctx, [0x10, 0x00], node.pos);
         return;
