@@ -35,7 +35,7 @@ export function printDisasm(
 function printRegs(core: Z80DebugCore): void {
   const s = core.state;
   console.log(
-    `A=${formatHex(s.a, 2)} F=${formatHex(s.f, 2)} BC=${formatHex((s.b << 8) | s.c)} DE=${formatHex((s.d << 8) | s.e)} HL=${formatHex((s.h << 8) | s.l)} SP=${formatHex(s.sp)} PC=${formatHex(s.pc)}`
+    `A=${formatHex(s.a, 2)} F=${formatHex(s.f, 2)} BC=${formatHex((s.b << 8) | s.c)} DE=${formatHex((s.d << 8) | s.e)} HL=${formatHex((s.h << 8) | s.l)} IX=${formatHex(s.ix)} IY=${formatHex(s.iy)} SP=${formatHex(s.sp)} PC=${formatHex(s.pc)}`
   );
 }
 

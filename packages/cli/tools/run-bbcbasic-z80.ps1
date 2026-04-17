@@ -19,13 +19,25 @@ $files = @(
   "ram"
 )
 
+$exampleDir = Join-Path $repoRoot "examples\bbcbasic-z80"
+$relFiles = @()
+
 foreach ($name in $files) {
   Write-Host "== $name =="
-  $src = Join-Path $repoRoot "examples\bbcbasic-z80\$name.asm"
-  $out = ".tmp_bbcbasic_$name.rel"
+  $src = Join-Path $exampleDir "$name.asm"
+  $out = Join-Path $exampleDir ".tmp_bbcbasic_as_$name.rel"
 
   pnpm -C $cliDir run dev -- as --lst --sym $src $out
   if ($LASTEXITCODE -ne 0) {
     throw "assemble failed: $name (exit=$LASTEXITCODE)"
   }
+
+  $relFiles += $out
+}
+
+Write-Host "== link =="
+$outCom = Join-Path $exampleDir "bbcbasic-as.com"
+& pnpm -C $cliDir run dev -- link --com --map --sym --log $outCom @relFiles
+if ($LASTEXITCODE -ne 0) {
+  throw "link failed (exit=$LASTEXITCODE)"
 }
