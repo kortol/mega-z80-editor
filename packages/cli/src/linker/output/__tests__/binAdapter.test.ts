@@ -82,6 +82,35 @@ describe("P1-F: BinOutputAdapter", () => {
     expect(dmp).toBe("0100: 3E 00 C9");
   });
 
+  it("includes aligned data segment gap in .com output", () => {
+    const result: LinkResult = {
+      symbols: new Map(),
+      entry: 0x100,
+      segments: [
+        {
+          bank: 0,
+          kind: "text",
+          range: { min: 0x100, max: 0x102 },
+          data: new Uint8Array([0xAA, 0xBB, 0xCC]),
+        },
+        {
+          bank: 0,
+          kind: "data",
+          range: { min: 0x110, max: 0x111 },
+          data: new Uint8Array([0x11, 0x22]),
+        },
+      ],
+    };
+    const adapter = new BinOutputAdapter(result, { com: true });
+    adapter.write(comPath);
+
+    const com = fs.readFileSync(comPath);
+    expect(com.length).toBe(0x12);
+    expect(Array.from(com.slice(0, 3))).toEqual([0xaa, 0xbb, 0xcc]);
+    expect(Array.from(com.slice(3, 0x10))).toEqual(new Array(0x0d).fill(0x00));
+    expect(Array.from(com.slice(0x10, 0x12))).toEqual([0x11, 0x22]);
+  });
+
   it("throws if segment is missing", () => {
     const result: LinkResult = { symbols: new Map(), segments: [], entry: 0x0 };
     const adapter = new BinOutputAdapter(result);

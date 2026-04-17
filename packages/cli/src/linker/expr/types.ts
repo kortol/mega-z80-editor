@@ -1,7 +1,9 @@
 // src/linker/expr/types.ts
 
+import type { LinkedSymbol } from "../core/types";
+
 export interface LinkResolveContext {
-  symbols: Map<string, { bank: number; addr: number }>;
+  symbols: Map<string, LinkedSymbol>;
   externs?: Set<string>;
 }
 

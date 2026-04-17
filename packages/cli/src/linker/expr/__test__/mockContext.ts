@@ -3,7 +3,7 @@ import { LinkResolveContext } from "../types";
 
 export function createMockContext(): LinkResolveContext {
   return {
-    symbols: new Map<string, { bank: number; addr: number }>([
+    symbols: new Map([
       ["FOO", { bank: 0, addr: 0x200 }],
       ["BAR", { bank: 0, addr: 0x300 }],
     ]),
