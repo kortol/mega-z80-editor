@@ -23,7 +23,8 @@ function isLabelLike(s) {
     return /^([A-Z_][A-Z0-9_]*|\$|@[\d]+)([+\-][A-Z0-9_\$@]+)?$/i.test(s);
 }
 function classifyOperand(ctx, s) {
-    const t = s.trim().toUpperCase();
+    const raw = s.trim();
+    const t = raw.toUpperCase();
     // 特例: [HL]
     if (t === '[HL]')
         return { kind: operandKind_1.OperandKind.EXPR, raw: t };
@@ -40,7 +41,7 @@ function classifyOperand(ctx, s) {
                 disp = 0;
             }
         }
-        return { kind: operandKind_1.OperandKind.IDX, raw: t, disp };
+        return { kind: operandKind_1.OperandKind.IDX, raw, disp };
     }
     // MEM: (expr) ただし無効・入れ子は除外
     if (/^\(.+\)$/.test(t)) {
@@ -52,11 +53,11 @@ function classifyOperand(ctx, s) {
             return { kind: operandKind_1.OperandKind.UNKNOWN, raw: t };
         // NGパターン: "IX+" / "IY-" のような未完成の式
         if (/^(IX|IY)\s*[+-]\s*$/i.test(inner)) {
-            return { kind: operandKind_1.OperandKind.UNKNOWN, raw: t };
+            return { kind: operandKind_1.OperandKind.UNKNOWN, raw };
         }
         // REG_IND以外ならMEM
         if (!/^(HL|SP|BC|DE|IX|IY)$/i.test(inner)) {
-            return { kind: operandKind_1.OperandKind.MEM, raw: t };
+            return { kind: operandKind_1.OperandKind.MEM, raw };
         }
     }
     // REG_IND: (HL),(SP),(BC),(DE)
@@ -84,23 +85,23 @@ function classifyOperand(ctx, s) {
     }
     // IMM
     if (isNumericLiteral(t)) {
-        return { kind: operandKind_1.OperandKind.IMM, raw: t };
+        return { kind: operandKind_1.OperandKind.IMM, raw };
     }
     // EXPR
-    if (isLabelLike(t)) {
-        return { kind: operandKind_1.OperandKind.EXPR, raw: t };
+    if (isLabelLike(raw)) {
+        return { kind: operandKind_1.OperandKind.EXPR, raw };
     }
     // --- EXPR ---
     try {
-        const tokens = (0, tokenizer_1.tokenize)(ctx, t).filter(t => t.kind !== "eol");
+        const tokens = (0, tokenizer_1.tokenize)(ctx, raw).filter(t => t.kind !== "eol");
         const expr = (0, parserExpr_1.parseExpr)(tokens);
         // AST が生成できれば式として有効
         if (expr) {
-            return { kind: operandKind_1.OperandKind.EXPR, raw: t };
+            return { kind: operandKind_1.OperandKind.EXPR, raw };
         }
     }
     catch {
         // 式として解釈できない場合は無視
     }
-    return { kind: operandKind_1.OperandKind.UNKNOWN, raw: t };
+    return { kind: operandKind_1.OperandKind.UNKNOWN, raw };
 }

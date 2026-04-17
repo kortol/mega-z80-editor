@@ -32,12 +32,17 @@ function printDisasm(mem, from, count, addrToNames) {
 }
 function printRegs(core) {
     const s = core.state;
-    console.log(`A=${(0, core_1.formatHex)(s.a, 2)} F=${(0, core_1.formatHex)(s.f, 2)} BC=${(0, core_1.formatHex)((s.b << 8) | s.c)} DE=${(0, core_1.formatHex)((s.d << 8) | s.e)} HL=${(0, core_1.formatHex)((s.h << 8) | s.l)} SP=${(0, core_1.formatHex)(s.sp)} PC=${(0, core_1.formatHex)(s.pc)}`);
+    console.log(`A=${(0, core_1.formatHex)(s.a, 2)} F=${(0, core_1.formatHex)(s.f, 2)} BC=${(0, core_1.formatHex)((s.b << 8) | s.c)} DE=${(0, core_1.formatHex)((s.d << 8) | s.e)} HL=${(0, core_1.formatHex)((s.h << 8) | s.l)} IX=${(0, core_1.formatHex)(s.ix)} IY=${(0, core_1.formatHex)(s.iy)} SP=${(0, core_1.formatHex)(s.sp)} PC=${(0, core_1.formatHex)(s.pc)}`);
+}
+function printStepTrace(core, addrToNames) {
+    printRegs(core);
+    printDisasm(core.mem, core.state.pc, 1, addrToNames);
 }
 function printHelp() {
     console.log("commands:");
     console.log("  run|c [steps]");
     console.log("  step|s [n]");
+    console.log("  trace on|off");
     console.log("  regs|r");
     console.log("  disas|u [addr] [count]");
     console.log("  mem|d [addr] [bytes]");
@@ -46,7 +51,7 @@ function printHelp() {
     console.log("  break|b list");
     console.log("  quit|q");
 }
-function runOneCommand(core, raw, addrToNames) {
+function runOneCommand(core, raw, addrToNames, ctx) {
     const line = raw.trim();
     if (!line)
         return true;
@@ -65,6 +70,9 @@ function runOneCommand(core, raw, addrToNames) {
     if (cmd === "step" || cmd === "s") {
         const n = t[1] ? (0, core_1.parseNum)(t[1]) : 1;
         for (let i = 0; i < n; i++) {
+            if (ctx.traceEachStep) {
+                printStepTrace(core, addrToNames);
+            }
             const res = core.step();
             if (res.stopped) {
                 console.log(`stop: ${res.reason}`);
@@ -76,10 +84,36 @@ function runOneCommand(core, raw, addrToNames) {
     }
     if (cmd === "run" || cmd === "c") {
         const n = t[1] ? (0, core_1.parseNum)(t[1]) : 200000;
-        const res = core.run(n);
-        console.log(`stop: ${res.reason}`);
+        let stopReason;
+        for (let i = 0; i < n; i++) {
+            if (ctx.traceEachStep) {
+                printStepTrace(core, addrToNames);
+            }
+            const res = core.step();
+            if (res.stopped) {
+                stopReason = res.reason;
+                break;
+            }
+        }
+        if (!stopReason)
+            stopReason = `Step limit reached (${n})`;
+        console.log(`stop: ${stopReason}`);
         printRegs(core);
         return true;
+    }
+    if (cmd === "trace") {
+        const mode = (t[1] ?? "").toLowerCase();
+        if (mode === "on") {
+            ctx.traceEachStep = true;
+            console.log("trace: on");
+            return true;
+        }
+        if (mode === "off") {
+            ctx.traceEachStep = false;
+            console.log("trace: off");
+            return true;
+        }
+        throw new Error(`Invalid trace command: ${line}`);
     }
     if (cmd === "disas" || cmd === "u") {
         const addr = t[1] ? (0, core_1.parseNum)(t[1]) : core.state.pc;
@@ -113,12 +147,15 @@ function runOneCommand(core, raw, addrToNames) {
     throw new Error(`Unknown command: ${line}`);
 }
 function runCommandScript(core, script, addrToNames) {
+    const ctx = {
+        traceEachStep: false,
+    };
     const commands = script
         .split(";")
         .map((s) => s.trim())
         .filter(Boolean);
     for (const c of commands) {
-        const keepGoing = runOneCommand(core, c, addrToNames);
+        const keepGoing = runOneCommand(core, c, addrToNames, ctx);
         if (!keepGoing)
             break;
     }

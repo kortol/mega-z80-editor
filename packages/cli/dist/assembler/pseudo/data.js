@@ -211,7 +211,6 @@ function handleDW(ctx, node) {
         (0, emit_1.advanceLC)(ctx, count);
         return;
     }
-    const words = [];
     for (const a of node.args) {
         const valStr = a.value;
         if (valStr.startsWith('"') && valStr.endsWith('"')) {
@@ -220,16 +219,7 @@ function handleDW(ctx, node) {
         // --- 外部シンボル ± 定数 ---
         const ext = (0, parseExternExpr_1.parseExternExpr)(ctx, valStr);
         if (ext) {
-            // 途中で外部シンボルが出た場合は、現バッファをフラッシュしてemit
-            if (words.length > 0) {
-                const bytes = [];
-                for (const w of words)
-                    bytes.push(w & 0xFF, (w >> 8) & 0xFF);
-                (0, emit_1.emitBytes)(ctx, bytes, node.pos);
-                words.length = 0;
-            }
             if (ctx.phase === "emit") {
-                const addr = ctx.loc;
                 (0, emit_1.emitFixup)(ctx, ext.symbol, 2, {
                     op: "DW", // or "DATA" depending on pseudo
                     phase: "assemble",
@@ -238,19 +228,12 @@ function handleDW(ctx, node) {
             }
             continue;
         }
-        // --- 通常の式（Reloc禁止で評価） ---
-        const val = (0, utils_1.resolveExpr16)(ctx, valStr, node.pos, false, true);
+        // --- 通常の式（ラベル式は再配置情報も記録） ---
+        const val = (0, utils_1.resolveExpr16)(ctx, valStr, node.pos, false, false, 0, true);
         if (val < -0x8000 || val > 0xffff) {
             ctx.warnings.push((0, errors_1.makeWarning)(errors_1.AssemblerErrorCode.ExprOutRange, `DW value ${val} truncated at line ${node.pos.line}`, { pos: ctx.currentPos }));
         }
-        words.push(val);
-    }
-    // 🔹最後にまとめてemit
-    if (words.length > 0) {
-        const bytes = [];
-        for (const w of words)
-            bytes.push(w & 0xFF, (w >> 8) & 0xFF);
-        (0, emit_1.emitBytes)(ctx, bytes, node.pos);
+        (0, emit_1.emitWord)(ctx, val, node.pos);
     }
 }
 // -----------------------------------------------------

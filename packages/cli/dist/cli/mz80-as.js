@@ -163,13 +163,23 @@ function assemble(logger, inputFile, outputFile, options) {
 //   }
 // }
 function runEmit(ctx) {
+    const analyzeErrors = ctx.errors.slice();
+    const analyzeWarnings = ctx.warnings.slice();
+    runEmitPass(ctx);
+    // 1st pass diagnostics are only for label/address priming.
+    ctx.errors = analyzeErrors;
+    ctx.warnings = analyzeWarnings;
+    runEmitPass(ctx);
+}
+function runEmitPass(ctx) {
     ctx.loc = 0;
+    ctx.texts = [];
     ctx.relocs = [];
     ctx.unresolved = [];
     ctx.condStack = [];
     ctx.listing = [];
     for (const sec of ctx.sections.values()) {
-        sec.lc = 0;
+        sec.lc = sec.orgDefined ? (sec.org ?? 0) : 0;
         sec.bytes = [];
     }
     for (const node of ctx.nodes ?? []) {
@@ -188,7 +198,17 @@ function runEmit(ctx) {
                 if (!node.name.startsWith(".")) {
                     ctx.currentGlobalLabel = (0, context_1.canon)(node.name, ctx);
                 }
-                (0, context_1.defineSymbol)(ctx, node.name, ctx.loc, "LABEL", node.pos);
+                {
+                    const key = (0, context_1.canon)(node.name.startsWith(".") && ctx.currentGlobalLabel
+                        ? `${ctx.currentGlobalLabel}${node.name}`
+                        : node.name, ctx);
+                    ctx.symbols.set(key, {
+                        value: ctx.loc,
+                        sectionId: ctx.currentSection,
+                        type: "LABEL",
+                        pos: node.pos,
+                    });
+                }
                 break;
             case "pseudo":
                 if ((0, conditional_1.isConditionalOp)(node.op)) {

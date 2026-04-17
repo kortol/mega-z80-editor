@@ -33,7 +33,6 @@ exports.JPInstrDefs = [
                 (0, emit_1.emitBytes)(ctx, [0xDD, 0xE9], node.pos);
             else
                 (0, emit_1.emitBytes)(ctx, [0xFD, 0xE9], node.pos);
-            ctx.loc += ctx.texts.at(-1).data.length;
         },
         estimate: (ctx, args) => (args[0].raw.toUpperCase() === "(HL)" ? 1 : 2),
     },
@@ -80,10 +79,15 @@ exports.JRInstrDefs = [
         encode(ctx, args, node) {
             const cond = args[0].raw.toUpperCase();
             const target = args[1].raw;
+            const opcode = { NZ: 0x20, Z: 0x28, NC: 0x30, C: 0x38 }[cond] ?? 0x20;
             // ★ 16bit絶対値として評価（$含む式OK）
-            const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false);
-            if (ctx.errors.length > 0)
+            const errCountBefore = ctx.errors.length;
+            const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false, 1, false);
+            if (ctx.errors.length > errCountBefore) {
+                // Keep LC stable even on expression errors.
+                (0, emit_1.emitBytes)(ctx, [opcode, 0x00], node.pos);
                 return;
+            }
             // ★ offset計算（target - (loc + 2)）
             const offset = val - (ctx.loc + 2);
             // ★ 範囲チェック
@@ -93,10 +97,11 @@ exports.JRInstrDefs = [
                     message: `JR target out of range (${offset}) at line ${node.pos.line}`,
                     pos: node.pos,
                 });
+                // Keep LC stable even on range errors.
+                (0, emit_1.emitBytes)(ctx, [opcode, 0x00], node.pos);
                 return;
             }
-            const opcode = { NZ: 0x20, Z: 0x28, NC: 0x30, C: 0x38 }[cond];
-            (0, emit_1.emitBytes)(ctx, [opcode ?? 0, offset & 0xff], node.pos);
+            (0, emit_1.emitBytes)(ctx, [opcode, offset & 0xff], node.pos);
         },
         estimate: 2,
     },
@@ -106,9 +111,12 @@ exports.JRInstrDefs = [
             (args[0].kind === operandKind_1.OperandKind.IMM || args[0].kind === operandKind_1.OperandKind.EXPR),
         encode(ctx, args, node) {
             const target = args[0].raw;
-            const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false);
-            if (ctx.errors.length > 0)
+            const errCountBefore = ctx.errors.length;
+            const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false, 1, false);
+            if (ctx.errors.length > errCountBefore) {
+                (0, emit_1.emitBytes)(ctx, [0x18, 0x00], node.pos);
                 return;
+            }
             const offset = val - (ctx.loc + 2);
             if (offset < -128 || offset > 127) {
                 ctx.errors.push({
@@ -116,6 +124,7 @@ exports.JRInstrDefs = [
                     message: `JR target out of range (${offset}) at line ${node.pos.line}`,
                     pos: node.pos,
                 });
+                (0, emit_1.emitBytes)(ctx, [0x18, 0x00], node.pos);
                 return;
             }
             (0, emit_1.emitBytes)(ctx, [0x18, offset & 0xff], node.pos);
@@ -221,9 +230,12 @@ exports.DJNZInstrDefs = [
         encode(ctx, args, node) {
             const target = args[0].raw;
             // ★ 16bit絶対値として評価（$もOK）
-            const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false);
-            if (ctx.errors.length > 0)
+            const errCountBefore = ctx.errors.length;
+            const val = (0, utils_1.resolveExpr16)(ctx, target, node.pos, false, false, 1, false);
+            if (ctx.errors.length > errCountBefore) {
+                (0, emit_1.emitBytes)(ctx, [0x10, 0x00], node.pos);
                 return;
+            }
             // ★ offset計算（target - (loc + 2)）
             const offset = val - (ctx.loc + 2);
             // ★ 範囲チェック
@@ -233,6 +245,7 @@ exports.DJNZInstrDefs = [
                     message: `DJNZ target out of range (${offset}) at line ${node.pos.line}`,
                     pos: node.pos,
                 });
+                (0, emit_1.emitBytes)(ctx, [0x10, 0x00], node.pos);
                 return;
             }
             (0, emit_1.emitBytes)(ctx, [0x10, offset & 0xff], node.pos);

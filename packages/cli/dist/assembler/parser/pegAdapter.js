@@ -472,6 +472,12 @@ function parsePeg(ctx, source) {
                 const pos = locToPos(ctx, instr.pos ?? item.pos);
                 const op = String(instr.name).toUpperCase();
                 const invokeArgs = (instr.args ?? []).map((a) => (a == null ? "" : String(a)));
+                const isOpcode = !!ctx.opcodes?.has((0, context_1.canon)(op, ctx));
+                // "CP" のような opcode 名が parser 都合で macroInvoke 扱いに落ちた場合は、
+                // 未定義マクロとして飲み込まずに構文エラーとして止める。
+                if (isOpcode && invokeArgs.length === 0 && !hasMacro(instr.name)) {
+                    throw new Error(`Syntax error: missing operand(s) for opcode '${op}' at line ${pos.line + 1}`);
+                }
                 if (pseudoOps.has(op)) {
                     if (op === "DEFL") {
                         if (invokeArgs.length >= 2) {

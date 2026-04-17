@@ -20,13 +20,41 @@ function estimateInstrSize(ctx, node) {
                 if (typeof def.estimate === "function") {
                     return def.estimate(ctx, operand, node);
                 }
-                else {
-                    return def.estimate ?? 1;
-                }
+                if (typeof def.estimate === "number")
+                    return def.estimate;
+                return estimateByDryRun(ctx, node, def, operand);
             }
         }
     }
     return 1;
+}
+function estimateByDryRun(ctx, node, def, operand) {
+    const currentSection = ctx.sections.get(ctx.currentSection);
+    if (!currentSection)
+        return 1;
+    const secClone = {
+        ...currentSection,
+        bytes: [...(currentSection.bytes ?? [])],
+        lc: ctx.loc,
+    };
+    const probe = {
+        ...ctx,
+        texts: [],
+        unresolved: [],
+        relocs: [],
+        errors: [],
+        warnings: [],
+        sections: new Map([[ctx.currentSection, secClone]]),
+        loc: ctx.loc,
+    };
+    try {
+        def.encode(probe, operand, node);
+        const sz = probe.loc - ctx.loc;
+        return sz > 0 ? sz : 1;
+    }
+    catch {
+        return 1;
+    }
 }
 function encodeInstr(ctx, node) {
     const defs = instrTable_1.instrTable[node.op];

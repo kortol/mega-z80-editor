@@ -31,6 +31,91 @@ const errors_1 = require("../errors");
 const eval_1 = require("../expr/eval");
 const parserExpr_1 = require("../expr/parserExpr");
 const tokenizer_1 = require("../tokenizer");
+function resolveLocalSymbolName(ctx, name) {
+    let resolved = name;
+    if (resolved.startsWith(".")) {
+        const base = ctx.currentGlobalLabel;
+        if (base)
+            resolved = `${base}${resolved}`;
+    }
+    return ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
+}
+function extractRelocOrConst(ctx, ast) {
+    if (!ast || typeof ast !== "object")
+        return null;
+    switch (ast.kind) {
+        case "Const":
+            return { kind: "Const", value: Number(ast.value ?? 0) };
+        case "Symbol": {
+            const nameRaw = String(ast.name ?? "");
+            if (nameRaw === "$")
+                return { kind: "Const", value: ctx.loc };
+            const name = resolveLocalSymbolName(ctx, nameRaw);
+            if (ctx.externs.has(name))
+                return { kind: "Reloc", sym: name, addend: 0 };
+            const sym = ctx.symbols.get(name);
+            if (!sym)
+                return null;
+            if (typeof sym === "number")
+                return { kind: "Const", value: sym };
+            if (sym.type === "CONST")
+                return { kind: "Const", value: Number(sym.value ?? 0) };
+            if (sym.type === "EXTERN")
+                return { kind: "Reloc", sym: name, addend: 0 };
+            if (sym.type === "LABEL") {
+                const sec = ctx.sections?.get(sym.sectionId ?? 0);
+                if (sec?.kind === "ASEG")
+                    return { kind: "Const", value: Number(sym.value ?? 0) };
+                return { kind: "Reloc", sym: name, addend: 0 };
+            }
+            return null;
+        }
+        case "Unary": {
+            const v = extractRelocOrConst(ctx, ast.expr);
+            if (!v)
+                return null;
+            if (v.kind === "Reloc")
+                return null;
+            const op = String(ast.op ?? "+");
+            if (op === "+")
+                return { kind: "Const", value: +v.value };
+            if (op === "-")
+                return { kind: "Const", value: -v.value };
+            if (op === "~")
+                return { kind: "Const", value: ~v.value };
+            return null;
+        }
+        case "Binary": {
+            const L = extractRelocOrConst(ctx, ast.left);
+            const R = extractRelocOrConst(ctx, ast.right);
+            if (!L || !R)
+                return null;
+            const op = String(ast.op ?? "");
+            if (L.kind === "Const" && R.kind === "Const") {
+                if (op === "+")
+                    return { kind: "Const", value: L.value + R.value };
+                if (op === "-")
+                    return { kind: "Const", value: L.value - R.value };
+                return null;
+            }
+            if (L.kind === "Reloc" && R.kind === "Const") {
+                if (op === "+")
+                    return { kind: "Reloc", sym: L.sym, addend: L.addend + R.value };
+                if (op === "-")
+                    return { kind: "Reloc", sym: L.sym, addend: L.addend - R.value };
+                return null;
+            }
+            if (L.kind === "Const" && R.kind === "Reloc") {
+                if (op === "+")
+                    return { kind: "Reloc", sym: R.sym, addend: R.addend + L.value };
+                return null;
+            }
+            return null;
+        }
+        default:
+            return null;
+    }
+}
 /* -------------------- 値解決 -------------------- */
 /** 式/シンボル/数値リテラルを数値に変換。未解決なら null */
 function resolveValue(ctx, expr) {
@@ -165,8 +250,12 @@ function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = fa
         }
         // --- pass2 のときだけ記録 ---
         if (ctx.phase === "emit") {
+            const sec = ctx.sections?.get(ctx.currentSection ?? 0);
+            const useRel = (ctx.output?.relVersion ?? ctx.options?.relVersion ?? 1) === 2;
+            const base = useRel && sec && sec.kind !== "ASEG" ? (sec.org ?? 0) : 0;
+            const addr = useRel ? (ctx.loc - base) + relocOffset : ctx.loc + relocOffset;
             const relocEntry = {
-                addr: ctx.loc + relocOffset,
+                addr,
                 symbol: res.sym,
                 size: 1,
                 sectionId: ctx.currentSection ?? 0,
@@ -208,7 +297,7 @@ function resolveExpr8(ctx, expr, pos, strict, rejectReloc = false, relative = fa
     }
     throw new Error(`Unexpected evalExpr result at line ${pos.line}`);
 }
-function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false, relocOffset = 1) {
+function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false, relocOffset = 1, recordConstLabelReloc = true) {
     const effectiveStrict = strict ?? ctx.options.strictOverflow ?? false;
     const prevErrCount = ctx.errors.length;
     const tokens = (0, tokenizer_1.tokenize)(ctx, expr).filter(t => t.kind !== "eol");
@@ -224,8 +313,12 @@ function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false, relocOffset 
         }
         // --- pass2 のときだけ記録 ---
         if (ctx.phase === "emit") {
+            const sec = ctx.sections?.get(ctx.currentSection ?? 0);
+            const useRel = (ctx.output?.relVersion ?? ctx.options?.relVersion ?? 1) === 2;
+            const base = useRel && sec && sec.kind !== "ASEG" ? (sec.org ?? 0) : 0;
+            const addr = useRel ? (ctx.loc - base) + relocOffset : ctx.loc + relocOffset;
             const relocEntry = {
-                addr: ctx.loc + relocOffset,
+                addr,
                 symbol: res.sym,
                 addend: Number(res.addend ?? 0),
                 size: 2,
@@ -264,6 +357,33 @@ function resolveExpr16(ctx, expr, pos, strict, rejectReloc = false, relocOffset 
     // console.log("Const");
     // ---- Const値 ----
     if (res.kind === "Const") {
+        // LABEL由来の定数式（例: LD HL,TABLE）にも fixup を積む。
+        // これによりリンク時にセクション配置基準で再配置される。
+        if (recordConstLabelReloc && !rejectReloc && ctx.phase === "emit") {
+            const rr = extractRelocOrConst(ctx, e);
+            if (rr && rr.kind === "Reloc") {
+                const sec = ctx.sections?.get(ctx.currentSection ?? 0);
+                const useRel = (ctx.output?.relVersion ?? ctx.options?.relVersion ?? 1) === 2;
+                const base = useRel && sec && sec.kind !== "ASEG" ? (sec.org ?? 0) : 0;
+                const addr = useRel ? (ctx.loc - base) + relocOffset : ctx.loc + relocOffset;
+                const relocEntry = {
+                    addr,
+                    symbol: rr.sym,
+                    addend: Number(rr.addend ?? 0),
+                    size: 2,
+                    sectionId: ctx.currentSection ?? 0,
+                    requester: {
+                        op: "ENCODER",
+                        phase: "assemble",
+                        pos,
+                    },
+                };
+                if (!ctx.relocs)
+                    ctx.relocs = [];
+                ctx.relocs.push(relocEntry);
+                ctx.unresolved.push(relocEntry);
+            }
+        }
         if (res.value < -32768 || res.value > 0xFFFF) {
             if (effectiveStrict) {
                 throw new Error(`16bit immediate out of range: ${res.value} (line ${pos.line})`);

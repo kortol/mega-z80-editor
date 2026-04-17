@@ -30,9 +30,22 @@ function writeRelV2(mod, outPath) {
     fs_1.default.writeSync(fd, Buffer.from("MZ8R"));
     fs_1.default.writeSync(fd, Buffer.from([2])); // version = 2
     w(""); // 改行で区切り（次から通常出力）
+    if (mod.moduleName) {
+        w(`H ${encodeToken(mod.moduleName)}`);
+    }
     // --- Section table ---
     for (const sec of mod.sections) {
-        w(`$SECTION ${sec.id} ${sec.name} size=${sec.size ?? 0} align=${sec.align ?? 1}`);
+        const parts = [
+            `$SECTION ${sec.id} ${sec.name}`,
+            `kind=${sec.kind ?? "TEXT"}`,
+            `size=${sec.size ?? 0}`,
+            `align=${sec.align ?? 1}`,
+        ];
+        if (sec.org !== undefined) {
+            const orgHex = sec.org.toString(16).toUpperCase();
+            parts.push(`org=${orgHex}H`);
+        }
+        w(parts.join(" "));
     }
     // --- Text records grouped by section ---
     for (const sec of mod.sections) {
@@ -58,7 +71,16 @@ function writeRelV2(mod, outPath) {
         const secName = sym.sectionId != null && mod.sections[sym.sectionId]
             ? ` ${mod.sections[sym.sectionId].name}`
             : "";
-        w(`S ${sym.name} ${addrHex}${secName}`);
+        const storage = sym.storage ?? "REL";
+        const extras = [];
+        if (sym.moduleName)
+            extras.push(`module=${encodeToken(sym.moduleName)}`);
+        if (sym.defFile)
+            extras.push(`defFile=${encodeToken(sym.defFile)}`);
+        if (typeof sym.defLine === "number" && Number.isFinite(sym.defLine)) {
+            extras.push(`defLine=${Math.trunc(sym.defLine)}`);
+        }
+        w(`S ${sym.name} ${addrHex}${secName} ${storage}${extras.length ? ` ${extras.join(" ")}` : ""}`);
     }
     // --- Relocations / unresolved refs ---
     for (const fx of mod.fixups ?? []) {
@@ -80,4 +102,7 @@ function writeRelV2(mod, outPath) {
         w(`E ${entryHex}`);
     }
     fs_1.default.closeSync(fd);
+}
+function encodeToken(value) {
+    return encodeURIComponent(value);
 }

@@ -7553,6 +7553,9 @@ function peg$parse(input, options) {
       s0 = peg$parseDotIdentifier();
       if (s0 === peg$FAILED) {
         s0 = peg$parseReservedWordIdent();
+        if (s0 === peg$FAILED) {
+          s0 = peg$parseExtendedMnemonicIdent();
+        }
       }
     }
 
