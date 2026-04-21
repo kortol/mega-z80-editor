@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { buildAddrToNames, parseSymFile } from "./symbols";
 import { decodeOne } from "./disasm";
-import { formatHex, parseNum, Z80DebugCore } from "./core";
+import { formatHex, parseNum, Z80CoreSnapshot, Z80DebugCore } from "./core";
 import { printDisasm, printHexDump, runCommandScript } from "./commandRunner";
 
 function printStaticDisasm(buf: Uint8Array, base: number, from: number, count: number, addrToNames: Map<number, string[]>): void {
@@ -35,6 +35,10 @@ export function dbgBinary(
     cpm?: boolean;
     cpmInteractive?: boolean;
     steps?: string;
+    progressEvery?: string;
+    saveState?: string;
+    loadState?: string;
+    saveStateEvery?: string;
     entry?: string;
     trace?: boolean;
     bdosTrace?: boolean;
@@ -44,7 +48,10 @@ export function dbgBinary(
   }
 ) {
   const absInput = path.resolve(inputFile);
-  const data = fs.readFileSync(absInput);
+  if (!opts.loadState && !fs.existsSync(absInput)) {
+    throw new Error(`Input file not found: ${absInput}`);
+  }
+  const data = fs.existsSync(absInput) ? fs.readFileSync(absInput) : Buffer.alloc(0);
   const defaultBase = /\.com$/i.test(absInput) ? 0x100 : 0;
   const base = opts.base ? parseNum(opts.base) : defaultBase;
   const from = opts.from ? parseNum(opts.from) : base;
@@ -52,6 +59,15 @@ export function dbgBinary(
   const decodeCount = opts.decode ? parseNum(opts.decode) : 24;
   const entry = opts.entry ? parseNum(opts.entry) : 0x0100;
   const maxSteps = opts.steps ? parseNum(opts.steps) : 200000;
+  const progressEvery = opts.progressEvery ? parseNum(opts.progressEvery) : 0;
+  const saveStatePath = opts.saveState ? path.resolve(opts.saveState) : undefined;
+  const loadStatePath = opts.loadState ? path.resolve(opts.loadState) : undefined;
+  const saveStateEvery = opts.saveStateEvery ? parseNum(opts.saveStateEvery) : 0;
+  const tickEvery = progressEvery > 0
+    ? progressEvery
+    : saveStateEvery > 0
+      ? saveStateEvery
+      : 0;
 
   const symPath = opts.sym
     ? path.resolve(opts.sym)
@@ -66,9 +82,12 @@ export function dbgBinary(
   console.log(`base   : ${formatHex(base)}H`);
   console.log(`from   : ${formatHex(from)}H`);
   console.log(`sym    : ${symPath ?? "(none)"}`);
+  if (saveStatePath) console.log(`save   : ${saveStatePath}`);
+  if (loadStatePath) console.log(`load   : ${loadStatePath}`);
 
   const core = new Z80DebugCore(!!opts.trace);
   if (opts.cpm) {
+    core.setCpm22Enabled(true);
     core.setAllowOutOfImage(true);
     core.setCpmInteractive(!!opts.cpmInteractive);
     core.setCpmBdosTrace(!!opts.bdosTrace);
@@ -76,11 +95,20 @@ export function dbgBinary(
   if (opts.cpmRoot) {
     core.setCpmRoot(path.resolve(opts.cpmRoot));
   }
-  core.loadImage(data, base);
-  if (opts.tail) {
-    core.setCommandTail(opts.tail);
+
+  if (loadStatePath) {
+    const runState = readRunState(loadStatePath);
+    core.restoreSnapshot(runState.snapshot);
+    console.log(`state  : restored from ${loadStatePath}`);
+    console.log(`saved  : ${runState.savedAt}`);
+    console.log(`source : ${runState.inputFile}`);
+  } else {
+    core.loadImage(data, base);
+    if (opts.tail) {
+      core.setCommandTail(opts.tail);
+    }
+    core.setEntry(entry);
   }
-  core.setEntry(entry);
 
   if (opts.cmd) {
     console.log("");
@@ -105,7 +133,34 @@ export function dbgBinary(
   if (opts.cpm) {
     console.log("");
     console.log("[CP/M Run]");
-    const result = core.run(maxSteps);
+    let lastSavedSteps = core.steps;
+    const saveRunStateToDisk = (reason: string) => {
+      if (!saveStatePath) return;
+      const runState: DebugRunState = {
+        version: 1,
+        inputFile: absInput,
+        savedAt: new Date().toISOString(),
+        reason,
+        snapshot: core.createSnapshot(),
+      };
+      writeRunState(saveStatePath, runState);
+      console.log(`[state] saved: ${saveStatePath} (${reason})`);
+    };
+    const result = core.run(maxSteps, {
+      progressEvery: tickEvery,
+      onProgress: tickEvery > 0
+        ? ({ steps, remaining }) => {
+          if (progressEvery > 0) {
+            console.log(`[progress] steps=${steps} remaining=${remaining} pc=${formatHex(core.state.pc)}H sp=${formatHex(core.state.sp)}H`);
+          }
+          if (saveStatePath && saveStateEvery > 0 && steps - lastSavedSteps >= saveStateEvery) {
+            saveRunStateToDisk(`checkpoint@${steps}`);
+            lastSavedSteps = steps;
+          }
+        }
+        : undefined,
+    });
+    saveRunStateToDisk(result.reason ?? "stopped");
     console.log(`reason : ${result.reason}`);
     console.log(`steps  : ${core.steps}`);
     console.log(`pc/sp  : ${formatHex(core.state.pc)}H / ${formatHex(core.state.sp)}H`);
@@ -131,3 +186,33 @@ export function dbgBinary(
 }
 
 export { printDisasm };
+
+type DebugRunState = {
+  version: 1;
+  inputFile: string;
+  savedAt: string;
+  reason: string;
+  snapshot: Z80CoreSnapshot;
+};
+
+function readRunState(filePath: string): DebugRunState {
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const parsed = JSON.parse(raw) as DebugRunState;
+  if (!parsed || parsed.version !== 1 || !parsed.snapshot) {
+    throw new Error(`Invalid state file: ${filePath}`);
+  }
+  return parsed;
+}
+
+function writeRunState(filePath: string, state: DebugRunState): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const text = JSON.stringify(state);
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, text);
+  try {
+    fs.copyFileSync(tmpPath, filePath);
+  } finally {
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+}

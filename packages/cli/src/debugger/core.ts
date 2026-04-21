@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as path from "path";
 
 export type CpuState = {
   a: number;
@@ -21,6 +22,61 @@ export type StepResult = {
   stopped: boolean;
   reason?: string;
   history?: string[];
+};
+
+export type RunProgress = {
+  steps: number;
+  executed: number;
+  remaining: number;
+};
+
+export type RunOptions = {
+  progressEvery?: number;
+  onProgress?: (progress: RunProgress) => void;
+};
+
+export type CoreShadowState = {
+  a: number;
+  f: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  h: number;
+  l: number;
+};
+
+export type Z80CoreSnapshot = {
+  version: 1;
+  memBase64: string;
+  ioPortsBase64: string;
+  state: CpuState;
+  steps: number;
+  lastExec: string;
+  traceRing: string[];
+  traceMax: number;
+  imageStart: number;
+  imageEnd: number;
+  dmaAddr: number;
+  cpmRoot: string;
+  cpmInteractive: boolean;
+  cpmBdosTrace: boolean;
+  cpm22Enabled: boolean;
+  cpm22Loaded: boolean;
+  inputQueue: number[];
+  deferredInputQueue: number[];
+  stdinPreloaded: boolean;
+  pipeInputArmed: boolean;
+  lastOutChar: number;
+  iff1: boolean;
+  iff2: boolean;
+  im: number;
+  shadow: CoreShadowState;
+  allowOutOfImage: boolean;
+  biosTrack: number;
+  biosSector: number;
+  biosDma: number;
+  out: string;
 };
 
 export function parseNum(input: string): number {
@@ -56,13 +112,44 @@ export class Z80DebugCore {
   private cpmRoot = process.cwd();
   private cpmInteractive = false;
   private cpmBdosTrace = false;
+  private cpm22Enabled = false;
+  private cpm22Loaded = false;
   private inputQueue: number[] = [];
   private deferredInputQueue: number[] = [];
   private stdinPreloaded = false;
   private pipeInputArmed = false;
   private lastOutChar = 0x00;
+  private iff1 = false;
+  private iff2 = false;
+  private im = 0;
   private shadow = { a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0 };
   private allowOutOfImage = false;
+  private ioPorts = new Uint8Array(0x100);
+  private biosTrack = 0;
+  private biosSector = 0;
+  private biosDma = 0x0080;
+
+  private static readonly CPM22_CBASE = 0xdc00;
+  private static readonly CPM22_FBASE = 0xe406;
+  private static readonly CPM22_BIOS = {
+    BOOT: 0xf200,
+    WBOOT: 0xf203,
+    CONST: 0xf206,
+    CONIN: 0xf209,
+    CONOUT: 0xf20c,
+    LIST: 0xf20f,
+    PUNCH: 0xf212,
+    READER: 0xf215,
+    HOME: 0xf218,
+    SELDSK: 0xf21b,
+    SETTRK: 0xf21e,
+    SETSEC: 0xf221,
+    SETDMA: 0xf224,
+    READ: 0xf227,
+    WRITE: 0xf22a,
+    PRSTAT: 0xf22d,
+    SECTRN: 0xf230,
+  } as const;
 
   constructor(private readonly trace = false) {
     const { CpmBdos } = require("./cpm");
@@ -87,7 +174,7 @@ export class Z80DebugCore {
     this.mem[0x0000] = 0xc3; // JP 0000 (warm boot loop sentinel)
     this.mem[0x0001] = 0x00;
     this.mem[0x0002] = 0x00;
-    // CALL 0005h vector: JP F000h (typical CP/M style).
+    // CALL 0005h vector defaults to legacy hook.
     this.mem[0x0005] = 0xc3;
     this.mem[0x0006] = 0x00;
     this.mem[0x0007] = 0xf0;
@@ -110,6 +197,8 @@ export class Z80DebugCore {
     for (let i = 0; i < image.length && start + i < this.mem.length; i++) {
       this.mem[start + i] = image[i];
     }
+    this.cpm22Loaded = false;
+    this.tryLoadCpm22Bdos();
   }
 
   setEntry(entry: number): void {
@@ -132,6 +221,10 @@ export class Z80DebugCore {
   setCpmBdosTrace(enabled: boolean): void {
     this.cpmBdosTrace = enabled;
     this.cpm?.setTrace(enabled);
+  }
+
+  setCpm22Enabled(enabled: boolean): void {
+    this.cpm22Enabled = enabled;
   }
 
   setCommandTail(tail: string): void {
@@ -192,6 +285,94 @@ export class Z80DebugCore {
 
   getOutput(): string {
     return this.out.join("");
+  }
+
+  createSnapshot(): Z80CoreSnapshot {
+    return {
+      version: 1,
+      memBase64: Buffer.from(this.mem).toString("base64"),
+      ioPortsBase64: Buffer.from(this.ioPorts).toString("base64"),
+      state: { ...this.state },
+      steps: this.steps,
+      lastExec: this.lastExec,
+      traceRing: [...this.traceRing],
+      traceMax: this.traceMax,
+      imageStart: this.imageStart,
+      imageEnd: this.imageEnd,
+      dmaAddr: this.dmaAddr,
+      cpmRoot: this.cpmRoot,
+      cpmInteractive: this.cpmInteractive,
+      cpmBdosTrace: this.cpmBdosTrace,
+      cpm22Enabled: this.cpm22Enabled,
+      cpm22Loaded: this.cpm22Loaded,
+      inputQueue: [...this.inputQueue],
+      deferredInputQueue: [...this.deferredInputQueue],
+      stdinPreloaded: this.stdinPreloaded,
+      pipeInputArmed: this.pipeInputArmed,
+      lastOutChar: this.lastOutChar,
+      iff1: this.iff1,
+      iff2: this.iff2,
+      im: this.im,
+      shadow: { ...this.shadow },
+      allowOutOfImage: this.allowOutOfImage,
+      biosTrack: this.biosTrack,
+      biosSector: this.biosSector,
+      biosDma: this.biosDma,
+      out: this.getOutput(),
+    };
+  }
+
+  restoreSnapshot(snapshot: Z80CoreSnapshot): void {
+    if (!snapshot || snapshot.version !== 1) {
+      throw new Error("Unsupported snapshot version");
+    }
+    const mem = Buffer.from(snapshot.memBase64, "base64");
+    if (mem.length !== 0x10000) {
+      throw new Error(`Invalid snapshot memory size: ${mem.length}`);
+    }
+    this.mem.set(mem);
+    const io = Buffer.from(snapshot.ioPortsBase64 ?? "", "base64");
+    if (io.length === 0x100) this.ioPorts.set(io);
+    else this.ioPorts.fill(0);
+    this.state = { ...snapshot.state };
+    this.steps = snapshot.steps;
+    this.lastExec = snapshot.lastExec ?? "";
+    this.traceRing = [...(snapshot.traceRing ?? [])];
+    this.traceMax = snapshot.traceMax ?? 32;
+    this.imageStart = Math.max(0, Math.min(0xffff, snapshot.imageStart ?? 0x0100));
+    this.imageEnd = Math.max(0, Math.min(0x10000, snapshot.imageEnd ?? (this.imageStart + 1)));
+    this.dmaAddr = snapshot.dmaAddr & 0xffff;
+    this.cpmRoot = snapshot.cpmRoot ?? process.cwd();
+    this.cpmInteractive = !!snapshot.cpmInteractive;
+    this.cpmBdosTrace = !!snapshot.cpmBdosTrace;
+    this.cpm22Enabled = snapshot.cpm22Enabled ?? true;
+    this.cpm22Loaded = !!snapshot.cpm22Loaded;
+    this.inputQueue = [...(snapshot.inputQueue ?? [])].map((v) => v & 0xff);
+    this.deferredInputQueue = [...(snapshot.deferredInputQueue ?? [])].map((v) => v & 0xff);
+    this.stdinPreloaded = !!snapshot.stdinPreloaded;
+    this.pipeInputArmed = !!snapshot.pipeInputArmed;
+    this.lastOutChar = (snapshot.lastOutChar ?? 0) & 0xff;
+    this.iff1 = !!snapshot.iff1;
+    this.iff2 = !!snapshot.iff2;
+    this.im = snapshot.im ?? 0;
+    this.shadow = {
+      a: snapshot.shadow?.a ?? 0,
+      f: snapshot.shadow?.f ?? 0,
+      b: snapshot.shadow?.b ?? 0,
+      c: snapshot.shadow?.c ?? 0,
+      d: snapshot.shadow?.d ?? 0,
+      e: snapshot.shadow?.e ?? 0,
+      h: snapshot.shadow?.h ?? 0,
+      l: snapshot.shadow?.l ?? 0,
+    };
+    this.allowOutOfImage = !!snapshot.allowOutOfImage;
+    this.biosTrack = snapshot.biosTrack ?? 0;
+    this.biosSector = snapshot.biosSector ?? 0;
+    this.biosDma = snapshot.biosDma ?? 0x0080;
+    this.out.length = 0;
+    if (snapshot.out) this.out.push(snapshot.out);
+    this.cpm?.setRootDir(this.cpmRoot);
+    this.cpm?.setTrace(this.cpmBdosTrace);
   }
 
   private pushOutput(text: string): void {
@@ -309,7 +490,9 @@ export class Z80DebugCore {
 
   private static readonly FLAG_S = 0x80;
   private static readonly FLAG_Z = 0x40;
+  private static readonly FLAG_Y = 0x20;
   private static readonly FLAG_H = 0x10;
+  private static readonly FLAG_X = 0x08;
   private static readonly FLAG_PV = 0x04;
   private static readonly FLAG_N = 0x02;
   private static readonly FLAG_C = 0x01;
@@ -326,12 +509,155 @@ export class Z80DebugCore {
     let f = 0;
     if (v & 0x80) f |= Z80DebugCore.FLAG_S;
     if (v === 0) f |= Z80DebugCore.FLAG_Z;
+    f |= v & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X);
     return f;
   }
 
   private setZ(isZero: boolean): void {
     if (isZero) this.state.f |= Z80DebugCore.FLAG_Z;
     else this.state.f &= ~Z80DebugCore.FLAG_Z;
+  }
+
+  // Undocumented XY for block ops uses bit3 and bit1 of the internal tmp value.
+  private packBlockXY(value: number): number {
+    const v = value & 0xff;
+    return (v & Z80DebugCore.FLAG_X) | ((v & 0x02) << 4);
+  }
+
+  // CPI/CPD family: compare A with (HL), then HL +/- 1 and BC - 1.
+  // Carry is preserved, PV reflects BC!=0 after decrement.
+  private blockCompareStep(dir: 1 | -1): boolean {
+    const a = this.state.a & 0xff;
+    const hl = ((this.state.h << 8) | this.state.l) & 0xffff;
+    let bc = ((this.state.b << 8) | this.state.c) & 0xffff;
+    const v = this.read8(hl) & 0xff;
+    const r = (a - v) & 0xff;
+    const carry = this.state.f & Z80DebugCore.FLAG_C;
+
+    bc = (bc - 1) & 0xffff;
+    const nextHl = (hl + dir) & 0xffff;
+    this.state.b = (bc >> 8) & 0xff;
+    this.state.c = bc & 0xff;
+    this.state.h = (nextHl >> 8) & 0xff;
+    this.state.l = nextHl & 0xff;
+
+    let f = carry | Z80DebugCore.FLAG_N;
+    if (r & 0x80) f |= Z80DebugCore.FLAG_S;
+    if (r === 0) f |= Z80DebugCore.FLAG_Z;
+    const halfBorrow = (a & 0x0f) < (v & 0x0f);
+    if (halfBorrow) f |= Z80DebugCore.FLAG_H;
+    if (bc !== 0) f |= Z80DebugCore.FLAG_PV;
+    const r2 = (r - (halfBorrow ? 1 : 0)) & 0xff;
+    f |= this.packBlockXY(r2);
+    this.state.f = f;
+    return r === 0;
+  }
+
+  private ioRead(port: number): number {
+    return this.ioPorts[port & 0xff] & 0xff;
+  }
+
+  private ioWrite(port: number, value: number): void {
+    this.ioPorts[port & 0xff] = value & 0xff;
+  }
+
+  private blockIoInStep(dir: 1 | -1): void {
+    const bc = ((this.state.b << 8) | this.state.c) & 0xffff;
+    const hl = ((this.state.h << 8) | this.state.l) & 0xffff;
+    const v = this.ioRead(bc);
+    this.write8(hl, v);
+    const b = (this.state.b - 1) & 0xff;
+    const nextHl = (hl + dir) & 0xffff;
+    this.state.b = b;
+    this.state.h = (nextHl >> 8) & 0xff;
+    this.state.l = nextHl & 0xff;
+    // Approximate documented behavior for loop control and sign/zero.
+    let f = this.state.f & Z80DebugCore.FLAG_C;
+    if (b === 0) f |= Z80DebugCore.FLAG_Z;
+    if (b & 0x80) f |= Z80DebugCore.FLAG_S;
+    f |= Z80DebugCore.FLAG_N;
+    this.state.f = f;
+  }
+
+  private blockIoOutStep(dir: 1 | -1): void {
+    const bc = ((this.state.b << 8) | this.state.c) & 0xffff;
+    const hl = ((this.state.h << 8) | this.state.l) & 0xffff;
+    const v = this.read8(hl);
+    this.ioWrite(bc, v);
+    const b = (this.state.b - 1) & 0xff;
+    const nextHl = (hl + dir) & 0xffff;
+    this.state.b = b;
+    this.state.h = (nextHl >> 8) & 0xff;
+    this.state.l = nextHl & 0xff;
+    // Approximate documented behavior for loop control and sign/zero.
+    let f = this.state.f & Z80DebugCore.FLAG_C;
+    if (b === 0) f |= Z80DebugCore.FLAG_Z;
+    if (b & 0x80) f |= Z80DebugCore.FLAG_S;
+    f |= Z80DebugCore.FLAG_N;
+    this.state.f = f;
+  }
+
+  private blockTransferStep(dir: 1 | -1): void {
+    let bc = ((this.state.b << 8) | this.state.c) & 0xffff;
+    let hl = ((this.state.h << 8) | this.state.l) & 0xffff;
+    let de = ((this.state.d << 8) | this.state.e) & 0xffff;
+    const copied = this.read8(hl);
+    this.write8(de, copied);
+    hl = (hl + dir) & 0xffff;
+    de = (de + dir) & 0xffff;
+    bc = (bc - 1) & 0xffff;
+    this.state.b = (bc >> 8) & 0xff;
+    this.state.c = bc & 0xff;
+    this.state.h = (hl >> 8) & 0xff;
+    this.state.l = hl & 0xff;
+    this.state.d = (de >> 8) & 0xff;
+    this.state.e = de & 0xff;
+    const keep = this.state.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_C);
+    const tmp = ((this.state.a & 0xff) + (copied & 0xff)) & 0xff;
+    this.state.f = keep | (bc !== 0 ? Z80DebugCore.FLAG_PV : 0) | this.packBlockXY(tmp);
+  }
+
+  private negA(): void {
+    const v = this.state.a & 0xff;
+    const r = (-v) & 0xff;
+    this.state.a = r;
+    let f = Z80DebugCore.FLAG_N | (r & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
+    if (r & 0x80) f |= Z80DebugCore.FLAG_S;
+    if (r === 0) f |= Z80DebugCore.FLAG_Z;
+    if ((v & 0x0f) !== 0) f |= Z80DebugCore.FLAG_H;
+    if (v === 0x80) f |= Z80DebugCore.FLAG_PV;
+    if (v !== 0x00) f |= Z80DebugCore.FLAG_C;
+    this.state.f = f;
+  }
+
+  private rrd(): void {
+    const hl = ((this.state.h << 8) | this.state.l) & 0xffff;
+    const m = this.read8(hl);
+    const a = this.state.a & 0xff;
+    const newM = ((a & 0x0f) << 4) | ((m >> 4) & 0x0f);
+    const newA = (a & 0xf0) | (m & 0x0f);
+    this.write8(hl, newM);
+    this.state.a = newA;
+    let f = (this.state.f & Z80DebugCore.FLAG_C) | (newA & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
+    if (newA & 0x80) f |= Z80DebugCore.FLAG_S;
+    if (newA === 0) f |= Z80DebugCore.FLAG_Z;
+    if (this.parityEven(newA)) f |= Z80DebugCore.FLAG_PV;
+    this.state.f = f;
+  }
+
+  private rld(): void {
+    const hl = ((this.state.h << 8) | this.state.l) & 0xffff;
+    const m = this.read8(hl);
+    const a = this.state.a & 0xff;
+    const newM = ((m << 4) & 0xf0) | (a & 0x0f);
+    const newA = (a & 0xf0) | ((m >> 4) & 0x0f);
+    this.write8(hl, newM);
+    this.state.a = newA;
+    let f = (this.state.f & Z80DebugCore.FLAG_C) | (newA & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
+    if (newA & 0x80) f |= Z80DebugCore.FLAG_S;
+    if (newA === 0) f |= Z80DebugCore.FLAG_Z;
+    if (this.parityEven(newA)) f |= Z80DebugCore.FLAG_PV;
+    this.state.f = f;
   }
 
   private addA(value: number, carryIn = 0): void {
@@ -368,6 +694,7 @@ export class Z80DebugCore {
     const diff = a - v;
     const r = diff & 0xff;
     let f = this.packSZ(r) | Z80DebugCore.FLAG_N;
+    f = (f & ~(Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) | (v & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
     if ((a & 0x0f) < (v & 0x0f)) f |= Z80DebugCore.FLAG_H;
     if (((a ^ v) & (a ^ r) & 0x80) !== 0) f |= Z80DebugCore.FLAG_PV;
     if (diff < 0) f |= Z80DebugCore.FLAG_C;
@@ -412,7 +739,7 @@ export class Z80DebugCore {
     const oldCarry = this.state.f & Z80DebugCore.FLAG_C;
     const mask = 1 << (bit & 7);
     const isZero = (value & mask) === 0;
-    let f = oldCarry | Z80DebugCore.FLAG_H;
+    let f = oldCarry | Z80DebugCore.FLAG_H | (value & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
     if (isZero) f |= Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV;
     if ((bit & 7) === 7 && (value & 0x80) !== 0) f |= Z80DebugCore.FLAG_S;
     this.state.f = f;
@@ -431,6 +758,7 @@ export class Z80DebugCore {
     const v = value & 0xff;
     if (v & 0x80) f |= Z80DebugCore.FLAG_S;
     if (v === 0) f |= Z80DebugCore.FLAG_Z;
+    f |= v & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X);
     if (this.parityEven(v)) f |= Z80DebugCore.FLAG_PV;
     this.state.f = f;
   }
@@ -441,6 +769,7 @@ export class Z80DebugCore {
     const sum = a + b;
     const res = sum & 0xffff;
     let f = this.state.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV);
+    f |= ((res >> 8) & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
     if (((a & 0x0fff) + (b & 0x0fff)) > 0x0fff) f |= Z80DebugCore.FLAG_H;
     if (sum > 0xffff) f |= Z80DebugCore.FLAG_C;
     this.state.f = f;
@@ -497,17 +826,125 @@ export class Z80DebugCore {
     return res;
   }
 
+  private cpm22SupportsFn(fn: number): boolean {
+    // Keep legacy host-file BDOS path for disk/file functions.
+    return fn === 0 || fn === 1 || fn === 2 || fn === 6 || fn === 9 || fn === 10 || fn === 11 || fn === 12 || fn === 26;
+  }
+
+  private enterCpm22Bdos(): void {
+    this.state.pc = Z80DebugCore.CPM22_FBASE;
+  }
+
+  private tryLoadCpm22Bdos(): void {
+    if (!this.cpm22Enabled) return;
+    const candidates = [
+      path.resolve(process.cwd(), "../../examples/cpm2-asm/CPM22.bin"),
+      path.resolve(process.cwd(), "examples/cpm2-asm/CPM22.bin"),
+      path.resolve(process.cwd(), "CPM22.bin"),
+    ];
+    const binPath = candidates.find((p) => fs.existsSync(p));
+    if (!binPath) return;
+    const bin = fs.readFileSync(binPath);
+    const base = Z80DebugCore.CPM22_CBASE;
+    for (let i = 0; i < bin.length && base + i < this.mem.length; i++) {
+      this.mem[base + i] = bin[i];
+    }
+    // Redirect BDOS entry vector to CPM22 FBASE.
+    this.mem[0x0005] = 0xc3;
+    this.mem[0x0006] = Z80DebugCore.CPM22_FBASE & 0xff;
+    this.mem[0x0007] = (Z80DebugCore.CPM22_FBASE >> 8) & 0xff;
+    this.cpm22Loaded = true;
+  }
+
+  private cpm22BiosTrap(addr: number): StepResult | null {
+    if (!this.cpm22Loaded) return null;
+    const cpu = this.state;
+    const B = Z80DebugCore.CPM22_BIOS;
+    const retFromBios = () => { cpu.pc = this.pop16(); };
+    switch (addr & 0xffff) {
+      case B.BOOT:
+      case B.WBOOT:
+        return this.stop("PC reached 0000H (warm boot)");
+      case B.CONST: {
+        cpu.a =
+          (this.cpmInteractive && this.hasConsoleChar())
+            ? 0xff
+            : 0x00;
+        retFromBios();
+        return { stopped: false };
+      }
+      case B.CONIN: {
+        cpu.a = this.readConsoleChar(true) ?? 0x0d;
+        retFromBios();
+        return { stopped: false };
+      }
+      case B.CONOUT:
+      case B.LIST:
+      case B.PUNCH: {
+        this.pushOutput(String.fromCharCode(cpu.c & 0xff));
+        retFromBios();
+        return { stopped: false };
+      }
+      case B.READER:
+        cpu.a = 0x1a;
+        retFromBios();
+        return { stopped: false };
+      case B.HOME:
+        this.biosTrack = 0;
+        retFromBios();
+        return { stopped: false };
+      case B.SELDSK:
+        cpu.h = 0x00;
+        cpu.l = 0x00;
+        retFromBios();
+        return { stopped: false };
+      case B.SETTRK:
+        this.biosTrack = ((cpu.b << 8) | cpu.c) & 0xffff;
+        retFromBios();
+        return { stopped: false };
+      case B.SETSEC:
+        this.biosSector = ((cpu.b << 8) | cpu.c) & 0xffff;
+        retFromBios();
+        return { stopped: false };
+      case B.SETDMA:
+        this.biosDma = ((cpu.b << 8) | cpu.c) & 0xffff;
+        retFromBios();
+        return { stopped: false };
+      case B.READ:
+      case B.WRITE:
+      case B.PRSTAT:
+        cpu.a = 0x00;
+        retFromBios();
+        return { stopped: false };
+      case B.SECTRN:
+        cpu.h = cpu.b & 0xff;
+        cpu.l = cpu.c & 0xff;
+        retFromBios();
+        return { stopped: false };
+      default:
+        return null;
+    }
+  }
+
   step(): StepResult {
     const cpu = this.state;
+
+    const biosTrap = this.cpm22BiosTrap(cpu.pc);
+    if (biosTrap) return biosTrap;
 
     if (cpu.pc === 0x0000) {
       const suffix = this.lastExec ? ` after ${this.lastExec}` : "";
       return this.stop(`PC reached 0000H (warm boot)${suffix}`);
     }
     if (cpu.pc === 0x0005) {
-      const stop = this.bdosCall();
-      cpu.pc = this.pop16();
-      if (stop) return this.stop(stop);
+      const fn = cpu.c & 0xff;
+      if (this.cpm22Loaded && this.cpm22SupportsFn(fn)) {
+        this.enterCpm22Bdos();
+      } else {
+        const stop = this.bdosCall();
+        cpu.pc = this.pop16();
+        if (stop) return this.stop(stop);
+      }
       return { stopped: false };
     }
     if (this.breakpoints.has(cpu.pc)) {
@@ -543,6 +980,29 @@ export class Z80DebugCore {
       };
       const setIndex = (v: number) => { if (useIy) cpu.iy = v & 0xffff; else cpu.ix = v & 0xffff; };
       const getIndex = () => (useIy ? cpu.iy : cpu.ix);
+      const getPrefReg8 = (code: number): number => {
+        const idx = getIndex();
+        switch (code & 7) {
+          case 4: return (idx >> 8) & 0xff; // IXH/IYH
+          case 5: return idx & 0xff; // IXL/IYL
+          default: return this.getReg8(code);
+        }
+      };
+      const setPrefReg8 = (code: number, value: number): void => {
+        const v = value & 0xff;
+        const idx = getIndex();
+        switch (code & 7) {
+          case 4: // IXH/IYH
+            setIndex(((v << 8) | (idx & 0x00ff)) & 0xffff);
+            return;
+          case 5: // IXL/IYL
+            setIndex(((idx & 0xff00) | v) & 0xffff);
+            return;
+          default:
+            this.setReg8(code, v);
+            return;
+        }
+      };
 
       switch (op2) {
         case 0xcb: { // DD/FD CB d op
@@ -555,7 +1015,13 @@ export class Z80DebugCore {
           const old = this.read8(addr);
 
           if (grp === 0x01) { // BIT y,(IX/IY+d)
-            this.setBitFlags(y, old);
+            const oldCarry = cpu.f & Z80DebugCore.FLAG_C;
+            const mask = 1 << (y & 7);
+            const isZero = (old & mask) === 0;
+            let f = oldCarry | Z80DebugCore.FLAG_H | (((addr >> 8) & 0xff) & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
+            if (isZero) f |= Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV;
+            if ((y & 7) === 7 && !isZero) f |= Z80DebugCore.FLAG_S;
+            cpu.f = f;
             cpu.pc = (cpu.pc + 4) & 0xffff;
             return { stopped: false };
           }
@@ -700,6 +1166,36 @@ export class Z80DebugCore {
           cpu.pc = (cpu.pc + 2) & 0xffff;
           return { stopped: false };
         }
+        case 0x24: { // INC IXH/IYH
+          setPrefReg8(4, this.inc8(getPrefReg8(4)));
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          return { stopped: false };
+        }
+        case 0x25: { // DEC IXH/IYH
+          setPrefReg8(4, this.dec8(getPrefReg8(4)));
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          return { stopped: false };
+        }
+        case 0x26: { // LD IXH/IYH,n
+          setPrefReg8(4, this.read8(cpu.pc + 2));
+          cpu.pc = (cpu.pc + 3) & 0xffff;
+          return { stopped: false };
+        }
+        case 0x2c: { // INC IXL/IYL
+          setPrefReg8(5, this.inc8(getPrefReg8(5)));
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          return { stopped: false };
+        }
+        case 0x2d: { // DEC IXL/IYL
+          setPrefReg8(5, this.dec8(getPrefReg8(5)));
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          return { stopped: false };
+        }
+        case 0x2e: { // LD IXL/IYL,n
+          setPrefReg8(5, this.read8(cpu.pc + 2));
+          cpu.pc = (cpu.pc + 3) & 0xffff;
+          return { stopped: false };
+        }
         case 0xe5: { // PUSH IX/IY
           this.push16(getIndex());
           cpu.pc = (cpu.pc + 2) & 0xffff;
@@ -716,19 +1212,36 @@ export class Z80DebugCore {
           return { stopped: false };
         }
         default:
-          if ((op2 & 0xc7) === 0x46 && op2 !== 0x76) { // LD r,(IX/IY+d)
-            const disp = readDisp();
+          if (op2 >= 0x40 && op2 <= 0x7f && op2 !== 0x76) { // LD r,r' with IXH/IXL or (IX/IY+d)
             const dst = (op2 >> 3) & 0x07;
-            const v = this.read8((base + disp) & 0xffff);
-            this.setReg8(dst, v);
-            cpu.pc = (cpu.pc + 3) & 0xffff;
+            const src = op2 & 0x07;
+            if (src === 0x06 || dst === 0x06) {
+              const disp = readDisp();
+              const addr = (base + disp) & 0xffff;
+              // DD/FD d-displacement memory forms keep plain H/L semantics.
+              // e.g. DD 66 d = LD H,(IX+d), DD 74 d = LD (IX+d),H
+              if (src === 0x06) this.setReg8(dst, this.read8(addr));
+              else this.write8(addr, this.getReg8(src));
+              cpu.pc = (cpu.pc + 3) & 0xffff;
+              return { stopped: false };
+            }
+            setPrefReg8(dst, getPrefReg8(src));
+            cpu.pc = (cpu.pc + 2) & 0xffff;
             return { stopped: false };
           }
-          if ((op2 & 0xf8) === 0x70 && op2 !== 0x76) { // LD (IX/IY+d),r
-            const disp = readDisp();
-            const src = op2 & 0x07;
-            this.write8((base + disp) & 0xffff, this.getReg8(src));
-            cpu.pc = (cpu.pc + 3) & 0xffff;
+          if (op2 >= 0x80 && op2 <= 0xbf && (op2 & 0x07) !== 0x06) { // ALU A,r with IXH/IXL / IYH/IYL
+            const v = getPrefReg8(op2 & 0x07);
+            switch ((op2 >> 3) & 0x07) {
+              case 0x00: this.addA(v); break; // ADD
+              case 0x01: this.addA(v, (cpu.f & 0x01) ? 1 : 0); break; // ADC
+              case 0x02: this.subA(v); break; // SUB
+              case 0x03: this.subA(v, (cpu.f & 0x01) ? 1 : 0); break; // SBC
+              case 0x04: this.logicA(v, "and"); break; // AND
+              case 0x05: this.logicA(v, "xor"); break; // XOR
+              case 0x06: this.logicA(v, "or"); break; // OR
+              case 0x07: this.cpA(v); break; // CP
+            }
+            cpu.pc = (cpu.pc + 2) & 0xffff;
             return { stopped: false };
           }
           if ((op2 & 0xc7) === 0x86) { // ALU A,(IX/IY+d)
@@ -792,14 +1305,20 @@ export class Z80DebugCore {
       case 0x07: { // RLCA
         const c = (cpu.a >> 7) & 1;
         cpu.a = ((cpu.a << 1) | c) & 0xff;
-        cpu.f = (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) | (c ? Z80DebugCore.FLAG_C : 0);
+        cpu.f =
+          (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
+          (c ? Z80DebugCore.FLAG_C : 0);
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       }
       case 0x0f: { // RRCA
         const c = cpu.a & 1;
         cpu.a = ((cpu.a >> 1) | (c << 7)) & 0xff;
-        cpu.f = (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) | (c ? Z80DebugCore.FLAG_C : 0);
+        cpu.f =
+          (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
+          (c ? Z80DebugCore.FLAG_C : 0);
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       }
@@ -807,7 +1326,10 @@ export class Z80DebugCore {
         const oldC = cpu.f & Z80DebugCore.FLAG_C;
         const newC = (cpu.a >> 7) & 1;
         cpu.a = ((cpu.a << 1) | oldC) & 0xff;
-        cpu.f = (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) | (newC ? Z80DebugCore.FLAG_C : 0);
+        cpu.f =
+          (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
+          (newC ? Z80DebugCore.FLAG_C : 0);
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       }
@@ -815,33 +1337,45 @@ export class Z80DebugCore {
         const oldC = cpu.f & Z80DebugCore.FLAG_C;
         const newC = cpu.a & Z80DebugCore.FLAG_C;
         cpu.a = ((cpu.a >> 1) | (oldC << 7)) & 0xff;
-        cpu.f = (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) | (newC ? Z80DebugCore.FLAG_C : 0);
+        cpu.f =
+          (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
+          (newC ? Z80DebugCore.FLAG_C : 0);
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       }
       case 0x27: { // DAA
-        const oldA = cpu.a & 0xff;
-        const oldC = (cpu.f & Z80DebugCore.FLAG_C) !== 0;
-        const oldH = (cpu.f & Z80DebugCore.FLAG_H) !== 0;
-        const isSub = (cpu.f & Z80DebugCore.FLAG_N) !== 0;
-        let adjust = 0;
-        let carryOut = oldC;
-        if (!isSub) {
-          if (oldH || (oldA & 0x0f) > 9) adjust |= 0x06;
-          if (oldC || oldA > 0x99) {
-            adjust |= 0x60;
-            carryOut = true;
+        let a = cpu.a & 0xff;
+        const oldF = cpu.f & 0xff;
+        let h = (oldF & Z80DebugCore.FLAG_H) !== 0;
+        const n = (oldF & Z80DebugCore.FLAG_N) !== 0;
+        let c = (oldF & Z80DebugCore.FLAG_C) !== 0;
+        const low = a & 0x0f;
+        if (n) {
+          const hd = c || a > 0x99;
+          if (h || low > 9) {
+            if (low > 5) h = false;
+            a = (a - 0x06) & 0xff;
           }
-          cpu.a = (oldA + adjust) & 0xff;
+          if (hd) a = a - 0x160;
         } else {
-          if (oldH) adjust |= 0x06;
-          if (oldC) adjust |= 0x60;
-          cpu.a = (oldA - adjust) & 0xff;
+          if (h || low > 9) {
+            h = low > 9;
+            a = a + 0x06;
+          }
+          if (c || ((a & 0x1f0) > 0x90)) a = a + 0x60;
         }
-        let f = this.packSZ(cpu.a) | (isSub ? Z80DebugCore.FLAG_N : 0);
-        if (this.parityEven(cpu.a)) f |= Z80DebugCore.FLAG_PV;
-        if (((oldA ^ cpu.a ^ adjust) & 0x10) !== 0) f |= Z80DebugCore.FLAG_H;
-        if (carryOut) f |= Z80DebugCore.FLAG_C;
+        c = c || (((a >> 8) & 1) !== 0);
+        a &= 0xff;
+        cpu.a = a;
+        let f = 0;
+        if (a & 0x80) f |= Z80DebugCore.FLAG_S;
+        if (a === 0) f |= Z80DebugCore.FLAG_Z;
+        f |= a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X);
+        if (this.parityEven(a)) f |= Z80DebugCore.FLAG_PV;
+        if (n) f |= Z80DebugCore.FLAG_N;
+        if (h) f |= Z80DebugCore.FLAG_H;
+        if (c) f |= Z80DebugCore.FLAG_C;
         cpu.f = f;
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
@@ -877,18 +1411,26 @@ export class Z80DebugCore {
       case 0x2d: cpu.l = this.dec8(cpu.l); cpu.pc = (cpu.pc + 1) & 0xffff; break; // DEC L
       case 0x2f: // CPL
         cpu.a = (~cpu.a) & 0xff;
-        cpu.f = (cpu.f & ~(Z80DebugCore.FLAG_H | Z80DebugCore.FLAG_N)) | Z80DebugCore.FLAG_H | Z80DebugCore.FLAG_N;
+        cpu.f =
+          (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV | Z80DebugCore.FLAG_C)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
+          Z80DebugCore.FLAG_H |
+          Z80DebugCore.FLAG_N;
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       case 0x3c: cpu.a = this.inc8(cpu.a); cpu.pc = (cpu.pc + 1) & 0xffff; break; // INC A
       case 0x3d: cpu.a = this.dec8(cpu.a); cpu.pc = (cpu.pc + 1) & 0xffff; break; // DEC A
       case 0x37: // SCF
-        cpu.f = (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) | Z80DebugCore.FLAG_C;
+        cpu.f =
+          (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
+          Z80DebugCore.FLAG_C;
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       case 0x3f: { // CCF
         const oldC = cpu.f & Z80DebugCore.FLAG_C;
         cpu.f = (cpu.f & (Z80DebugCore.FLAG_S | Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV)) |
+          (cpu.a & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X)) |
           (oldC ? Z80DebugCore.FLAG_H : 0) |
           (oldC ? 0 : Z80DebugCore.FLAG_C);
         cpu.pc = (cpu.pc + 1) & 0xffff;
@@ -1135,9 +1677,15 @@ export class Z80DebugCore {
         const nn = this.read16(cpu.pc + 1);
         const ret = (cpu.pc + 3) & 0xffff;
         if (nn === 0x0005) {
-          const stop = this.bdosCall();
-          cpu.pc = ret;
-          if (stop) return { stopped: true, reason: stop };
+          const fn = cpu.c & 0xff;
+          if (this.cpm22Loaded && this.cpm22SupportsFn(fn)) {
+            this.push16(ret);
+            this.enterCpm22Bdos();
+          } else {
+            const stop = this.bdosCall();
+            cpu.pc = ret;
+            if (stop) return { stopped: true, reason: stop };
+          }
           break;
         }
         this.push16(ret);
@@ -1332,6 +1880,16 @@ export class Z80DebugCore {
         cpu.pc = (cpu.pc + 1) & 0xffff;
         break;
       }
+      case 0xf3: // DI
+        this.iff1 = false;
+        this.iff2 = false;
+        cpu.pc = (cpu.pc + 1) & 0xffff;
+        break;
+      case 0xfb: // EI
+        this.iff1 = true;
+        this.iff2 = true;
+        cpu.pc = (cpu.pc + 1) & 0xffff;
+        break;
       case 0xc7: // RST 0
       case 0xcf: // RST 8
       case 0xd7: // RST 10
@@ -1358,7 +1916,18 @@ export class Z80DebugCore {
 
         if (grp === 0x01) { // BIT y,r
           const v = readR();
-          this.setBitFlags(y, v);
+          if (r === 0x06) {
+            // BIT n,(HL): undocumented XY are cleared in this test reference model.
+            const oldCarry = cpu.f & Z80DebugCore.FLAG_C;
+            const mask = 1 << (y & 7);
+            const isZero = (v & mask) === 0;
+            let f = oldCarry | Z80DebugCore.FLAG_H;
+            if (isZero) f |= Z80DebugCore.FLAG_Z | Z80DebugCore.FLAG_PV;
+            if ((y & 7) === 7 && !isZero) f |= Z80DebugCore.FLAG_S;
+            cpu.f = f;
+          } else {
+            this.setBitFlags(y, v);
+          }
           cpu.pc = (cpu.pc + 2) & 0xffff;
           break;
         }
@@ -1447,57 +2016,140 @@ export class Z80DebugCore {
           cpu.pc = (cpu.pc + 2) & 0xffff;
           break;
         }
+        if (op2 === 0x46 || op2 === 0x4e || op2 === 0x66 || op2 === 0x6e) { // IM 0
+          this.im = 0;
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0x56 || op2 === 0x76) { // IM 1
+          this.im = 1;
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0x5e || op2 === 0x7e) { // IM 2
+          this.im = 2;
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0x45 || op2 === 0x55 || op2 === 0x5d || op2 === 0x65 || op2 === 0x6d || op2 === 0x75 || op2 === 0x7d) { // RETN variants
+          this.iff1 = this.iff2;
+          cpu.pc = this.pop16();
+          break;
+        }
+        if (op2 === 0x4d) { // RETI
+          cpu.pc = this.pop16();
+          break;
+        }
+        if (op2 === 0x44 || op2 === 0x4c || op2 === 0x54 || op2 === 0x5c || op2 === 0x64 || op2 === 0x6c || op2 === 0x74 || op2 === 0x7c) { // NEG variants
+          this.negA();
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0x67) { // RRD
+          this.rrd();
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0x6f) { // RLD
+          this.rld();
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xa0) { // LDI
+          this.blockTransferStep(1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xa8) { // LDD
+          this.blockTransferStep(-1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
         if (op2 === 0xb0) { // LDIR
-          let bc = ((cpu.b << 8) | cpu.c) & 0xffff;
-          let hl = ((cpu.h << 8) | cpu.l) & 0xffff;
-          let de = ((cpu.d << 8) | cpu.e) & 0xffff;
-          while (bc > 0) {
-            this.write8(de, this.read8(hl));
-            hl = (hl + 1) & 0xffff;
-            de = (de + 1) & 0xffff;
-            bc = (bc - 1) & 0xffff;
+          while ((((cpu.b << 8) | cpu.c) & 0xffff) !== 0) {
+            this.blockTransferStep(1);
           }
-          cpu.b = (bc >> 8) & 0xff; cpu.c = bc & 0xff;
-          cpu.h = (hl >> 8) & 0xff; cpu.l = hl & 0xff;
-          cpu.d = (de >> 8) & 0xff; cpu.e = de & 0xff;
           cpu.pc = (cpu.pc + 2) & 0xffff;
           break;
         }
         if (op2 === 0xb8) { // LDDR
-          let bc = ((cpu.b << 8) | cpu.c) & 0xffff;
-          let hl = ((cpu.h << 8) | cpu.l) & 0xffff;
-          let de = ((cpu.d << 8) | cpu.e) & 0xffff;
-          while (bc > 0) {
-            this.write8(de, this.read8(hl));
-            hl = (hl - 1) & 0xffff;
-            de = (de - 1) & 0xffff;
-            bc = (bc - 1) & 0xffff;
+          while ((((cpu.b << 8) | cpu.c) & 0xffff) !== 0) {
+            this.blockTransferStep(-1);
           }
-          cpu.b = (bc >> 8) & 0xff; cpu.c = bc & 0xff;
-          cpu.h = (hl >> 8) & 0xff; cpu.l = hl & 0xff;
-          cpu.d = (de >> 8) & 0xff; cpu.e = de & 0xff;
           cpu.pc = (cpu.pc + 2) & 0xffff;
           break;
         }
         if (op2 === 0xb1) { // CPIR
-          let bc = ((cpu.b << 8) | cpu.c) & 0xffff;
-          let hl = ((cpu.h << 8) | cpu.l) & 0xffff;
-          let found = false;
-          while (bc > 0) {
-            const v = this.read8(hl);
-            const r = (cpu.a - v) & 0xff;
-            if (r === 0) {
-              found = true;
-              hl = (hl + 1) & 0xffff;
-              bc = (bc - 1) & 0xffff;
-              break;
-            }
-            hl = (hl + 1) & 0xffff;
-            bc = (bc - 1) & 0xffff;
+          while ((((cpu.b << 8) | cpu.c) & 0xffff) !== 0) {
+            const found = this.blockCompareStep(1);
+            if (found) break;
           }
-          cpu.b = (bc >> 8) & 0xff; cpu.c = bc & 0xff;
-          cpu.h = (hl >> 8) & 0xff; cpu.l = hl & 0xff;
-          this.setZ(found);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xa1) { // CPI
+          this.blockCompareStep(1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xa9) { // CPD
+          this.blockCompareStep(-1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xb9) { // CPDR
+          while ((((cpu.b << 8) | cpu.c) & 0xffff) !== 0) {
+            const found = this.blockCompareStep(-1);
+            if (found) break;
+          }
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xa2) { // INI
+          this.blockIoInStep(1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xaa) { // IND
+          this.blockIoInStep(-1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xb2) { // INIR
+          do {
+            this.blockIoInStep(1);
+          } while (cpu.b !== 0);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xba) { // INDR
+          do {
+            this.blockIoInStep(-1);
+          } while (cpu.b !== 0);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xa3) { // OUTI
+          this.blockIoOutStep(1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xab) { // OUTD
+          this.blockIoOutStep(-1);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xb3) { // OTIR
+          do {
+            this.blockIoOutStep(1);
+          } while (cpu.b !== 0);
+          cpu.pc = (cpu.pc + 2) & 0xffff;
+          break;
+        }
+        if (op2 === 0xbb) { // OTDR
+          do {
+            this.blockIoOutStep(-1);
+          } while (cpu.b !== 0);
           cpu.pc = (cpu.pc + 2) & 0xffff;
           break;
         }
@@ -1515,6 +2167,20 @@ export class Z80DebugCore {
           cpu.pc = (cpu.pc + 4) & 0xffff;
           break;
         }
+        if (op2 === 0x43) { // LD (nn),BC
+          const nn = this.read16(cpu.pc + 2);
+          this.write8(nn, cpu.c);
+          this.write8((nn + 1) & 0xffff, cpu.b);
+          cpu.pc = (cpu.pc + 4) & 0xffff;
+          break;
+        }
+        if (op2 === 0x63) { // LD (nn),HL
+          const nn = this.read16(cpu.pc + 2);
+          this.write8(nn, cpu.l);
+          this.write8((nn + 1) & 0xffff, cpu.h);
+          cpu.pc = (cpu.pc + 4) & 0xffff;
+          break;
+        }
         if (op2 === 0x4b) { // LD BC,(nn)
           const nn = this.read16(cpu.pc + 2);
           cpu.c = this.read8(nn);
@@ -1522,9 +2188,23 @@ export class Z80DebugCore {
           cpu.pc = (cpu.pc + 4) & 0xffff;
           break;
         }
+        if (op2 === 0x6b) { // LD HL,(nn)
+          const nn = this.read16(cpu.pc + 2);
+          cpu.l = this.read8(nn);
+          cpu.h = this.read8((nn + 1) & 0xffff);
+          cpu.pc = (cpu.pc + 4) & 0xffff;
+          break;
+        }
         if (op2 === 0x7b) { // LD SP,(nn)
           const nn = this.read16(cpu.pc + 2);
           cpu.sp = this.read8(nn) | (this.read8((nn + 1) & 0xffff) << 8);
+          cpu.pc = (cpu.pc + 4) & 0xffff;
+          break;
+        }
+        if (op2 === 0x73) { // LD (nn),SP
+          const nn = this.read16(cpu.pc + 2);
+          this.write8(nn, cpu.sp & 0xff);
+          this.write8((nn + 1) & 0xffff, (cpu.sp >> 8) & 0xff);
           cpu.pc = (cpu.pc + 4) & 0xffff;
           break;
         }
@@ -1543,6 +2223,7 @@ export class Z80DebugCore {
           let f = 0;
           if (res & 0x8000) f |= Z80DebugCore.FLAG_S;
           if (res === 0) f |= Z80DebugCore.FLAG_Z;
+          f |= ((res >> 8) & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
           if (((hl ^ rr ^ res) & 0x1000) !== 0) f |= Z80DebugCore.FLAG_H;
           if (((hl ^ rr) & (hl ^ res) & 0x8000) !== 0) f |= Z80DebugCore.FLAG_PV;
           f |= Z80DebugCore.FLAG_N;
@@ -1566,6 +2247,7 @@ export class Z80DebugCore {
           let f = 0;
           if (res & 0x8000) f |= Z80DebugCore.FLAG_S;
           if (res === 0) f |= Z80DebugCore.FLAG_Z;
+          f |= ((res >> 8) & (Z80DebugCore.FLAG_Y | Z80DebugCore.FLAG_X));
           if (((hl & 0x0fff) + (rr & 0x0fff) + carry) > 0x0fff) f |= Z80DebugCore.FLAG_H;
           if ((~(hl ^ rr) & (hl ^ res) & 0x8000) !== 0) f |= Z80DebugCore.FLAG_PV;
           if (sum > 0xffff) f |= Z80DebugCore.FLAG_C;
@@ -1582,11 +2264,23 @@ export class Z80DebugCore {
     return { stopped: false };
   }
 
-  run(maxSteps: number): StepResult {
+  run(maxSteps: number, opts?: RunOptions): StepResult {
+    const progressEvery = Math.max(0, Math.floor(opts?.progressEvery ?? 0));
+    const onProgress = opts?.onProgress;
+    const startSteps = this.steps;
+    let nextProgress = progressEvery > 0 ? startSteps + progressEvery : Number.POSITIVE_INFINITY;
     let left = maxSteps;
     while (left-- > 0) {
       const r = this.step();
       if (r.stopped) return r;
+      if (this.steps >= nextProgress) {
+        onProgress?.({
+          steps: this.steps,
+          executed: this.steps - startSteps,
+          remaining: left,
+        });
+        nextProgress += progressEvery;
+      }
     }
     return this.stop(`Step limit reached (${maxSteps})`);
   }

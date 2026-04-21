@@ -6,6 +6,8 @@ export function createMockContext(): LinkResolveContext {
     symbols: new Map([
       ["FOO", { bank: 0, addr: 0x200 }],
       ["BAR", { bank: 0, addr: 0x300 }],
+      ["TESTNAME.TEST", { bank: 0, addr: 0x8123 }],
+      [".text", { bank: 0, addr: 0x8000 }],
     ]),
     externs: new Set<string>(["BAZ"]),
   };

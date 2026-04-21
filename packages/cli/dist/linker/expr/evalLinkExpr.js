@@ -28,7 +28,9 @@ function evalLinkExpr(expr, resolve, options = {}, ctx) {
         return { ok: true, value: wrap16 ? num & 0xFFFF : num };
     }
     // --- 2️⃣ シンボル ± 定数、または定数 ± 定数 ---
-    const m = trim.match(/^([A-Za-z_][A-Za-z0-9_]*|[0-9A-F]+H|0x[0-9A-F]+|\d+)([+\-]\d+|[+\-]0x[0-9A-Fa-f]+|[+\-][0-9A-Fa-f]+H)?$/i);
+    // Accept linker symbol names that may include dots (e.g. TESTNAME.TEST, .text)
+    // in addition to plain identifiers.
+    const m = trim.match(/^([A-Za-z_.$?][A-Za-z0-9_.$?]*|[0-9A-F]+H|0x[0-9A-F]+|\d+)([+\-]\d+|[+\-]0x[0-9A-Fa-f]+|[+\-][0-9A-Fa-f]+H)?$/i);
     if (!m) {
         return { ok: false, errors: ["Unsupported expression (only symbol±const supported)"] };
     }
@@ -61,10 +63,12 @@ function evalLinkExpr(expr, resolve, options = {}, ctx) {
 /** 数値文字列 → number */
 function parseNumber(token) {
     const t = token.trim().toUpperCase();
-    if (/^[0-9A-F]+H$/.test(t))
-        return parseInt(t.slice(0, -1), 16);
-    if (/^0X[0-9A-F]+$/.test(t))
-        return parseInt(t.slice(2), 16);
+    const sign = t.startsWith("-") ? -1 : 1;
+    const body = t.replace(/^[+\-]/, "");
+    if (/^[0-9A-F]+H$/.test(body))
+        return sign * parseInt(body.slice(0, -1), 16);
+    if (/^0X[0-9A-F]+$/.test(body))
+        return sign * parseInt(body.slice(2), 16);
     if (/^[+\-]?\d+$/.test(t))
         return parseInt(t, 10);
     return null;
