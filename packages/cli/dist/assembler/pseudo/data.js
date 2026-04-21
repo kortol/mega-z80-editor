@@ -12,14 +12,10 @@ const utils_1 = require("../encoder/utils");
 const errors_1 = require("../errors");
 const parseExternExpr_1 = require("../expr/parseExternExpr");
 function bytesFromLiteral(arg) {
-    if (arg.startsWith('"') && arg.endsWith('"')) {
-        return arg
-            .slice(1, -1)
-            .split("")
-            .map((ch) => ch.charCodeAt(0) & 0xff);
-    }
-    if (arg.startsWith("'") && arg.endsWith("'") && arg.length === 3) {
-        return [arg.charCodeAt(1) & 0xff];
+    const isDouble = arg.startsWith('"') && arg.endsWith('"');
+    const isSingle = arg.startsWith("'") && arg.endsWith("'");
+    if (isDouble || isSingle) {
+        return arg.slice(1, -1).split("").map((ch) => ch.charCodeAt(0) & 0xff);
     }
     return [];
 }

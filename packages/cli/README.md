@@ -42,6 +42,7 @@ as:
   relVersion: 2
   sym: true
   lst: true
+  sjasmCompat: true
   symLen: 32
   includePaths:
     - ./inc

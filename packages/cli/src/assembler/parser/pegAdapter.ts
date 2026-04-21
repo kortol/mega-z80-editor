@@ -73,6 +73,16 @@ function makeEmpty(pos: SourcePos): NodeEmpty {
   return { kind: "empty", pos };
 }
 
+function normalizeSjasmOperandAlias(ctx: AsmContext, opName: string, operandRaw: string): string {
+  if (!ctx.options?.sjasmCompat) return operandRaw;
+  const t = operandRaw.trim().toUpperCase();
+  if (t !== "M") return operandRaw;
+  if (!/^(ADD|ADC|SUB|SBC|AND|XOR|OR|CP|INC|DEC|LD)$/.test(opName.toUpperCase())) {
+    return operandRaw;
+  }
+  return "(HL)";
+}
+
 function tokenizeMacroBody(ctx: AsmContext, body: string, pos: SourcePos): any[] {
   const saved = { ...ctx.currentPos };
   ctx.currentPos.file = pos.file;
@@ -607,11 +617,12 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
           args.push(String(instr.condition));
         }
 
+        const opName = String(instr.mnemonic).toUpperCase();
         for (const op of instr.operands ?? []) {
-          args.push(operandToRaw(op));
+          const raw = operandToRaw(op);
+          args.push(normalizeSjasmOperandAlias(ctx, opName, raw));
         }
 
-        const opName = String(instr.mnemonic).toUpperCase();
         if (useMacroOverride && hasMacro(opName)) {
           nodes.push({ kind: "macroInvoke", name: opName, args, pos } as NodeMacroInvoke);
         } else {

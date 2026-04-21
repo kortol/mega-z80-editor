@@ -42,6 +42,9 @@ function validateConfig(cfg) {
         if (as.includePaths !== undefined && !Array.isArray(as.includePaths)) {
             errors.push(`as.includePaths must be an array of strings`);
         }
+        if (as.sjasmCompat !== undefined && typeof as.sjasmCompat !== "boolean") {
+            errors.push(`as.sjasmCompat must be boolean (got ${as.sjasmCompat})`);
+        }
     }
     if (link) {
         if (link.fullpath !== undefined) {
@@ -150,6 +153,7 @@ program
     .option("--rel-version <version>", "Specify the .rel version (1 or 2)", "2")
     .option("--sym", "Generate .sym file")
     .option("--lst", "Generate .lst file")
+    .option("--sjasm-compat", "Enable sjasm/8080 compatibility aliases (e.g. operand M -> (HL))")
     .option("--symlen <n>", "Default symbol length (.SYMLEN)", "32")
     .option("-I, --include <path...>", "Add include search path(s)")
     .option("--inc <path...>", "Add include search path(s) (alias)")
@@ -174,6 +178,8 @@ program
             opts.lst = cfg.as.lst ?? opts.lst;
         if (shouldUseConfig(command.getOptionValueSource("symlen")))
             opts.symlen = cfg.as.symLen ?? opts.symlen;
+        if (shouldUseConfig(command.getOptionValueSource("sjasmCompat")))
+            opts.sjasmCompat = cfg.as.sjasmCompat ?? opts.sjasmCompat;
     }
     const relVersion = String(opts.relVersion ?? "2") === "2" ? 2 : 1;
     const includeCli = [
@@ -191,6 +197,7 @@ program
             relVersion,
             sym: !!opts.sym,
             lst: !!opts.lst,
+            sjasmCompat: !!opts.sjasmCompat,
             symLen: Number.isFinite(symLen) ? symLen : undefined,
             includePaths,
         });

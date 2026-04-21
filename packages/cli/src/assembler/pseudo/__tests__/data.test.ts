@@ -39,6 +39,12 @@ describe("pseudo - DB/DW", () => {
     expect(ctx.texts[0].data).toEqual([0x41, 0x42, 0x43]);
   });
 
+  test("DB with single-quoted string literal", () => {
+    const ctx = makeCtx();
+    handlePseudo(ctx, makeNode("DB", ["'ABC'"]));
+    expect(ctx.texts[0].data).toEqual([0x41, 0x42, 0x43]);
+  });
+
   test("DB with mixed args", () => {
     const ctx = makeCtx();
     handlePseudo(ctx, makeNode("DB", ["'A'", '"BC"', "5"]));

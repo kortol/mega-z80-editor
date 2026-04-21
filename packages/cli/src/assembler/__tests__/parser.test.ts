@@ -251,5 +251,23 @@ describe("parser", () => {
       { kind: "pseudo", op: "PUBLIC", args: [{ value: "OUT" }] },
     ]);
   });
+
+  test("sjasmCompat: operand M becomes (HL) for instruction operands", () => {
+    const ctx = makeCtx();
+    ctx.options.sjasmCompat = true;
+    const nodes = parseLines(ctx, "ADD A,M");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "ADD", args: ["A", "(HL)"] },
+    ]);
+  });
+
+  test("sjasmCompat: condition M is kept for JP M,label", () => {
+    const ctx = makeCtx();
+    ctx.options.sjasmCompat = true;
+    const nodes = parseLines(ctx, "JP M,TGT");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "JP", args: ["M", "TGT"] },
+    ]);
+  });
 });
 

@@ -34,6 +34,8 @@ export type AsmOptions = {
   symLen?: number;
   /** INCLUDE 検索パス */
   includePaths?: string[];
+  /** sjasm/8080系の互換解釈を有効化 */
+  sjasmCompat?: boolean;
 };
 
 // 定数 or ラベル or 未知を統一的に表す型(だけど先送り中)

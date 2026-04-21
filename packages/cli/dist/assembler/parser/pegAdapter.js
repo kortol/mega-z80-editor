@@ -73,6 +73,17 @@ function makeLabel(name, pos) {
 function makeEmpty(pos) {
     return { kind: "empty", pos };
 }
+function normalizeSjasmOperandAlias(ctx, opName, operandRaw) {
+    if (!ctx.options?.sjasmCompat)
+        return operandRaw;
+    const t = operandRaw.trim().toUpperCase();
+    if (t !== "M")
+        return operandRaw;
+    if (!/^(ADD|ADC|SUB|SBC|AND|XOR|OR|CP|INC|DEC|LD)$/.test(opName.toUpperCase())) {
+        return operandRaw;
+    }
+    return "(HL)";
+}
 function tokenizeMacroBody(ctx, body, pos) {
     const saved = { ...ctx.currentPos };
     ctx.currentPos.file = pos.file;
@@ -600,10 +611,11 @@ function parsePeg(ctx, source) {
                 if (instr.condition) {
                     args.push(String(instr.condition));
                 }
-                for (const op of instr.operands ?? []) {
-                    args.push(operandToRaw(op));
-                }
                 const opName = String(instr.mnemonic).toUpperCase();
+                for (const op of instr.operands ?? []) {
+                    const raw = operandToRaw(op);
+                    args.push(normalizeSjasmOperandAlias(ctx, opName, raw));
+                }
                 if (useMacroOverride && hasMacro(opName)) {
                     nodes.push({ kind: "macroInvoke", name: opName, args, pos });
                 }
