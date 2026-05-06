@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -9,7 +9,7 @@ function makeCtx(): AsmContext {
   return ctx;
 }
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -100,5 +100,50 @@ describe("ED prefix (misc)", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("RLD", []));
     expect(ctx.texts[0].data).toEqual([0xED, 0x6F]);
+  });
+
+  test("CPI/CPIR/CPD/CPDR", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("CPI", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xa1]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("CPIR", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xb1]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("CPD", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xa9]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("CPDR", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xb9]);
+  });
+
+  test("INI/INIR/IND/INDR", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("INI", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xa2]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("INIR", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xb2]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("IND", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xaa]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("INDR", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xba]);
+  });
+
+  test("OUTI/OTIR/OUTD/OTDR", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("OUTI", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xa3]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("OTIR", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xb3]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("OUTD", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xab]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("OTDR", []));
+    expect(ctx.texts[0].data).toEqual([0xed, 0xbb]);
   });
 });

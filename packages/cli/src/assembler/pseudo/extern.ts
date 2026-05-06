@@ -1,7 +1,7 @@
 // src/assembler/pseudo/extern.ts
 import { AsmContext } from "../context";
 import { AssemblerErrorCode } from "../errors";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 
 export function handleEXTERN(ctx: AsmContext, node: NodePseudo) {
   const [sym, fromKw, file] = node.args;

@@ -1,6 +1,6 @@
 import { AsmContext } from "../context";
 import { OperandInfo } from "../operand/classifyOperand";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
 
 export interface InstrDef {
   /**

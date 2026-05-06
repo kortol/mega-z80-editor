@@ -10,6 +10,9 @@ export interface EvalContext {
   errors: any[];                       // 発生したエラーを蓄積
   visiting: Set<string>;               // 現在評価中のシンボル
   loc: number;                         // ★ 現在アドレス（$用）
+  // local label resolution (optional)
+  currentGlobalLabel?: string;
+  caseInsensitive?: boolean;
 }
 
 export function makeEvalCtx(ac: AsmContext): EvalContext {
@@ -21,9 +24,53 @@ export function makeEvalCtx(ac: AsmContext): EvalContext {
     errors: ac.errors,
     visiting: new Set<string>(),
     loc: ac.loc,                       // ★ $ 用に現在アドレスも持たせる
+    currentGlobalLabel: ac.currentGlobalLabel,
+    caseInsensitive: ac.caseInsensitive,
   };
 }
 
+export function evalConst(expr: any, ctx: AsmContext): number {
+  if (!expr) return 0;
+
+  // 🟩 デバッグ出力
+
+  // --- 比較演算式対応（WHILE counter<3 等） ---
+  if (expr && typeof expr.text === "string") {
+    const text = expr.text.trim();
+    // より柔軟に空白・大文字小文字を許容
+    const m = text.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*([<>]=?|==|!=)\s*(\d+)$/i);
+    if (m) {
+      const [, sym, op, rhsRaw] = m;
+      const rhs = parseInt(rhsRaw, 10);
+      const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
+      const resolved = resolveLocalSymbolName(key, ctx);
+      const symEntry = ctx.symbols.get(resolved);
+      const lhs = symEntry?.value ?? 0;
+
+      switch (op) {
+        case "<": return lhs < rhs ? 1 : 0;
+        case "<=": return lhs <= rhs ? 1 : 0;
+        case ">": return lhs > rhs ? 1 : 0;
+        case ">=": return lhs >= rhs ? 1 : 0;
+        case "==": return lhs === rhs ? 1 : 0;
+        case "!=": return lhs !== rhs ? 1 : 0;
+      }
+    }
+  }
+
+  // --- フォールバック ---
+  if (typeof expr === "number") return expr;
+  if (typeof expr?.value === "number") return expr.value;
+  if (typeof expr?.value === "function") return expr.value();  // ✅関数なら実行
+  if (typeof expr.text === "string") {
+    const key = ctx.caseInsensitive ? expr.text.toUpperCase() : expr.text;
+    const resolved = resolveLocalSymbolName(key, ctx);
+    const sym = ctx.symbols.get(resolved);
+    if (sym) return sym.value;
+  }
+
+  return 0;
+}
 // evalExpr: 式を評価し Const か Reloc を返す（Error は返さない）
 // - $ は Const(ctx.loc)
 // - 未定義/外部はエラーにせず Reloc(sym, addend)
@@ -38,44 +85,55 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
       if (expr.name === "$") {
         return { kind: "Const", value: ctx.loc ?? 0 };
       }
+      const resolvedName = resolveLocalSymbolName(expr.name, ctx);
       // 定義済みなら即値 or 再帰評価
-      if (ctx.symbols.has(expr.name)) {
-        const entry = ctx.symbols.get(expr.name)!;
+      if (ctx.symbols.has(resolvedName)) {
+        const entry = ctx.symbols.get(resolvedName)!;
         if (typeof (entry as any).value === "number") {
           return { kind: "Const", value: (entry as any).value };
         } else if (typeof entry === "number") {
           // 古いMapを扱うコード互換用（後方互換）
           return { kind: "Const", value: entry };
         } else {
-          if (ctx.visiting.has(expr.name)) {
+          if (ctx.visiting.has(resolvedName)) {
             ctx.errors.push(
               makeError(
                 AssemblerErrorCode.ExprCircularRef,
-                `Circular reference detected: ${expr.name}`
+                `Circular reference detected: ${resolvedName}`
               )
             );
             return { kind: "Error", code: AssemblerErrorCode.ExprCircularRef };
           }
-          ctx.visiting.add(expr.name);
+          ctx.visiting.add(resolvedName);
           const res = evalExpr(entry as any, ctx);
-          ctx.visiting.delete(expr.name);
+          ctx.visiting.delete(resolvedName);
           return res;
         }
       }
       // 外部 or 未定義は Reloc として返す（ここではエラーを積まない）
-      if (ctx.externs.has(expr.name)) {
-        return { kind: "Reloc", sym: expr.name, addend: 0 };
+      if (ctx.externs.has(resolvedName)) {
+        return { kind: "Reloc", sym: resolvedName, addend: 0 };
       }
 
       // ★ undefined symbol → エラー＋Reloc
-      ctx.errors.push(makeError(AssemblerErrorCode.ExprUndefinedSymbol, `Undefined symbol: ${expr.name}`));
-      return { kind: "Reloc", sym: expr.name, addend: 0 };
+      ctx.errors.push(makeError(AssemblerErrorCode.ExprUndefinedSymbol, `Undefined symbol: ${resolvedName}`));
+      return { kind: "Reloc", sym: resolvedName, addend: 0 };
     }
 
     case "Unary": {
       const v = evalExpr(expr.expr, ctx);
       if (v.kind === "Const") {
-        return { kind: "Const", value: expr.op === "-" ? -v.value : +v.value };
+        switch (expr.op) {
+          case "-":
+            return { kind: "Const", value: -v.value };
+          case "+":
+            return { kind: "Const", value: +v.value };
+          case "~":
+            return { kind: "Const", value: ~v.value };
+          case "!":
+            return { kind: "Const", value: v.value === 0 ? 1 : 0 };
+        }
+        return { kind: "Const", value: v.value };
       }
       // Reloc に単項マイナス等は非対応
       ctx.errors.push(
@@ -154,6 +212,15 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
   }
 }
 
+function resolveLocalSymbolName(name: string, ctx: { currentGlobalLabel?: string; caseInsensitive?: boolean }): string {
+  let resolved = name;
+  if (name?.startsWith(".")) {
+    const base = ctx.currentGlobalLabel;
+    if (base) resolved = `${base}${name}`;
+  }
+  return ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
+}
+
 function evalBinary(op: string, left: number, right: number, ctx: EvalContext): number {
   let result: number;
 
@@ -177,6 +244,18 @@ function evalBinary(op: string, left: number, right: number, ctx: EvalContext): 
       }
       result = left % right;
       break;
+    case "<<":
+      result = left * (2 ** right);
+      break;
+    case ">>":
+      result = Math.trunc(left / (2 ** right));
+      break;
+    case "<": result = left < right ? 1 : 0; break;
+    case "<=": result = left <= right ? 1 : 0; break;
+    case ">": result = left > right ? 1 : 0; break;
+    case ">=": result = left >= right ? 1 : 0; break;
+    case "==": result = left === right ? 1 : 0; break;
+    case "!=": result = left !== right ? 1 : 0; break;
     case "&": result = left & right; break;
     case "|": result = left | right; break;
     case "^": result = left ^ right; break;

@@ -1,8 +1,7 @@
 import { runAnalyze } from "../analyze";
 import { createContext } from "../context";
 import { expandMacros } from "../macro";
-import { parse } from "../parser";
-import { tokenize } from "../tokenizer";
+import { parsePeg } from "../../assembler/parser/pegAdapter";
 
 describe("macro analyze", () => {
   it("registers macro definitions in context", () => {
@@ -14,8 +13,7 @@ PRINT3 MACRO
 ENDM
 `;
     const ctx = createContext();
-    const tokens = tokenize(ctx, src);
-    const nodes = parse(ctx, tokens);
+    const nodes = parsePeg(ctx, src);
     ctx.nodes = nodes;
     expandMacros(ctx);   // ★ ここで展開
     runAnalyze(ctx);
@@ -32,8 +30,7 @@ PRINT3 MACRO
 ENDM
 `;
     const ctx = createContext();
-    const tokens = tokenize(ctx, src);
-    const nodes = parse(ctx, tokens);
+    const nodes = parsePeg(ctx, src);
     ctx.nodes = nodes;
 
     expandMacros(ctx);   // 登録と再定義チェックがここで発生

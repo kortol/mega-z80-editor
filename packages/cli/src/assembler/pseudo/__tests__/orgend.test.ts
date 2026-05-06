@@ -1,12 +1,12 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
 import { handlePseudo } from "../../pseudo";
-import { NodePseudo } from "../../parser";
+import { NodePseudo } from "../../node";
 
 function makeCtx(): AsmContext {
   return createContext({ moduleName: "TEST" });
 }
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodePseudo {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodePseudo {
   return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), pos };
 }
 
@@ -35,6 +35,14 @@ describe("pseudo - ORG/END", () => {
       handlePseudo(ctx, makeNode("ORG", ["$10"]));
       handlePseudo(ctx, makeNode("ORG", ["20H"]));
       expect(ctx.loc).toBe(0x20);
+    });
+
+    test("ORG can move backward in current section (M80 compatible)", () => {
+      const ctx = makeCtx();
+      handlePseudo(ctx, makeNode("ORG", ["200H"]));
+      handlePseudo(ctx, makeNode("ORG", ["100H"]));
+      expect(ctx.loc).toBe(0x100);
+      expect(ctx.errors).toHaveLength(0);
     });
 
     test("ORG with invalid symbol throws", () => {

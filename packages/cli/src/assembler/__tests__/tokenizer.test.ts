@@ -133,7 +133,7 @@ describe("tokenizer", () => {
   // 8. エラー系
   test("invalid char", () => {
     const ctx = makeCtx();
-    expect(() => tokenize(ctx, "LD A,@123")).toThrow();
+    expect(() => tokenize(ctx, "LD A,?")).toThrow();
   });
   test("invalid hex", () => {
     const ctx = makeCtx();
@@ -148,7 +148,7 @@ describe("tokenizer", () => {
   test("empty", () => {
     const ctx = makeCtx();
     const toks = tokenize(ctx, "");
-    expect(toks).toEqual([]);
+    expect(kinds(toks)).toEqual(["eol:\n"]);
   });
 
   // 10. 複合
@@ -239,5 +239,26 @@ describe("tokenizer", () => {
     const tokens = tokenize(ctx, 'INCLUDE "mac.inc"');
     expect(tokens[0]).toMatchObject({ kind: "ident", text: "INCLUDE" });
     expect(tokens[1]).toMatchObject({ kind: "string", stringValue: "mac.inc" });
-  })
+  });
+
+  test("dot and at identifiers", () => {
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, ".@veccount := 1");
+    expect(kinds(toks)).toEqual([
+      "ident:.@veccount",
+      "op::=",
+      "num:1",
+      "eol:\n",
+    ]);
+  });
+
+  test("at counter", () => {
+    const ctx = makeCtx();
+    const toks = tokenize(ctx, "DB @#");
+    expect(kinds(toks)).toEqual([
+      "ident:DB",
+      "ident:COUNTER",
+      "eol:\n",
+    ]);
+  });
 });

@@ -48,6 +48,7 @@ export enum AssemblerErrorCode {
   MacroEndmMissing = "A7002",          // ENDM が見つからない
   MacroGarbageAfterEndm = "A7003",     // ENDM の後に余分なトークン
   MacroRedefined = "A7004",            // 同名マクロの再定義
+  MacroRecursionLimit = "A7005",      // マクロ展開の再帰上限超過
 
   // --- P2-G Stage 2: 引数展開／命令衝突対応 ---
   MacroArgTooFew = "A7100",            // 実引数不足
@@ -63,6 +64,24 @@ export enum AssemblerErrorCode {
   // Branch 系
   OutOfRange8 = "A8000",
   OutOfRangeRel = "A8001",
+
+  // --- LoopFrame / REPT / WHILE 系 (P3-A / P3-B 拡張) ---
+  ReptCountNegative = "A9000",            // REPT カウントが負数
+  ReptCountNonConst = "A9001",            // REPT カウントが定数でない
+  ReptLimitExceeded = "A9002",            // REPT 展開回数が上限超過
+  ReptMissingEndm = "A9003",              // ENDM が欠落
+
+  WhileLimitExceeded = "A9010",           // WHILE の無限ループ防止上限
+  WhileConditionInvalid = "A9011",        // WHILE 条件が不正（未解決など）
+
+  LoopCounterOutside = "A9020",           // \# がループ外で使われた
+  LoopCounterOutOfScope = "A9021",        // \##n が範囲外
+  LoopNestLimitExceeded = "A9022",        // ループのネスト上限超過
+  LoopLimitExceeded = "A9023",            // 全ループ共通の反復上限
+
+  LocalUnbound = "A9030",                 // IRP/IRPC で未束縛のローカル変数参照
+  LocalValueNotNumeric = "A9031",         // IRP/IRPC のローカル値が数値変換できない
+  IrpcCharExpectSingle = "A9032",         // IRPC の文字列要素が複数文字
 }
 
 // エラー情報の型

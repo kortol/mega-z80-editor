@@ -1,4 +1,4 @@
-import { setPhase, validTransitions } from "../../assembler/phaseManager";
+import { setPhase, validTransitions } from "../phaseManager";
 import { createContext } from "../context";
 
 test("valid phase transition", () => {

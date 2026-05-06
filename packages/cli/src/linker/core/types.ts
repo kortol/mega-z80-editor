@@ -1,7 +1,23 @@
 // src/linker/core/types.ts
-export interface RelSymbol { name: string; addr: number; }
-export interface RelText { addr: number; bytes: number[]; }
-export interface RelRef { addr: number; sym: string; }
+export interface RelSymbol {
+  name: string;
+  addr: number;
+  section?: string;
+  storage?: "ABS" | "REL" | "EXT";
+  module?: string;
+  defFile?: string;
+  defLine?: number;
+}
+export interface RelText {
+  addr: number;
+  bytes: number[];
+  section?: string;
+}
+export interface RelRef {
+  addr: number;
+  sym: string;
+  section?: string;
+}
 
 export interface RelModule {
   name: string;
@@ -10,6 +26,8 @@ export interface RelModule {
   refs: RelRef[];
   externs: string[];
   entry?: number;
+  version?: number;
+  sections?: RelSectionInfo[];
 }
 
 export type SegmentKind = "text" | "data" | "bss" | "custom";
@@ -27,7 +45,26 @@ export interface MemorySegment {
 export interface LinkResult {
   segments: MemorySegment[];
   entry?: number;       // エントリポイント
-  symbols: Map<string, { bank: number; addr: number }>;
+  symbols: Map<string, LinkedSymbol>;
+  warnings?: string[];
+  moduleSectionBases?: {
+    moduleIndex: number;
+    moduleName: string;
+    section: string;
+    base: number;
+  }[];
+  segmentDetails?: {
+    kind: "text" | "data" | "bss" | "custom";
+    sections: { name: string; base: number; size: number; align?: number; org?: number }[];
+  }[];
+}
+
+export interface LinkedSymbol {
+  bank: number;
+  addr: number;
+  module?: string;
+  section?: string;
+  definedAt?: string;
 }
 
 // ================================================================
@@ -36,13 +73,22 @@ export interface LinkResult {
 
 export interface ModuleSection {
   id: number;
-  kind: "TEXT" | "DATA" | "BSS" | "CUSTOM";
+  kind: "TEXT" | "DATA" | "BSS" | "CUSTOM" | "ASEG";
   name: string;
   align: number;
   flags: number;
   size: number;
   base?: number;      // 配置後
   data?: Uint8Array;  // TEXT/DATAのみ
+}
+
+export interface RelSectionInfo {
+  id: number;
+  name: string;
+  kind?: "TEXT" | "DATA" | "BSS" | "CUSTOM" | "ASEG";
+  align?: number;
+  size?: number;
+  org?: number;
 }
 
 export interface MultiSectionModule {

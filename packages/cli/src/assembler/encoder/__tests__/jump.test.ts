@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -10,7 +10,7 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -25,11 +25,12 @@ describe("Jump/Call/Return", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("CALL", ["BDOS"]));
     expect(ctx.texts[0].data).toEqual([0xcd, 0x00, 0x00]);
-    expect(ctx.unresolved).toEqual([{
+    expect(ctx.unresolved).toEqual([expect.objectContaining({
       addr: 1, symbol: "BDOS", size: 2, addend: 0, requester: {
-        op: "ENCODER", phase: "assemble", pos: { line: 1, file: "test.asm" }
+        op: "ENCODER", phase: "assemble", pos: { line: 1, file: "test.asm", phase: "analyze" }
       }
-    }]);
+    })]);
+    expect(ctx.unresolved[0].sectionId).toBe(0);
   });
 
   test("JR forward offset", () => {
@@ -71,10 +72,20 @@ describe("Jump/Call/Return", () => {
     expect(ctx.texts[0].data).toEqual([0x20, 0x08]);
   });
 
+  test("JR (HL) is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("JR", ["(HL)"]))).toThrow(/Unsupported JR form/);
+  });
+
   test("CALL 1234H → CD 34 12", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("CALL", ["1234H"]));
     expect(ctx.texts[0].data).toEqual([0xcd, 0x34, 0x12]);
+  });
+
+  test("CALL (HL) is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("CALL", ["(HL)"]))).toThrow(/Unsupported CALL form/);
   });
 
   test("RET → C9", () => {
@@ -99,6 +110,11 @@ describe("Jump/Call/Return", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("JP", ["(HL)"]));
     expect(ctx.texts[0].data).toEqual([0xe9]);
+  });
+
+  test("JP A is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("JP", ["A"]))).toThrow(/Unsupported JP form/);
   });
 
   test("JP (IX) → DD E9", () => {

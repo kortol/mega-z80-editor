@@ -1,13 +1,13 @@
-import { Token, tokenize } from "../tokenizer";
-import { parse, Node } from "../parser";
+import { Node } from "../node";
+import { parsePeg } from "../../assembler/parser/pegAdapter";
 import { AsmContext, createContext } from "../context";
 
 function makeCtx(): AsmContext {
-  return createContext({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm" } });
+  return createContext({ moduleName: "TEST", currentPos: { line: 0, file: "test.asm", phase: "parse" }, options: {  } });
 }
 
 function parseLines(ctx: AsmContext, src: string): Node[] {
-  return parse(ctx, tokenize(ctx, src));
+  return parsePeg(ctx, src);
 }
 
 describe("parser", () => {
@@ -16,8 +16,8 @@ describe("parser", () => {
   test("LD A,1", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "LD A,1");
-    expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } }
     ]);
   });
 
@@ -25,9 +25,20 @@ describe("parser", () => {
   test("comment line is ignored", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "LD A,1\n; comment\nLD B,2");
-    expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 0 } },
-      { kind: "instr", op: "LD", args: ["B", "2"], pos: { line: 2, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } },
+      { kind: "empty", pos: { line: 1, file: "test.asm" } },
+      { kind: "instr", op: "LD", args: ["B", "2"], pos: { line: 2, file: "test.asm" } }
+    ]);
+  });
+
+  test("empty line becomes empty node", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, "LD A,1\n\nLD B,2");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } },
+      { kind: "empty", pos: { line: 1, file: "test.asm" } },
+      { kind: "instr", op: "LD", args: ["B", "2"], pos: { line: 2, file: "test.asm" } }
     ]);
   });
 
@@ -35,8 +46,8 @@ describe("parser", () => {
   test("label only", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "START:");
-    expect(nodes).toEqual([
-      { kind: "label", name: "START", pos: { line: 0, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "label", name: "START", pos: { line: 0, file: "test.asm" } }
     ]);
   });
 
@@ -44,9 +55,9 @@ describe("parser", () => {
   test("label and instruction", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "START: LD A,1");
-    expect(nodes).toEqual([
-      { kind: "label", name: "START", pos: { line: 0, file: "test.asm", column: 0 } },
-      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 7 } }
+    expect(nodes).toMatchObject([
+      { kind: "label", name: "START", pos: { line: 0, file: "test.asm" } },
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } }
     ]);
   });
 
@@ -54,8 +65,8 @@ describe("parser", () => {
   test("ORG pseudo", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "ORG 100H");
-    expect(nodes).toEqual([
-      { kind: "pseudo", op: "ORG", args: [{ value: "100H" }], pos: { line: 0, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "ORG", args: [{ value: "100H" }], pos: { line: 0, file: "test.asm" } }
     ]);
   });
 
@@ -64,16 +75,16 @@ describe("parser", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "FOO EQU 10");
     // P1簡易仕様: "EQU" を疑似命令として扱い、args に残りを入れる
-    expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], pos: { line: 0, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], pos: { line: 0, file: "test.asm" } }
     ]);
   });
 
   test("EQU with expression", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "BAR EQU 0x100+10");
-    expect(nodes).toEqual([
-      { kind: "pseudo", op: "EQU", args: [{ key: "BAR", value: "0x100, +, 10" }], pos: { line: 0, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "EQU", args: [{ key: "BAR", value: "0x100+10" }], pos: { line: 0, file: "test.asm" } }
     ]);
   });
 
@@ -81,9 +92,9 @@ describe("parser", () => {
   test("DB and DW pseudo", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "DB 1,2,3\nDW 100H");
-    expect(nodes).toEqual([
-      { kind: "pseudo", op: "DB", args: [{ value: "1" }, { value: "2" }, { value: "3" }], pos: { line: 0, file: "test.asm", column: 0 } },
-      { kind: "pseudo", op: "DW", args: [{ value: "100H" }], pos: { line: 1, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "DB", args: [{ value: "1" }, { value: "2" }, { value: "3" }], pos: { line: 0, file: "test.asm" } },
+      { kind: "pseudo", op: "DW", args: [{ value: "100H" }], pos: { line: 1, file: "test.asm" } }
     ]);
   });
 
@@ -91,22 +102,37 @@ describe("parser", () => {
   test("multi-line instructions", () => {
     const ctx = makeCtx();
     const nodes = parseLines(ctx, "LD A,1\nCALL START");
-    expect(nodes).toEqual([
-      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm", column: 0 } },
-      { kind: "instr", op: "CALL", args: ["START"], pos: { line: 1, file: "test.asm", column: 0 } }
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "LD", args: ["A", "1"], pos: { line: 0, file: "test.asm" } },
+      { kind: "instr", op: "CALL", args: ["START"], pos: { line: 1, file: "test.asm" } }
     ]);
   });
 
   // エラー系 9. 未知命令
   test("unknown instruction", () => {
     const ctx = makeCtx();
-    expect(() => parseLines(ctx, "FOOBAR 123")).toThrow(/Unknown operation/);
+    const nodes = parseLines(ctx, "FOOBAR 123");
+    expect(nodes).toMatchObject([
+      {
+        kind: "macroInvoke",
+        name: "FOOBAR",
+        args: ["123"],
+        pos: {
+          file: "test.asm",
+          line: 0,
+        }
+      }
+    ]);
   });
 
   // エラー系 10. 行頭が数値
   test("line starts with number", () => {
     const ctx = makeCtx();
-    expect(() => parseLines(ctx, "123 LD A,1")).toThrow(/Syntax error/);
+    expect(() => {
+      const c = parseLines(ctx, "123 LD A,1");
+      console.log(c);
+      return c;
+    }).toThrow(/Syntax error/);
   });
 
   // エラー系 11. コロンだけ
@@ -115,34 +141,33 @@ describe("parser", () => {
     expect(() => parseLines(ctx, ":")).toThrow(/Syntax error/);
   });
 
-  test("label + EQU is invalid", () => {
+  test("OUT (n),r is parsed (compatibility-first)", () => {
     const ctx = makeCtx();
-    expect(() => parseLines(ctx, "FOO: EQU 10")).toThrow(/EQU cannot be used/);
+    const nodes = parseLines(ctx, "OUT (1234H),B");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "OUT", args: ["(1234H)", "B"], pos: { line: 0, file: "test.asm" } }
+    ]);
+  });
+
+  test("label + EQU is allowed (compatibility-first)", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, "FOO: EQU 10");
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "EQU", args: [{ key: "FOO", value: "10" }], pos: { line: 0, file: "test.asm" } },
+    ]);
   });
 
   test("parse INCLUDE directive", () => {
     const ctx = makeCtx();
-    const tokens: Token[] = [
-      { kind: "ident", text: "INCLUDE", pos: { file: "test.asm", line: 1, column: 0 } },
-      {
-        kind: "string",
-        text: '"src/assembler/__tests__/mac.inc"',
-        stringValue: 'src/assembler/__tests__/mac.inc',
-        pos: { file: "test.asm", line: 1, column: 8 },
-      },
-      { kind: "eol", text: "\n", pos: { file: "test.asm", line: 1, column: 17 } },
-    ];
-    const nodes = parse(ctx, tokens);
+    const nodes = parseLines(ctx, 'INCLUDE "src/assembler/__tests__/mac.inc"');
     console.log(nodes);
-    expect(nodes).toEqual([
+    expect(nodes).toMatchObject([
       {
         kind: "pseudo",
         op: "INCLUDE",
         args: [{ value: "src/assembler/__tests__/mac.inc" }],
         pos: {
-          line: 1,
           file: "test.asm",
-          column: 0,
         },
       }
     ]);
@@ -168,4 +193,81 @@ describe("parser", () => {
       }
     });
   });
+
+  test("extended ISA mnemonics are parsed", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, "MULUB A,B\nJAF label\nLDUP HL,(1234H)\nMLT BC\nIN0 A,(0)\nTSTIO 0");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "MULUB", args: ["A", "B"], pos: { line: 0, file: "test.asm" } },
+      { kind: "instr", op: "JAF", args: ["label"], pos: { line: 1, file: "test.asm" } },
+      { kind: "instr", op: "LDUP", args: ["HL", "(1234H)"], pos: { line: 2, file: "test.asm" } },
+      { kind: "instr", op: "MLT", args: ["BC"], pos: { line: 3, file: "test.asm" } },
+      { kind: "instr", op: "IN0", args: ["A", "(0)"], pos: { line: 4, file: "test.asm" } },
+      { kind: "instr", op: "TSTIO", args: ["0"], pos: { line: 5, file: "test.asm" } },
+    ]);
+  });
+
+  test("P2-M: parse DEFL/DEFM/DC and aliases", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, 'FOO DEFL 1\nDEFM "AB",1\nDC "HI"\nEXT BAR\nEXTERNAL BAZ');
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "SET", args: [{ key: "FOO", value: "1" }] },
+      { kind: "pseudo", op: "DB", args: [{ value: '"AB"' }, { value: "1" }] },
+      { kind: "pseudo", op: "DC", args: [{ value: '"HI"' }] },
+      { kind: "pseudo", op: "EXT", args: [{ value: "BAR" }] },
+      { kind: "pseudo", op: "EXTERNAL", args: [{ value: "BAZ" }] },
+    ]);
+  });
+
+  test("P2-M: parse condition/list/segment directives", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(
+      ctx,
+      "IFDEF FOO\nIFNDEF BAR\nIFB <>\nIFNB <X>\nIFDIF <A>,<B>\nCSEG\nDSEG\nASEG\nCOMMON\nLIST OFF\nPAGE 60\nTITLE TEST\nGLOBAL START\nLOCAL TMP\nEXITM"
+    );
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "IFDEF", args: [{ value: "FOO" }] },
+      { kind: "pseudo", op: "IFNDEF", args: [{ value: "BAR" }] },
+      { kind: "pseudo", op: "IFB", args: [{ value: "<>" }] },
+      { kind: "pseudo", op: "IFNB", args: [{ value: "<X>" }] },
+      { kind: "pseudo", op: "IFDIF", args: [{ value: "<A>" }, { value: "<B>" }] },
+      { kind: "pseudo", op: "CSEG", args: [] },
+      { kind: "pseudo", op: "DSEG", args: [] },
+      { kind: "pseudo", op: "ASEG", args: [] },
+      { kind: "pseudo", op: "COMMON", args: [] },
+      { kind: "pseudo", op: "LIST", args: [{ value: "OFF" }] },
+      { kind: "pseudo", op: "PAGE", args: [{ value: "60" }] },
+      { kind: "pseudo", op: "TITLE", args: [{ value: "TEST" }] },
+      { kind: "pseudo", op: "GLOBAL", args: [{ value: "START" }] },
+      { kind: "pseudo", op: "LOCAL", args: [{ value: "TMP" }] },
+      { kind: "pseudo", op: "EXITM", args: [] },
+    ]);
+  });
+
+  test("PUBLIC OUT should stay pseudo (not label+OUT instruction)", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(ctx, "PUBLIC OUT");
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: "PUBLIC", args: [{ value: "OUT" }] },
+    ]);
+  });
+
+  test("sjasmCompat: operand M becomes (HL) for instruction operands", () => {
+    const ctx = makeCtx();
+    ctx.options.sjasmCompat = true;
+    const nodes = parseLines(ctx, "ADD A,M");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "ADD", args: ["A", "(HL)"] },
+    ]);
+  });
+
+  test("sjasmCompat: condition M is kept for JP M,label", () => {
+    const ctx = makeCtx();
+    ctx.options.sjasmCompat = true;
+    const nodes = parseLines(ctx, "JP M,TGT");
+    expect(nodes).toMatchObject([
+      { kind: "instr", op: "JP", args: ["M", "TGT"] },
+    ]);
+  });
 });
+

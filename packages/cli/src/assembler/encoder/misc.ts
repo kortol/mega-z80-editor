@@ -1,6 +1,7 @@
 import { emitBytes } from "../codegen/emit";
 import { AsmContext } from "../context";
-import { NodeInstr } from "../parser";
+import { NodeInstr } from "../node";
+import { InstrDef } from "./types";
 
 /**
  * 単発 Misc 命令
@@ -29,3 +30,20 @@ export function encodeMisc(ctx: AsmContext, node: NodeInstr) {
 
   emitBytes(ctx, [opcode], node.pos);
 }
+
+export const miscInstr: InstrDef[] = [
+  {
+    match: (_ctx, args) => args.length === 0,
+    encode(ctx, _args, node) {
+      encodeMisc(ctx, node);
+    },
+    estimate: 1,
+  },
+  {
+    match: () => true,
+    encode(_ctx, _args, node) {
+      throw new Error(`Unsupported misc instruction ${node.op}`);
+    },
+    estimate: 1,
+  },
+];

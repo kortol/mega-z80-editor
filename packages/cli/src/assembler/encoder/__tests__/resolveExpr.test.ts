@@ -1,5 +1,7 @@
-import { AsmContext, createContext, defineSymbol } from "../../context";
+import { AsmContext, createContext, defineSymbol, SourcePos } from "../../context";
 import { resolveExpr16, resolveExpr8 } from "../utils";
+
+const pos: SourcePos = { line: 0, file: "test.asm", phase: "analyze" };
 
 function makeCtx(): AsmContext {
   const ctx = createContext({
@@ -26,118 +28,137 @@ describe("resolveExpr8/16", () => {
 
   describe("即値のみ", () => {
     test("5 => 5", () => {
-      expect(resolveExpr8(ctx, "5", { line: 0, file: "test.asm" })).toBe(5);
+      expect(resolveExpr8(ctx, "5", pos)).toBe(5);
     });
 
     test("FOO+BAR => 30", () => {
-      expect(resolveExpr8(ctx, "FOO+BAR", { line: 0, file: "test.asm" })).toBe(30);
+      expect(resolveExpr8(ctx, "FOO+BAR", pos)).toBe(30);
     });
 
     test("FOO/BAR => 0 (10/20=0)", () => {
-      expect(resolveExpr8(ctx, "FOO/BAR", { line: 0, file: "test.asm" })).toBe(0);
+      expect(resolveExpr8(ctx, "FOO/BAR", pos)).toBe(0);
     });
 
     test("除算ゼロはエラー", () => {
-      expect(() => resolveExpr8(ctx, "FOO/ZERO", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr8(ctx, "FOO/ZERO", pos, true)).toThrow();
     });
   });
 
   describe("外部参照（単独/±定数）", () => {
     test("EXT", () => {
-      const val = resolveExpr8(ctx, "EXT", { line: 0, file: "test.asm" });
+      const val = resolveExpr8(ctx, "EXT", pos);
       expect(val).toBe(0);
-      expect(ctx.unresolved).toContainEqual({
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", size: 1,
-      });
+      }));
+      expect(ctx.unresolved[0].sectionId).toBe(0);
     });
 
     test("EXT+1", () => {
-      resolveExpr8(ctx, "EXT+1", { line: 0, file: "test.asm" });
-      expect(ctx.unresolved).toContainEqual({
+      resolveExpr8(ctx, "EXT+1", pos);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 1, size: 1,
-      });
+      }));
     });
 
     test("1+EXT (入れ替え)", () => {
-      resolveExpr8(ctx, "1+EXT", { line: 0, file: "test.asm" });
-      expect(ctx.unresolved).toContainEqual({
+      resolveExpr8(ctx, "1+EXT", pos);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 1, size: 1,
-      });
+      }));
     });
 
     test("EXT-1", () => {
-      resolveExpr16(ctx, "EXT-1", { line: 0, file: "test.asm" });
-      expect(ctx.unresolved).toContainEqual({
-        addr: 1, symbol: "EXT", addend: -1, size: 2, "requester": { "op": "ENCODER", "phase": "assemble", pos: { "line": 0, file: "test.asm" } },
-      });
+      resolveExpr16(ctx, "EXT-1", pos);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
+        addr: 1, symbol: "EXT", addend: -1, size: 2, "requester": { "op": "ENCODER", "phase": "assemble", pos: { "line": 0, file: "test.asm", phase: "analyze" } },
+      }));
     });
 
     test("5-EXT はエラー", () => {
-      expect(() => resolveExpr8(ctx, "5-EXT", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr8(ctx, "5-EXT", pos, true)).toThrow();
     });
 
     test("-EXT はエラー", () => {
-      expect(() => resolveExpr8(ctx, "-EXT", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr8(ctx, "-EXT", pos, true)).toThrow();
     });
   });
 
   describe("外部＋内部", () => {
     test("EXT+FOO => unresolved(addend=10)", () => {
-      resolveExpr8(ctx, "EXT+FOO", { line: 0, file: "test.asm" });
-      expect(ctx.unresolved).toContainEqual({
+      resolveExpr8(ctx, "EXT+FOO", pos);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 10, size: 1,
-      });
+      }));
     });
 
     test("FOO+EXT => unresolved(addend=10)", () => {
-      resolveExpr8(ctx, "FOO+EXT", { line: 0, file: "test.asm" });
-      expect(ctx.unresolved).toContainEqual({
+      resolveExpr8(ctx, "FOO+EXT", pos);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: 10, size: 1,
-      });
+      }));
     });
 
     test("EXT-FOO => unresolved(addend=-10)", () => {
-      resolveExpr8(ctx, "EXT-FOO", { line: 0, file: "test.asm" });
-      expect(ctx.unresolved).toContainEqual({
+      resolveExpr8(ctx, "EXT-FOO", pos);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
         addr: 1, symbol: "EXT", addend: -10, size: 1,
-      });
+      }));
     });
 
     test("FOO-EXT はエラー", () => {
-      expect(() => resolveExpr8(ctx, "FOO-EXT", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr8(ctx, "FOO-EXT", pos, true)).toThrow();
     });
 
     test("EXT+BAR (未定義) はエラー", () => {
-      expect(() => resolveExpr8(ctx, "EXT+BAR2", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr8(ctx, "EXT+BAR2", pos, true)).toThrow();
     });
   });
 
   describe("外部が2つ以上", () => {
     test("EXT1+EXT2 はエラー", () => {
-      expect(() => resolveExpr16(ctx, "EXT1+EXT2", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr16(ctx, "EXT1+EXT2", pos, true)).toThrow();
     });
     test("EXT1-EXT2 はエラー", () => {
-      expect(() => resolveExpr16(ctx, "EXT1-EXT2", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr16(ctx, "EXT1-EXT2", pos, true)).toThrow();
     });
   });
 
   describe("サイズ境界チェック", () => {
     test("300 in resolveExpr8 → 範囲外エラー", () => {
-      expect(() => resolveExpr8(ctx, "300", { line: 0, file: "test.asm" }, true)).toThrow();
+      expect(() => resolveExpr8(ctx, "300", pos, true)).toThrow();
     });
 
     test("300 in resolveExpr16 → OK", () => {
-      expect(resolveExpr16(ctx, "300", { line: 0, file: "test.asm" })).toBe(300);
+      expect(resolveExpr16(ctx, "300", pos)).toBe(300);
     });
 
     test("EXT+1 in resolveExpr8 → size=1", () => {
-      resolveExpr8(ctx, "EXT+1", { line: 0, file: "test.asm" });
+      resolveExpr8(ctx, "EXT+1", pos);
       expect(ctx.unresolved[0].size).toBe(1);
     });
 
     test("EXT+1 in resolveExpr16 → size=2", () => {
-      resolveExpr16(ctx, "EXT+1", { line: 0, file: "test.asm" });
+      resolveExpr16(ctx, "EXT+1", pos);
       expect(ctx.unresolved[0].size).toBe(2);
+    });
+  });
+
+  describe("内部LABELの再配置", () => {
+    test("LABEL式は値を返しつつfixupを積む", () => {
+      defineSymbol(ctx, "LBL", 0x0829, "LABEL");
+      const val = resolveExpr16(ctx, "LBL", pos);
+      expect(val).toBe(0x0829);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
+        addr: 1, symbol: "LBL", size: 2,
+      }));
+    });
+
+    test("recordConstLabelReloc=false ではfixupを積まない", () => {
+      defineSymbol(ctx, "LBL2", 0x1234, "LABEL");
+      const val = resolveExpr16(ctx, "LBL2", pos, false, false, 1, false);
+      expect(val).toBe(0x1234);
+      expect(ctx.unresolved).toHaveLength(0);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodePseudo } from "../../parser";
+import { NodePseudo } from "../../node";
 import { handlePseudo } from "../../pseudo";
 import * as extern from "../../expr/parseExternExpr";
 import { initCodegen } from "../../codegen/emit";
@@ -12,11 +12,15 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[] = [], pos: SourcePos = { line: 1, file: "test.asm" }): NodePseudo {
+function makeNode(op: string, args: string[] = [], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodePseudo {
   return { kind: "pseudo", op, args: args.map(arg => ({ value: arg })), pos };
 }
 
 describe("pseudo - DB/DW", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   test("DB with numeric list", () => {
     const ctx = makeCtx();
     handlePseudo(ctx, makeNode("DB", ["1", "2", "3"]));
@@ -32,6 +36,12 @@ describe("pseudo - DB/DW", () => {
   test("DB with string literal", () => {
     const ctx = makeCtx();
     handlePseudo(ctx, makeNode('DB', ['"ABC"']));
+    expect(ctx.texts[0].data).toEqual([0x41, 0x42, 0x43]);
+  });
+
+  test("DB with single-quoted string literal", () => {
+    const ctx = makeCtx();
+    handlePseudo(ctx, makeNode("DB", ["'ABC'"]));
     expect(ctx.texts[0].data).toEqual([0x41, 0x42, 0x43]);
   });
 
@@ -63,7 +73,8 @@ describe("pseudo - DB/DW", () => {
   test("DW with numeric list", () => {
     const ctx = makeCtx();
     handlePseudo(ctx, makeNode("DW", ["1", "2", "3"]));
-    expect(ctx.texts[0].data).toEqual([1, 0, 2, 0, 3, 0]);
+    const allBytes = ctx.texts.flatMap((t) => t.data);
+    expect(allBytes).toEqual([1, 0, 2, 0, 3, 0]);
   });
 
   // 🧩 NEW: DS（Define Storage）
@@ -121,6 +132,25 @@ describe("pseudo - DB/DW", () => {
     expect(ctx.texts[0].data).toEqual([0x00, 0x00]);
   });
 
+  test("DW with local label registers relocation fixup", () => {
+    const ctx = makeCtx();
+    ctx.symbols.set("LBL", {
+      value: 0x1234,
+      type: "LABEL",
+      sectionId: 0,
+      pos: { line: 1, file: "test.asm", phase: "emit" },
+    } as any);
+
+    handlePseudo(ctx, makeNode("DW", ["LBL"]));
+
+    expect(ctx.unresolved.length).toBe(1);
+    const u = ctx.unresolved[0];
+    expect(u.symbol).toBe("LBL");
+    expect(u.size).toBe(2);
+    expect(u.addr).toBe(0);
+    expect(ctx.texts[0].data).toEqual([0x34, 0x12]);
+  });
+
   test("DS EXT1-$ registers unresolved (future support)", () => {
     const ctx = makeCtx();
 
@@ -147,5 +177,11 @@ describe("pseudo - DB/DW", () => {
     const ctx = makeCtx();
     expect(() => handlePseudo(ctx, makeNode(".WORD32", ["100H"])))
       .toThrow(/does not take operands/);
+  });
+
+  test("DC sets bit7 on last character", () => {
+    const ctx = makeCtx();
+    handlePseudo(ctx, makeNode("DC", ['"ABC"', '"Z"']));
+    expect(ctx.texts[0].data).toEqual([0x41, 0x42, 0xC3, 0xDA]);
   });
 });

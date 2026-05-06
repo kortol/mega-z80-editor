@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -9,7 +9,7 @@ function makeCtx(): AsmContext {
   return ctx;
 }
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -86,5 +86,19 @@ describe("CB prefix", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("RES", ["1", "A"]));
     expect(ctx.texts[0].data).toEqual([0xcb, 0x8f]);
+  });
+
+  test("BIT 8,A is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("BIT", ["8", "A"]))).toThrow(
+      /bit index out of range/
+    );
+  });
+
+  test("RLC (BC) is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("RLC", ["(BC)"]))).toThrow(
+      /Invalid 8bit register/
+    );
   });
 });

@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MZ80 Launch (BBC BASIC)",
+      "type": "mz80-dap",
+      "request": "launch",
+      "program": "${workspaceFolder}/examples/bbcbasic-z80/bbcbasic-as.com",
+      "rpcListen": "127.0.0.1:4700"
+    },
+    {
+      "name": "MZ80 Attach (RPC 4700)",
+      "type": "mz80-dap",
+      "request": "attach",
+      "connect": "127.0.0.1:4700"
+    }
+  ]
+}

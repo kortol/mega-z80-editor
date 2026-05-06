@@ -1,39 +1,60 @@
 export type LogLevel = "quiet" | "normal" | "verbose";
 
-export class Logger {
-  private level: LogLevel;
-  private debugMode: boolean;
-
-  constructor(level: LogLevel = "normal", debug = false) {
-    this.level = level;
-    this.debugMode = debug;
+export function createLogger(level: LogLevel = "normal", ctxId?: string) {
+  let pino: any;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("pino");
+    // pino may be exported as default or named export depending on module type.
+    pino =
+      typeof mod === "function"
+        ? mod
+        : typeof mod?.default === "function"
+          ? mod.default
+          : typeof mod?.pino === "function"
+            ? mod.pino
+            : undefined;
+  } catch {
+    // Fallback for test/sandbox environments without pino resolution.
+    pino = undefined;
   }
 
-  setDebugMode(debug: boolean) {
-    this.debugMode = debug;
+  if (typeof pino !== "function") {
+    // Fallback for test/sandbox environments or unexpected module shape.
+    pino = () => ({
+      child: () => pino(),
+      info: () => {},
+      debug: () => {},
+      warn: () => {},
+      error: () => {},
+    });
   }
 
-  debug(msg: string) {
-    if (this.debugMode) {
-      console.log("[DEBUG]", msg);
-    }
-  }
+  const map = { quiet: "silent", normal: "info", verbose: "debug" } as const;
 
-  info(msg: string) {
-    if (this.level !== "quiet") {
-      console.log(msg);
-    }
-  }
+  // Jest / CI 環境では pretty を無効化
+  const isPretty =
+    process.env.NODE_ENV !== "production" &&
+    !process.env.JEST_WORKER_ID &&
+    process.stdout.isTTY;
 
-  verbose(msg: string) {
-    if (this.level === "verbose") {
-      console.log("[VERBOSE]", msg);
-    }
-  }
+  const base = pino({
+    level: map[level],
+    ...(isPretty
+      ? {
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "SYS:standard",
+            ignore: "pid,hostname",
+          },
+        },
+      }
+      : {}),
+  });
 
-  error(msg: string) {
-    if (this.level !== "quiet") {
-      console.error("❌ " + msg);
-    }
-  }
+  return ctxId ? base.child({ ctxId }) : base;
 }
+
+export type Logger = ReturnType<typeof createLogger>;

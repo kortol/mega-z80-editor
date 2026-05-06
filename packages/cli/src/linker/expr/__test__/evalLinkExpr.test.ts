@@ -46,6 +46,18 @@ describe("P1-F: evalLinkExpr (with LinkResolveContext)", () => {
     expect(res.value).toBe(0x2FE);
   });
 
+  it("resolves dotted symbol name", () => {
+    const res = evalLinkExpr("TESTNAME.TEST+1", resolver);
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(0x8124);
+  });
+
+  it("resolves leading-dot section symbol", () => {
+    const res = evalLinkExpr(".text+10H", resolver);
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(0x8010);
+  });
+
   it("returns unresolved for extern symbol", () => {
     const res = evalLinkExpr("BAZ", resolver);
     expect(res.ok).toBe(false);

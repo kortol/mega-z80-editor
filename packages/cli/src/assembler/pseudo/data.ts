@@ -4,19 +4,81 @@ import { AsmContext } from "../context";
 import { resolveExpr16, resolveExpr8 } from "../encoder/utils";
 import { AssemblerErrorCode, makeWarning } from "../errors";
 import { parseExternExpr } from "../expr/parseExternExpr";
-import { NodePseudo } from "../parser";
+import { NodePseudo } from "../node";
 
 function bytesFromLiteral(arg: string): number[] {
-  if (arg.startsWith('"') && arg.endsWith('"')) {
-    return arg
-      .slice(1, -1)
-      .split("")
-      .map((ch) => ch.charCodeAt(0) & 0xff);
-  }
-  if (arg.startsWith("'") && arg.endsWith("'") && arg.length === 3) {
-    return [arg.charCodeAt(1) & 0xff];
+  const isDouble = arg.startsWith('"') && arg.endsWith('"');
+  const isSingle = arg.startsWith("'") && arg.endsWith("'");
+  if (isDouble || isSingle) {
+    return arg.slice(1, -1).split("").map((ch) => ch.charCodeAt(0) & 0xff);
   }
   return [];
+}
+
+// -----------------------------------------------------
+// DZ (Define Zero-terminated String/Byte)
+// -----------------------------------------------------
+export function handleDZ(ctx: AsmContext, node: NodePseudo) {
+  const bytes: number[] = [];
+  if (ctx.phase !== "emit") {
+    let count = 0;
+    for (const a of node.args) {
+      const v = a.value;
+      const lit = bytesFromLiteral(v);
+      if (lit.length) {
+        count += lit.length;
+        continue;
+      }
+      const ext = parseExternExpr(ctx, v);
+      if (ext) {
+        count += 1;
+        continue;
+      }
+      count += 1;
+    }
+    advanceLC(ctx, count + 1); // + zero terminator
+    return;
+  }
+
+  for (const a of node.args) {
+    const valStr = a.value;
+    const lit = bytesFromLiteral(valStr);
+    if (lit.length) {
+      bytes.push(...lit);
+      continue;
+    }
+
+    const ext = parseExternExpr(ctx, valStr);
+    if (ext) {
+      if (bytes.length) {
+        emitBytes(ctx, bytes, node.pos);
+        bytes.length = 0;
+      }
+      if (ctx.phase === "emit") {
+        emitFixup(ctx, ext.symbol, 1, {
+          op: "DZ",
+          phase: "assemble",
+          pos: node.pos,
+        }, ext.addend, node.pos);
+      }
+      continue;
+    }
+
+    const val = resolveExpr8(ctx, valStr, node.pos);
+    if (val < 0 || val > 0xff) {
+      ctx.warnings.push(
+        makeWarning(
+          AssemblerErrorCode.ExprOutRange,
+          `DZ value ${val} truncated at line ${node.pos.line}`,
+          { pos: ctx.currentPos }
+        )
+      );
+    }
+    bytes.push(val & 0xff);
+  }
+
+  bytes.push(0x00);
+  emitBytes(ctx, bytes, node.pos);
 }
 
 // -----------------------------------------------------
@@ -85,6 +147,58 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
 }
 
 // -----------------------------------------------------
+// DC (M80: set bit7 on the last byte of each argument element)
+// -----------------------------------------------------
+export function handleDC(ctx: AsmContext, node: NodePseudo) {
+  if (ctx.phase !== "emit") {
+    let count = 0;
+    for (const a of node.args) {
+      const v = a.value;
+      const lit = bytesFromLiteral(v);
+      if (lit.length) { count += lit.length; continue; }
+      const ext = parseExternExpr(ctx, v);
+      if (ext) { count += 1; continue; }
+      count += 1;
+    }
+    advanceLC(ctx, count);
+    return;
+  }
+
+  const outBytes: number[] = [];
+  for (const a of node.args) {
+    const valStr = a.value;
+    const lit = bytesFromLiteral(valStr);
+    if (lit.length) {
+      const copied = [...lit];
+      copied[copied.length - 1] = copied[copied.length - 1] | 0x80;
+      outBytes.push(...copied);
+      continue;
+    }
+
+    const ext = parseExternExpr(ctx, valStr);
+    if (ext) {
+      if (outBytes.length) {
+        emitBytes(ctx, outBytes, node.pos);
+        outBytes.length = 0;
+      }
+      emitFixup(ctx, ext.symbol, 1, {
+        op: "DC",
+        phase: "assemble",
+        pos: node.pos,
+      }, ext.addend, node.pos);
+      continue;
+    }
+
+    const val = resolveExpr8(ctx, valStr, node.pos);
+    outBytes.push((val & 0xFF) | 0x80);
+  }
+
+  if (outBytes.length > 0) {
+    emitBytes(ctx, outBytes, node.pos);
+  }
+}
+
+// -----------------------------------------------------
 // DW (Define Word)
 // -----------------------------------------------------
 export function handleDW(ctx: AsmContext, node: NodePseudo) {
@@ -102,7 +216,6 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
     return;
   }
 
-  const words: number[] = [];
   for (const a of node.args) {
     const valStr = a.value;
     if (valStr.startsWith('"') && valStr.endsWith('"')) {
@@ -112,15 +225,7 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
     // --- 外部シンボル ± 定数 ---
     const ext = parseExternExpr(ctx, valStr);
     if (ext) {
-      // 途中で外部シンボルが出た場合は、現バッファをフラッシュしてemit
-      if (words.length > 0) {
-        const bytes: number[] = [];
-        for (const w of words) bytes.push(w & 0xFF, (w >> 8) & 0xFF);
-        emitBytes(ctx, bytes, node.pos);
-        words.length = 0;
-      }
       if (ctx.phase === "emit") {
-        const addr = ctx.loc;
         emitFixup(ctx, ext.symbol, 2, {
           op: "DW",                     // or "DATA" depending on pseudo
           phase: "assemble",
@@ -131,8 +236,8 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
       continue;
     }
 
-    // --- 通常の式（Reloc禁止で評価） ---
-    const val = resolveExpr16(ctx, valStr, node.pos, false, true);
+    // --- 通常の式（ラベル式は再配置情報も記録） ---
+    const val = resolveExpr16(ctx, valStr, node.pos, false, false, 0, true);
     if (val < -0x8000 || val > 0xffff) {
       ctx.warnings.push(
         makeWarning(
@@ -141,13 +246,7 @@ export function handleDW(ctx: AsmContext, node: NodePseudo) {
           { pos: ctx.currentPos })
       );
     }
-    words.push(val);
-  }
-  // 🔹最後にまとめてemit
-  if (words.length > 0) {
-    const bytes: number[] = [];
-    for (const w of words) bytes.push(w & 0xFF, (w >> 8) & 0xFF);
-    emitBytes(ctx, bytes, node.pos);
+    emitWord(ctx, val, node.pos);
   }
 }
 
@@ -161,7 +260,7 @@ export function handleDS(ctx: AsmContext, node: NodePseudo) {
   const ext = parseExternExpr(ctx, valStr);
   if (ext) {
     ctx.unresolved.push({
-      addr: getLC(ctx), symbol: ext.symbol, size: 0 as 1 | 2 | 4, addend: ext.addend, requester: {                  // ✅ 追加
+      addr: getLC(ctx), symbol: ext.symbol, size: 0 as 1 | 2 | 4, addend: ext.addend, sectionId: ctx.currentSection ?? 0, requester: {                  // ✅ 追加
         op: "DS",
         phase: "assemble",
         pos: node.pos,

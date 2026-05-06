@@ -129,6 +129,34 @@ describe("parserExpr", () => {
     });
   });
 
+  test("bitwise and/or/xor", () => {
+    const ctx = makeCtx();
+    const e = parseE(ctx, "1|2&3^4");
+    // precedence (compat): ^ > & > |
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: 1 | (2 & (3 ^ 4)) });
+  });
+
+  test("bitwise precedence guard: ^ > &", () => {
+    const ctx = makeCtx();
+    const e = parseE(ctx, "1^2&4");
+    // if ^ > &: (1^2)=3, 3&4=0
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: 0 });
+  });
+
+  test("shift and compare", () => {
+    const ctx = makeCtx();
+    const e = parseE(ctx, "1+2<<3 == 24");
+    expect(evalExpr(e, makeEvalCtx())).toEqual({ kind: "Const", value: 1 });
+  });
+
+  test("unary not and bitwise not", () => {
+    const ctx = makeCtx();
+    const e1 = parseE(ctx, "!0");
+    expect(evalExpr(e1, makeEvalCtx())).toEqual({ kind: "Const", value: 1 });
+    const e2 = parseE(ctx, "~0");
+    expect(evalExpr(e2, makeEvalCtx())).toEqual({ kind: "Const", value: -1 });
+  });
+
   test("invalid: 1+", () => {
     const ctx = makeCtx();
     expect(() => parseE(ctx, "1+")).toThrow(/Unexpected/);

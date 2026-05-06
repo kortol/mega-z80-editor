@@ -1,9 +1,7 @@
-import { tokenize } from "../assembler/tokenizer";
-import { parse } from "../assembler/parser";
 import { encodeInstr, estimateInstrSize } from "../assembler/encoder";
 import { handlePseudo } from "../assembler/pseudo";
 import { emitRel } from "../assembler/rel";
-import { AsmContext, AsmOptions, createContext, defineSymbol } from "../assembler/context";
+import { AsmContext, AsmOptions, canon, createContext } from "../assembler/context";
 import * as fs from "fs";
 import * as path from "path";
 import { emitRelV2 } from "../assembler/rel/builder";
@@ -11,8 +9,12 @@ import { initCodegen } from "../assembler/codegen/emit";
 import { setPhase } from "../assembler/phaseManager";
 import { Logger } from "../logger";
 import { writeLstFile, writeLstFileV2 } from "../assembler/output/listing";
+import { buildAssemblerSourceMap } from "../assembler/output/sourceMap";
 import { runAnalyze } from "../assembler/analyze";
 import { expandMacros } from "../assembler/macro";
+import { parsePeg } from "../assembler/parser/pegAdapter";
+import { handleConditional, isConditionActive, isConditionalOp } from "../assembler/pseudo/conditional";
+import { writeSourceMap } from "../sourcemap/model";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -31,18 +33,20 @@ export function writeSymFile(ctx: AsmContext, outputFile: string) {
   for (const name of entries) {
     let kind = "UNKNOWN";
     let valStr = "----";
+    let fileStr = "-";
 
     if (ctx.externs.has(name)) {
       kind = "EXTERN";
     } else {
       const entry = ctx.symbols.get(name);
       if (typeof (entry?.value) === "number") {
-        kind = "LABEL";
+        kind = ctx.exportSymbols.has(name) ? "GLOBAL" : "LABEL";
         valStr = entry.value.toString(16).padStart(4, "0");
+        if (entry?.pos?.file) fileStr = path.basename(entry.pos.file);
       }
     }
 
-    lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind}`);
+    lines.push(`${name.padEnd(8)} ${valStr.toUpperCase()}H ${kind} ${fileStr}`);
   }
 
   fs.writeFileSync(symPath, lines.join("\n") + "\n", "utf-8");
@@ -88,10 +92,15 @@ export function assemble(
     verbose,
     inputFile,
     logger,
+    options,
   });
+  if (options.symLen != null) {
+    ctx.modeSymLen = options.symLen;
+  }
+  if (options.includePaths && options.includePaths.length > 0) {
+    ctx.includePaths = [...options.includePaths];
+  }
   initCodegen(ctx, { withDefaultSections: true });
-  // とりあえずデバッグモード
-  ctx.logger?.setDebugMode(verbose);
 
   // PASS 0 : トークン化と構文解析
   const source = fs.readFileSync(inputFile, "utf-8");
@@ -101,11 +110,11 @@ export function assemble(
 
   // --- PHASE: tokenize ---
   setPhase(ctx, "tokenize");
-  ctx.tokens = tokenize(ctx, source);
+  ctx.tokens = [];
 
   // --- PHASE: parse ---
   setPhase(ctx, "parse");
-  ctx.nodes = parse(ctx, ctx.tokens);
+  ctx.nodes = parsePeg(ctx, source);
   ctx.source = source;
 
   // --- 🧩 PHASE: macro-expand (P2-E-03) ---
@@ -145,25 +154,108 @@ export function assemble(
 // }
 
 export function runEmit(ctx: AsmContext) {
+  const analyzeErrors = ctx.errors.slice();
+  const analyzeWarnings = ctx.warnings.slice();
+
+  runEmitPass(ctx);
+
+  // 1st pass diagnostics are only for label/address priming.
+  ctx.errors = analyzeErrors;
+  ctx.warnings = analyzeWarnings;
+
+  runEmitPass(ctx);
+}
+
+function runEmitPass(ctx: AsmContext) {
   ctx.loc = 0;
+  ctx.texts = [];
   ctx.relocs = [];
   ctx.unresolved = [];
+  ctx.condStack = [];
+  ctx.listing = [];
   for (const sec of ctx.sections.values()) {
-    sec.lc = 0;
+    sec.lc = sec.orgDefined ? (sec.org ?? 0) : 0;
     sec.bytes = [];
   }
 
   for (const node of ctx.nodes ?? []) {
+    if (node.kind === "empty") continue;
+    const beforeTexts = ctx.texts.length;
+    const addr = ctx.loc;
+    const sectionId = ctx.currentSection;
+    let skipListing = false;
+
     switch (node.kind) {
       case "label":
-        defineSymbol(ctx, node.name, ctx.loc, "LABEL");
+        if (!isConditionActive(ctx)) { skipListing = true; break; }
+        if (!node.name.startsWith(".")) {
+          ctx.currentGlobalLabel = canon(node.name, ctx);
+        }
+        {
+          const key = canon(node.name.startsWith(".") && ctx.currentGlobalLabel
+            ? `${ctx.currentGlobalLabel}${node.name}`
+            : node.name, ctx);
+          ctx.symbols.set(key, {
+            value: ctx.loc,
+            sectionId: ctx.currentSection,
+            type: "LABEL",
+            pos: node.pos,
+          });
+        }
         break;
       case "pseudo":
+        if (isConditionalOp(node.op)) {
+          handleConditional(ctx, node);
+          skipListing = true;
+          break;
+        }
+        if (!isConditionActive(ctx)) { skipListing = true; break; }
+        const pseudoOp = node.op.toUpperCase();
+        if (pseudoOp === "INCLUDE" || pseudoOp === "SECTION") {
+          skipListing = true;
+        }
         handlePseudo(ctx, node);
         break;
       case "instr":
+        if (!isConditionActive(ctx)) { skipListing = true; break; }
         encodeInstr(ctx, node);
         break;
+    }
+
+    if (skipListing) continue;
+    if (!ctx.listingControl.enabled) continue;
+
+    const newTexts = ctx.texts.slice(beforeTexts);
+    if (newTexts.length > 0) {
+      for (const t of newTexts) {
+        ctx.listing.push({
+          addr: t.addr,
+          bytes: t.data,
+          pos: t.pos,
+          sectionId: t.sectionId,
+        });
+      }
+      continue;
+    }
+
+    // no bytes emitted -> listing entry for label/pseudo
+    if (node.kind === "label") {
+      ctx.listing.push({
+        addr,
+        bytes: [],
+        pos: node.pos,
+        sectionId,
+        text: `${node.name}:`,
+        kind: "label",
+      });
+    } else if (node.kind === "pseudo") {
+      ctx.listing.push({
+        addr,
+        bytes: [],
+        pos: node.pos,
+        sectionId,
+        kind: "pseudo",
+      });
     }
   }
 }
@@ -184,14 +276,24 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
   }
 
   // SYM 出力
-  writeSymFile(ctx, outputFile);
+  if (ctx.options.sym) {
+    writeSymFile(ctx, outputFile);
+  }
 
   ctx.logger?.info(`relVersion:${relVersion}`);
   // LST 出力
-  if (relVersion === 2) {
-    writeLstFileV2(ctx, outputFile, ctx.source ?? '');
-  } else {
-    writeLstFile(ctx, outputFile, ctx.source ?? '');
+  if (ctx.options.lst) {
+    if (relVersion === 2) {
+      writeLstFileV2(ctx, outputFile, ctx.source ?? '');
+    } else {
+      writeLstFile(ctx, outputFile, ctx.source ?? '');
+    }
+  }
+
+  if (ctx.options.smap) {
+    const smapPath = outputFile.replace(/\.rel$/i, ".smap");
+    const smap = buildAssemblerSourceMap(ctx, ctx.inputFile, outputFile);
+    writeSourceMap(smapPath, smap);
   }
 
   // ------------------------------------------------------------
@@ -219,3 +321,4 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
   }
   return ctx;
 }
+

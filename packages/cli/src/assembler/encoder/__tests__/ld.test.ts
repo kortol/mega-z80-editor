@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -10,7 +10,7 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -126,5 +126,75 @@ describe("LD 16bit", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("LD", ["SP", "HL"]));
     expect(ctx.texts[0].data).toEqual([0xf9]);
+  });
+});
+
+describe("LD extra", () => {
+  test("LD A,(BC)/(DE) and (BC)/(DE),A", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("LD", ["A", "(BC)"]));
+    expect(ctx.texts[0].data).toEqual([0x0a]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["A", "(DE)"]));
+    expect(ctx.texts[0].data).toEqual([0x1a]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["(BC)", "A"]));
+    expect(ctx.texts[0].data).toEqual([0x02]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["(DE)", "A"]));
+    expect(ctx.texts[0].data).toEqual([0x12]);
+  });
+
+  test("LD (IX+d),n", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("LD", ["(IX+1)", "7"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x36, 0x01, 0x07]);
+  });
+
+  test("LD IXH,1 and LD A,IXL", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("LD", ["IXH", "1"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x26, 0x01]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["A", "IXL"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x7d]);
+  });
+
+  test("LD IX/IY,(nn) and LD (nn),IX/IY", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("LD", ["IX", "(1234H)"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x2a, 0x34, 0x12]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["IY", "(1234H)"]));
+    expect(ctx.texts[0].data).toEqual([0xfd, 0x2a, 0x34, 0x12]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["(1234H)", "IX"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x22, 0x34, 0x12]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["(1234H)", "IY"]));
+    expect(ctx.texts[0].data).toEqual([0xfd, 0x22, 0x34, 0x12]);
+  });
+
+  test("LD IXH,(IX+1) and LD (IY-2),IYL", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("LD", ["IXH", "(IX+1)"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x66, 0x01]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("LD", ["(IY-2)", "IYL"]));
+    expect(ctx.texts[0].data).toEqual([0xfd, 0x75, 0xfe]);
+  });
+
+  test("LD (1234H),(HL) is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("LD", ["(1234H)", "(HL)"]))).toThrow(
+      /memory-to-memory/
+    );
+  });
+
+  test("LD (IX+1),(IY+2) is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("LD", ["(IX+1)", "(IY+2)"]))).toThrow(
+      /Unsupported LD form/
+    );
   });
 });

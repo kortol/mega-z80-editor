@@ -3,12 +3,27 @@ import { BinaryOp, Expr, UnaryOp } from "./types";
 
 // --- 型ガード ---
 function isUnaryOp(text: string): text is UnaryOp {
-  return text === "+" || text === "-";
+  return text === "+" || text === "-" || text === "~" || text === "!";
 }
 
 function isBinaryOp(text: string): text is BinaryOp {
   return (
-    text === "+" || text === "-" || text === "*" || text === "/" || text === "%"
+    text === "+" ||
+    text === "-" ||
+    text === "*" ||
+    text === "/" ||
+    text === "%" ||
+    text === "<<" ||
+    text === ">>" ||
+    text === "<" ||
+    text === "<=" ||
+    text === ">" ||
+    text === ">=" ||
+    text === "==" ||
+    text === "!=" ||
+    text === "&" ||
+    text === "^" ||
+    text === "|"
   );
 }
 
@@ -46,7 +61,7 @@ export function parseExpr(tokens: Token[]): Expr {
     }
     if (tok.kind === "lparen") {
       consume();
-      const e = parseAdd();
+      const e = parseOr();
       expect("rparen");
       return e;
     }
@@ -100,7 +115,107 @@ export function parseExpr(tokens: Token[]): Expr {
     return node;
   }
 
-  const expr = parseAdd();
+  function parseShift(): Expr {
+    let node = parseAdd();
+    while (true) {
+      const tok = peek();
+      if (tok && tok.kind === "op" && (tok.text === "<<" || tok.text === ">>")) {
+        const op: BinaryOp = tok.text;
+        consume();
+        const right = parseAdd();
+        node = { kind: "Binary", op, left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  }
+
+  function parseRel(): Expr {
+    let node = parseShift();
+    while (true) {
+      const tok = peek();
+      if (
+        tok &&
+        tok.kind === "op" &&
+        (tok.text === "<" || tok.text === "<=" || tok.text === ">" || tok.text === ">=")
+      ) {
+        const op: BinaryOp = tok.text;
+        consume();
+        const right = parseShift();
+        node = { kind: "Binary", op, left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  }
+
+  function parseEq(): Expr {
+    let node = parseRel();
+    while (true) {
+      const tok = peek();
+      if (tok && tok.kind === "op" && (tok.text === "==" || tok.text === "!=")) {
+        const op: BinaryOp = tok.text;
+        consume();
+        const right = parseRel();
+        node = { kind: "Binary", op, left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  }
+
+  function parseBitXor(): Expr {
+    let node = parseEq();
+    while (true) {
+      const tok = peek();
+      if (tok && tok.kind === "op" && tok.text === "^") {
+        const op: BinaryOp = tok.text;
+        consume();
+        const right = parseEq();
+        node = { kind: "Binary", op, left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  }
+
+  function parseBitAnd(): Expr {
+    let node = parseBitXor();
+    while (true) {
+      const tok = peek();
+      if (tok && tok.kind === "op" && tok.text === "&") {
+        const op: BinaryOp = tok.text;
+        consume();
+        const right = parseBitXor();
+        node = { kind: "Binary", op, left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  }
+
+  function parseOr(): Expr {
+    let node = parseBitAnd();
+    while (true) {
+      const tok = peek();
+      if (tok && tok.kind === "op" && tok.text === "|") {
+        const op: BinaryOp = tok.text;
+        consume();
+        const right = parseBitAnd();
+        node = { kind: "Binary", op, left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  }
+
+  const expr = parseOr();
   if (pos < tokens.length) {
     throw new Error(`Unexpected token '${tokens[pos].text}'`);
   }

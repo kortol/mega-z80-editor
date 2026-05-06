@@ -34,6 +34,6 @@ export function setPhase(ctx: AsmContext, next: AsmPhase): void {
     throw new Error(`Invalid phase transition: ${ctx.phase} → ${next}`);
   }
   ctx.phase = next;
+  ctx.currentPos.phase = next;
   ctx.logger?.debug?.(`[Phase] ${ctx.phase}`);
-  console.log(`[Phase] ${ctx.phase}`);
 }

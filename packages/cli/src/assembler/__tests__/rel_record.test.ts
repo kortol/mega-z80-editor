@@ -1,6 +1,6 @@
 // packages/cli/src/assembler/__tests__/rel_record.test.ts
 import { assembleSource, phaseAnalyze, phaseEmit } from "../testUtils";
-import { buildRelFile } from "../../assembler/rel/builder";
+import { buildRelFile } from "../rel/builder";
 
 describe("P1-E: Relocation Record Generation", () => {
   it("should output R record for JP EXT_C", () => {
@@ -10,7 +10,7 @@ describe("P1-E: Relocation Record Generation", () => {
       ;EXT_C: NOP
       END
     `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     // console.log(ctx);
 
     const rel = buildRelFile(ctx);
@@ -40,3 +40,4 @@ describe("P1-E: Relocation Record Generation", () => {
     expect(rRecords.length).toBe(0);
   });
 });
+

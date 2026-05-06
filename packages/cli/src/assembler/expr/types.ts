@@ -1,8 +1,24 @@
 import { AssemblerErrorCode } from "../errors";
 
 // 演算子定義
-export type UnaryOp = "+" | "-";
-export type BinaryOp = "+" | "-" | "*" | "/" | "%";
+export type UnaryOp = "+" | "-" | "~" | "!";
+export type BinaryOp =
+  | "+"
+  | "-"
+  | "*"
+  | "/"
+  | "%"
+  | "<<"
+  | ">>"
+  | "<"
+  | "<="
+  | ">"
+  | ">="
+  | "=="
+  | "!="
+  | "&"
+  | "^"
+  | "|";
 
 // 式ノード
 export type Expr =

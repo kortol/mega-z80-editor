@@ -69,7 +69,19 @@ export function buildRelFile(ctx: AsmContext): RelFile {
   // }
 
   // S
+  // If PUBLIC/GLOBAL symbols are declared, emit only those exports.
+  // Otherwise keep backward-compatible behavior and emit all defined symbols.
+  const exportFilterEnabled = ctx.exportSymbols.size > 0;
   for (const [sym, entry] of ctx.symbols.entries()) {
+    if (typeof entry !== "number" && entry.type === "EXTERN") {
+      continue;
+    }
+    if (exportFilterEnabled) {
+      const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
+      if (!ctx.exportSymbols.has(key)) {
+        continue;
+      }
+    }
     const addr = typeof entry === "number" ? entry : entry.value;
     const sectionId = typeof entry === "number" ? 0 : entry.sectionId ?? 0;
 
@@ -151,6 +163,7 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
       align: s.align,
       size: s.bytes.length, // s.size ではなく実データ長を優先
       flags: s.flags,
+      org: s.kind !== "ASEG" && s.orgDefined ? s.org : undefined,
       data: Uint8Array.from(s.bytes),
     })
   );
@@ -174,26 +187,43 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
 
   // 2) Symbols（暫定：ABS/REL/EXT の3種のみ）
   const symbols: RelSymbolV2[] = [];
-  // - 定義済み: REL（暫定で sectionId=0/TEXT）or ABS（EQUなどで将来拡張）
+  const exportFilterEnabled = ctx.exportSymbols.size > 0;
+  // - 定義済み: REL（通常ラベル）or ABS（EQU/ASEG等）
   for (const [name, val] of ctx.symbols.entries()) {
-    if (typeof val === "number") {
-      symbols.push({
-        name,
-        storage: "REL", // TODO: EQU等はABSに切替
-        sectionId: 0, // TODO: 定義位置からセクション特定へ置換
-        value: val, // TODO: セクション内相対へ変換（ORG運用により要調整）
-      });
-    } else {
-      if (val.type === "EXTERN") continue;  // ← ここでスキップ
-      const storage = val.type === "CONST" ? "ABS" : "REL";
-
-      symbols.push({
-        name,
-        storage,
-        sectionId: val.sectionId ?? 0,
-        value: val.value ?? 0,
-      });
+    if (exportFilterEnabled) {
+      const key = ctx.caseInsensitive ? name.toUpperCase() : name;
+      if (!ctx.exportSymbols.has(key)) continue;
     }
+    if (typeof val === "number") {
+      const sec = ctx.sections.get(0);
+      const base = sec && sec.kind !== "ASEG" && sec.orgDefined ? sec.org ?? 0 : 0;
+      symbols.push({
+        name,
+        storage: "REL",
+        sectionId: 0,
+        value: val - base,
+        moduleName: ctx.moduleName,
+      });
+      continue;
+    }
+
+    if (val.type === "EXTERN") continue;
+    const sectionId = val.sectionId ?? 0;
+    const sec = ctx.sections.get(sectionId);
+    const base = sec && sec.kind !== "ASEG" && sec.orgDefined ? sec.org ?? 0 : 0;
+    const isAbsolute = val.type === "CONST" || sec?.kind === "ASEG";
+    const storage = isAbsolute ? "ABS" : "REL";
+    const value = storage === "REL" ? (val.value ?? 0) - base : (val.value ?? 0);
+
+    symbols.push({
+      name,
+      storage,
+      sectionId,
+      value,
+      moduleName: ctx.moduleName,
+      defFile: val.pos?.file,
+      defLine: val.pos?.line,
+    });
   }
   // - EXTERN: EXT
   for (const name of ctx.externs) {
@@ -211,7 +241,7 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
     // r.symbol のインデックスを後で張るため、一旦ダミー(-1)で入れて後で解決してもOKだが、
     // ここでは name→index を先に作れるよう、後段で再マップする。
     return {
-      sectionId: 0, // TODO: 実際はその命令が出力されたセクションID
+      sectionId: r.sectionId ?? 0,
       offset: r.addr, // TODO: セクション内オフセットに調整
       width: (r.size ?? 2) as 1 | 2, // v1準拠 1 or 2
       signed: false, // TODO: 将来拡張
@@ -241,15 +271,39 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
     if (idx !== undefined) {
       fixups[i].symIndex = idx;
     } else {
-      // 未登録ならEXTとして追加して張る（理屈上はあり得る）
-      const extra: RelSymbolV2 = {
-        name: r.symbol,
-        storage: "EXT",
-        sectionId: null,
-        value: 0,
-        nameStrOff: offsets.get(r.symbol) ?? undefined,
-      };
+      // 未登録でも、ローカルLABEL/CONSTなら内部シンボルとして追加する。
+      // （PUBLICフィルタで落ちたシンボルへの fixup を正しく解決するため）
+      const local = ctx.symbols.get(r.symbol) as any;
+      let extra: RelSymbolV2;
+      if (local && typeof local !== "number" && local.type !== "EXTERN") {
+        const sid = local.sectionId ?? 0;
+        const sec = ctx.sections.get(sid);
+        const isAbs = local.type === "CONST" || sec?.kind === "ASEG";
+        const storage: "REL" | "ABS" = isAbs ? "ABS" : "REL";
+        const base = sec && sec.kind !== "ASEG" && sec.orgDefined ? sec.org ?? 0 : 0;
+        const value = storage === "REL" ? (local.value ?? 0) - base : (local.value ?? 0);
+        const uniqueName = `__${ctx.moduleName}_${r.symbol}`;
+        extra = {
+          name: uniqueName,
+          storage,
+          sectionId: sid,
+          value,
+          nameStrOff: offsets.get(uniqueName) ?? undefined,
+          moduleName: ctx.moduleName,
+          defFile: local.pos?.file,
+          defLine: local.pos?.line,
+        };
+      } else {
+        extra = {
+          name: r.symbol,
+          storage: "EXT",
+          sectionId: null,
+          value: 0,
+          nameStrOff: offsets.get(r.symbol) ?? undefined,
+        };
+      }
       const newIndex = symbols.push(extra) - 1;
+      symIndexByName.set(r.symbol, newIndex);
       fixups[i].symIndex = newIndex;
     }
   });
@@ -267,7 +321,15 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
     entrySymIndex: -1,
   };
 
+  let entry = ctx.entry;
+  if (entry !== undefined) {
+    const entrySec = ctx.sections.get(0);
+    const base = entrySec && entrySec.kind !== "ASEG" && entrySec.orgDefined ? entrySec.org ?? 0 : 0;
+    entry = entry - base;
+  }
+
   return {
+    moduleName: ctx.moduleName,
     header,
     sections,
     symbols,
@@ -278,7 +340,7 @@ export function buildRelModuleV2(ctx: AsmContext): RelModuleV2 {
       data: t.data,
       line: t.pos.line,
     })),
-    entry: ctx.entry, // undefinedなら未指定
+    entry, // undefinedなら未指定
     data,
     strtab,
     entrySymIndex: -1,

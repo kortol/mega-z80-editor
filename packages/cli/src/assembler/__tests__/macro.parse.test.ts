@@ -1,6 +1,5 @@
-import { parse } from "../parser";
 import { createContext } from "../context";
-import { tokenize } from "../tokenizer";
+import { parsePeg } from "../../assembler/parser/pegAdapter";
 
 describe("macro parsing", () => {
   it("parses a simple MACRO/ENDM block", () => {
@@ -12,8 +11,7 @@ PRINT3 MACRO
 ENDM
 `;
     const ctx = createContext({ inputFile: "test.asm" });
-    const tokens = tokenize(ctx, src);
-    const nodes = parse(ctx, tokens);
+    const nodes = parsePeg(ctx, src);
 
     const macro = nodes.find((n) => n.kind === "macroDef");
     expect(macro).toBeTruthy();
@@ -27,7 +25,6 @@ FOO MACRO
   LD A,1
 `;
     const ctx = createContext();
-    const tokens = tokenize(ctx, src);
-    expect(() => parse(ctx, tokens)).toThrow(/ENDM/);
+    expect(() => parsePeg(ctx, src)).toThrow(/ENDM/);
   });
 });

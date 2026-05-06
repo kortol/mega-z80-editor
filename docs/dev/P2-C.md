@@ -198,7 +198,7 @@ F -->|未解決チェック| G[link]
 | 1  | encode各命令のemit統合化 | P2-F（AST化時に対応） |
 | 2  | ORG／SECTION切替安全化  | P2-D（セクション拡張）  |
 | 3  | INCLUDE多段展開       | P2-D           |
-| 4  | Macro Stage1実装    | P2-E           |
+| 4  | Macro Stage1実装    | P2-L           |
 | 5  | emitBatch最適化      | P2-F           |
 
 ---

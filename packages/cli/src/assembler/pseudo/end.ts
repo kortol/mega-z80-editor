@@ -1,7 +1,7 @@
 import { AsmContext } from "../context";
 import { parseExpr } from "../expr/parserExpr";
 import { evalExpr, makeEvalCtx } from "../expr/eval";
-import { Node } from "../parser";
+import { Node } from "../node";
 import { AssemblerErrorCode, makeError } from "../errors";
 import { Token, tokenize } from "../tokenizer";
 
@@ -38,7 +38,7 @@ export function handleEND(ctx: AsmContext, node: Node) {
     ctx.errors.push(
       makeError(
         AssemblerErrorCode.ExprExternInEnd,
-        `External symbol not allowed in END: ${node.args.join(" ")}`
+        `External symbol not allowed in END: ${node.args.map(a => a.value).join(" ")}`
       )
     );
     ctx.entry = undefined;

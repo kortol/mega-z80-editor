@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -10,7 +10,7 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -55,5 +55,26 @@ describe("IO instructions", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("OUT", ["(C)", "0"]));
     expect(ctx.texts[0].data).toEqual([0xed, 0x71]);
+  });
+
+  test("IN B,(12H) is rejected (only A allowed)", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("IN", ["B", "(12H)"]))).toThrow(
+      /only IN A,\(n\) is supported/
+    );
+  });
+
+  test("OUT (12H),B is rejected (only A allowed)", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("OUT", ["(12H)", "B"]))).toThrow(
+      /only OUT \(n\),A is supported/
+    );
+  });
+
+  test("OUT (C),1 is rejected (only 0 allowed)", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("OUT", ["(C)", "1"]))).toThrow(
+      /only 0 is supported/
+    );
   });
 });

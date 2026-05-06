@@ -20,8 +20,13 @@ export interface Token {
   pos: SourcePos;
 }
 
+// TODO: replace with actual tokenizer.cloneTokens
+export function cloneTokens(tokens: any[]): any[] {
+  return tokens.map((t) => ({ ...t }));
+}
+
 export function tokenize(ctx: AsmContext, src: string): Token[] {
-  if (!src || src.trim() === "") return [];
+  if (src == null) return [];
 
   // --- CP/M EOF (0x1A) で打ち切り ---
   const eofIdx = src.indexOf("\x1A");
@@ -32,22 +37,49 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
   const tokens: Token[] = [];
   const lines = src.split(/\r?\n/);
 
-  // 👇 空文字1行のみは即終了（eolを出さない）
-  if (lines.length === 1 && lines[0] === "") {
-    return [];
+  const isTrailingNewline =
+    src.endsWith("\n") || src.endsWith("\r") || src.endsWith("\r\n");
+
+  function findCommentIndex(line: string): number {
+    let inSingle = false;
+    let inDouble = false;
+    let escape = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\" && (inSingle || inDouble)) {
+        escape = true;
+        continue;
+      }
+      if (ch === "'" && !inDouble) {
+        inSingle = !inSingle;
+        continue;
+      }
+      if (ch === "\"" && !inSingle) {
+        inDouble = !inDouble;
+        continue;
+      }
+      if (ch === ";" && !inSingle && !inDouble) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   for (let lineNo = 0; lineNo < lines.length; lineNo++) {
     ctx.currentPos.line = lineNo;
     let line = lines[lineNo];
 
-    // --- 最終行が空文字なら無視 ---
-    if (lineNo === lines.length - 1 && line === "") {
+    // --- 最終行が空文字なら無視（末尾改行による空行のみ） ---
+    if (lineNo === lines.length - 1 && line === "" && isTrailingNewline) {
       break;
     }
 
     // --- コメント削除 ---
-    const commentIdx = line.indexOf(";");
+    const commentIdx = findCommentIndex(line);
     if (commentIdx >= 0) line = line.substring(0, commentIdx);
 
     ctx.currentPos.column = 0;
@@ -60,8 +92,17 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
         continue;
       }
 
-      // --- 記号 ---
-      if (/^[,:()+\-*/]/.test(rest[0])) {
+      // --- 2文字演算子 ---
+      const op2 = ["<=", ">=", "==", "!=", "<<", ">>", ":="];
+      const op2Match = op2.find((op) => rest.startsWith(op));
+      if (op2Match) {
+        tokens.push({ kind: "op", text: op2Match, pos: cloneSourcePos(ctx.currentPos) });
+        ctx.currentPos.column += op2Match.length;
+        continue;
+      }
+
+      // --- 記号/1文字演算子 ---
+      if (/^[,:()+\-*/=<>!~&|^]/.test(rest[0])) {
         const ch = rest[0];
         let kind: TokenKind;
         switch (ch) {
@@ -81,7 +122,15 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
           case "-":
           case "*":
           case "/":
-            kind = "op"; // ← 新しく追加
+          case "=":
+          case "<":
+          case ">":
+          case "!":
+          case "~":
+          case "&":
+          case "|":
+          case "^":
+            kind = "op";
             break;
           default:
             throw new Error(`Unhandled symbol ${ch}`);
@@ -93,17 +142,17 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
 
       // --- 文字リテラル ---
       if (rest[0] === "'") {
-        if (/^'.'/.test(rest) && rest.length >= 3 && rest[2] === "'") {
-          const text = rest.slice(0, 3); // 'A'
-          const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
-          ctx.currentPos.column += 3;
-          continue;
-        } else if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
+        if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
           const text = rest.slice(0, 4); // '\n' とか '\''
           const value = parseNumber(text);
           tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
           ctx.currentPos.column += 4;
+          continue;
+        } else if (/^'[^\\]'/ .test(rest) && rest.length >= 3 && rest[2] === "'") {
+          const text = rest.slice(0, 3); // 'A'
+          const value = parseNumber(text);
+          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
+          ctx.currentPos.column += 3;
           continue;
         } else {
           throw new Error(
@@ -183,9 +232,37 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
         continue;
       }
 
+      // --- バックスラッシュ始まり (\# / \##n / \VAR) ---
+      if (rest[0] === "\\") {
+        const match = /^\\[A-Za-z0-9_#]+/.exec(rest);
+        if (match) {
+          const text = match[0];
+          tokens.push({
+            kind: "ident",
+            text,
+            pos: cloneSourcePos(ctx.currentPos),
+          });
+          ctx.currentPos.column += text.length;
+          continue;
+        } else {
+          // 孤立した '\' は構文エラー
+          throw new Error(
+            `Tokenizer error at line ${lineNo + 1}, col ${ctx.currentPos.column}: '${rest[0]}'`
+          );
+        }
+      }
+
+
+      // --- @# (sjasm REPEAT カウンタ) ---
+      if (rest.startsWith("@#")) {
+        const name = ctx.caseInsensitive ? "COUNTER" : "counter";
+        tokens.push({ kind: "ident", text: name, pos: cloneSourcePos(ctx.currentPos) });
+        ctx.currentPos.column += 2;
+        continue;
+      }
 
       // --- 数値または識別子（$,%含む） ---
-      const m = /^([A-Za-z0-9_\$][A-Za-z0-9_.]*)/.exec(rest);
+      const m = /^([A-Za-z0-9_\$][A-Za-z0-9_.$@]*|\.[A-Za-z_@][A-Za-z0-9_.$@]*|@[A-Za-z_][A-Za-z0-9_.$@]*)/.exec(rest);
       if (m) {
         const text = m[1];
         if (text === "$") {
@@ -238,8 +315,17 @@ export function parseNumber(text: string): number {
   if (/^'\\n'$/.test(text)) {
     return 10;
   }
+  if (/^'\\r'$/.test(text)) {
+    return 13;
+  }
+  if (/^'\\t'$/.test(text)) {
+    return 9;
+  }
   if (/^'\\''$/.test(text)) {
     return 0x27; // シングルクォート
+  }
+  if (/^'\\\\'$/.test(text)) {
+    return 0x5c; // バックスラッシュ
   }
 
   // 16進

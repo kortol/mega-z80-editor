@@ -29,12 +29,23 @@ export function writeRelV2(mod: RelModuleV2, outPath: string) {
   fs.writeSync(fd, Buffer.from([2])); // version = 2
   w(""); // 改行で区切り（次から通常出力）
 
+  if (mod.moduleName) {
+    w(`H ${encodeToken(mod.moduleName)}`);
+  }
+
   // --- Section table ---
   for (const sec of mod.sections) {
-    w(
-      `$SECTION ${sec.id} ${sec.name} size=${sec.size ?? 0} align=${sec.align ?? 1
-      }`
-    );
+    const parts = [
+      `$SECTION ${sec.id} ${sec.name}`,
+      `kind=${sec.kind ?? "TEXT"}`,
+      `size=${sec.size ?? 0}`,
+      `align=${sec.align ?? 1}`,
+    ];
+    if (sec.org !== undefined) {
+      const orgHex = sec.org.toString(16).toUpperCase();
+      parts.push(`org=${orgHex}H`);
+    }
+    w(parts.join(" "));
   }
 
   // --- Text records grouped by section ---
@@ -64,7 +75,30 @@ export function writeRelV2(mod: RelModuleV2, outPath: string) {
       sym.sectionId != null && mod.sections[sym.sectionId]
         ? ` ${mod.sections[sym.sectionId].name}`
         : "";
-    w(`S ${sym.name} ${addrHex}${secName}`);
+    const storage = sym.storage ?? "REL";
+    const extras: string[] = [];
+    if (sym.moduleName) extras.push(`module=${encodeToken(sym.moduleName)}`);
+    if (sym.defFile) extras.push(`defFile=${encodeToken(sym.defFile)}`);
+    if (typeof sym.defLine === "number" && Number.isFinite(sym.defLine)) {
+      extras.push(`defLine=${Math.trunc(sym.defLine)}`);
+    }
+    w(`S ${sym.name} ${addrHex}${secName} ${storage}${extras.length ? ` ${extras.join(" ")}` : ""}`);
+  }
+
+  // --- Relocations / unresolved refs ---
+  for (const fx of mod.fixups ?? []) {
+    const sym = mod.symbols[fx.symIndex];
+    if (!sym) continue;
+    const offHex = fx.offset.toString(16).padStart(4, "0").toUpperCase();
+    const expr =
+      fx.addend && fx.addend !== 0
+        ? `${sym.name}${fx.addend > 0 ? `+${fx.addend}` : `${fx.addend}`}`
+        : sym.name;
+    const secName =
+      fx.sectionId != null && mod.sections[fx.sectionId]
+        ? ` ${mod.sections[fx.sectionId].name}`
+        : "";
+    w(`R ${offHex} ${expr}${secName}`);
   }
 
   // --- Entry point ---
@@ -74,4 +108,8 @@ export function writeRelV2(mod: RelModuleV2, outPath: string) {
   }
 
   fs.closeSync(fd);
+}
+
+function encodeToken(value: string): string {
+  return encodeURIComponent(value);
 }

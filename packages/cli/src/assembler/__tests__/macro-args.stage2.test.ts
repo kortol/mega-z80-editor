@@ -21,7 +21,7 @@ ENDM
 
   FILLZ 10,0
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     // LD B,10 = 06 0A;  LD (HL),0 = 36 00
     expect(getBytes(ctx)).toEqual([0x06, 0x0A, 0x36, 0x00]);
   });
@@ -33,7 +33,7 @@ M MACRO COUNT
 ENDM
   M 9
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
 
     // 9+1 は評価器で 10 → 06 0A
     expect(getBytes(ctx)).toEqual([0x06, 0x0A]);
@@ -46,7 +46,7 @@ M MACRO COUNT
 ENDM
   M 7
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     // console.log(ctx.texts);
     // console.log(ctx.errors);
     // console.log(ctx.warnings);
@@ -66,7 +66,7 @@ P MACRO X
 ENDM
   P 65
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     // DB "X",0 → 58h,00h （実装の文字→コード変換に依る） / LD A,65 → 3E 41h
     // 少なくとも末尾 3E 41 を確認
     expect(getBytes(ctx).slice(-2)).toEqual([0x3E, 65]);
@@ -79,10 +79,32 @@ F MACRO A,B
 ENDM
   F 10
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     console.log(ctx.errors);
     expect(ctx.errors).toHaveLength(1);
     // expect(() => assembleSource(phaseEmit, src)).toThrow(/expected 2 args/i);
+  });
+
+  test("デフォルト値: 省略した引数を補完する", () => {
+    const src = `
+M MACRO A,B:2,C:3
+  DB A,B,C
+ENDM
+  M 9
+`;
+    const ctx = assembleSource(phaseEmit, src, {  });
+    expect(getBytes(ctx)).toEqual([0x09, 0x02, 0x03]);
+  });
+
+  test("省略表記: 空引数はデフォルト値で補完する", () => {
+    const src = `
+M MACRO A,B:2,C:3
+  DB A,B,C
+ENDM
+  M 9,,5
+`;
+    const ctx = assembleSource(phaseEmit, src, {  });
+    expect(getBytes(ctx)).toEqual([0x09, 0x02, 0x05]);
   });
 
   test("引数過剰", () => {
@@ -92,7 +114,7 @@ F MACRO A,B
 ENDM
   F 1,2,3
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(ctx.errors).toHaveLength(1);
     // expect(() => assembleSource(phaseEmit, src)).toThrow(/expected 2 args/i);
   });
@@ -105,7 +127,7 @@ ENDM
 
   LD 1,2
 `;
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     expect(getBytes(ctx)).toEqual([0x01, 0x02]);
   });
 
@@ -134,7 +156,7 @@ ENDM
   LOOPMAC
 `;
 
-    const ctx = assembleSource(phaseEmit, src);
+    const ctx = assembleSource(phaseEmit, src, {  });
     console.log(ctx);
     // 展開後: 各マクロで別々のローカルラベルが生成される
     const expandedLabels = Array.from(ctx.symbols.keys()).filter(k =>
@@ -150,3 +172,4 @@ ENDM
     expect(uniqueCount).toBe(2);
   });
 });
+

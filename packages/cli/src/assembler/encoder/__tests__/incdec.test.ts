@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -10,7 +10,7 @@ function makeCtx(): AsmContext {
 }
 
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -76,5 +76,40 @@ describe("16 bit INC/DEC instructions", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("DEC", ["SP"]));
     expect(ctx.texts[0].data).toEqual([0x3b]);
+  });
+});
+
+describe("INC/DEC extra", () => {
+  test("INC/DEC (HL)", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("INC", ["(HL)"]));
+    expect(ctx.texts[0].data).toEqual([0x34]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("DEC", ["(HL)"]));
+    expect(ctx.texts[0].data).toEqual([0x35]);
+  });
+
+  test("INC/DEC IX/IY", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("INC", ["IX"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x23]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("DEC", ["IY"]));
+    expect(ctx.texts[0].data).toEqual([0xfd, 0x2b]);
+  });
+
+  test("INC/DEC (IX/IY+d)", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("INC", ["(IX+1)"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x34, 0x01]);
+    ctx.texts = [];
+    encodeInstr(ctx, makeNode("DEC", ["(IY-2)"]));
+    expect(ctx.texts[0].data).toEqual([0xfd, 0x35, 0xfe]);
+  });
+
+  test("INC IXH", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("INC", ["IXH"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x24]);
   });
 });

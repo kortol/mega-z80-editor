@@ -1,5 +1,5 @@
 import { AsmContext, createContext, SourcePos } from "../../context";
-import { NodeInstr } from "../../parser";
+import { NodeInstr } from "../../node";
 import { encodeInstr } from "../../encoder";
 import { initCodegen } from "../../codegen/emit";
 
@@ -9,7 +9,7 @@ function makeCtx(): AsmContext {
   return ctx;
 }
 
-function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm" }): NodeInstr {
+function makeNode(op: string, args: string[], pos: SourcePos = { line: 1, file: "test.asm", phase: "analyze" }): NodeInstr {
   return { kind: "instr", op, args, pos };
 }
 
@@ -56,6 +56,12 @@ describe("Arithmetic and Logic", () => {
     expect(ctx.texts[0].data).toEqual([0xfe, 0x01]);
   });
 
+  test("ADD A,IXH → DD 84", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("ADD", ["A", "IXH"]));
+    expect(ctx.texts[0].data).toEqual([0xdd, 0x84]);
+  });
+
   test("INC A → 3C", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("INC", ["A"]));
@@ -66,6 +72,20 @@ describe("Arithmetic and Logic", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("DEC", ["B"]));
     expect(ctx.texts[0].data).toEqual([0x05]);
+  });
+
+  test("ADD HL,IX is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("ADD", ["HL", "IX"]))).toThrow(
+      /Unsupported ADD form/
+    );
+  });
+
+  test("SUB HL,1 is rejected", () => {
+    const ctx = makeCtx();
+    expect(() => encodeInstr(ctx, makeNode("SUB", ["HL", "1"]))).toThrow(
+      /Unsupported SUB form/
+    );
   });
 });
 
@@ -93,5 +113,17 @@ describe("16bit Arithmetic", () => {
     const ctx = makeCtx();
     encodeInstr(ctx, makeNode("ADD", ["HL", "SP"]));
     expect(ctx.texts[0].data).toEqual([0x39]);
+  });
+
+  test("ADC HL,BC → ED 4A", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("ADC", ["HL", "BC"]));
+    expect(ctx.texts[0].data).toEqual([0xed, 0x4a]);
+  });
+
+  test("SBC HL,SP → ED 72", () => {
+    const ctx = makeCtx();
+    encodeInstr(ctx, makeNode("SBC", ["HL", "SP"]));
+    expect(ctx.texts[0].data).toEqual([0xed, 0x72]);
   });
 });

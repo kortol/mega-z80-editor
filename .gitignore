@@ -22,8 +22,37 @@ Thumbs.db
 !.vscode/tasks.json
 
 # emulators
+tools/
 tools/emulator/*
+tools/sjasmplus/*
+tools/sjasmplus-bin/*
+tools/z88dk-bin/*
+tools/z88dk-win32-2.4.zip
 
 # temporary files
+.tmp/
+**/.tmp/
+packages/cli/.tmp/
+packages/cli/dist-exe/
 **/.tmp_tests
 **/.tmp_tests/**
+*.tmp_*
+**/.tmp_*
+packages/cli/src/assembler/rel/__tests__/.tmp.rel
+
+# local outputs
+DUMP.ASM
+DUMP.COM
+DUMP.HEX
+DUMP.PRN
+SUM.BBC
+*.code-workspace
+
+
+# external imported examples
+examples/Z80-Optimized-Routines/*
+examples/bbcbasic-z80/*
+examples/z80float/*
+examples/z80test/*
+examples/cpm2-asm/*
+examples/cpm2-plm/*
