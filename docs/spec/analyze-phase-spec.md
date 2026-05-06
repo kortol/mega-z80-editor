@@ -2,6 +2,13 @@
 
 *(mz80-as Internal Analyze Contract – Node/Source based)*
 
+- Status: current reference
+- Audience: assembler implementation contributors
+- Related:
+  - `node-abi-spec.md`
+  - `source-abi-spec.md`
+  - `expression-value-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -21,6 +28,18 @@ emit / lst / sym
 * 入力は **Macro Expansion 完了後**の Node[]
 * 出力は Emit の前提となる **意味確定済み Node[]**
 * Source は **解析の前後で不変**
+
+### この Spec が決めること
+
+- analyze が引き受ける意味確定責務
+- emit に渡す前に確定しているべき状態
+- extern 式を relocation に正規化する責務
+
+### この Spec が決めないこと
+
+- parser や macro フェーズの構文生成方式
+- linker 側の最終配置ルール
+- 出力ファイルの表示形式
 
 ---
 

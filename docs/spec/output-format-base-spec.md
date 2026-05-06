@@ -2,6 +2,13 @@
 
 *(mz80-as Output Contract – Analyze-complete based)*
 
+- Status: current reference
+- Audience: emit / linker / artifact contributors
+- Related:
+  - `analyze-phase-spec.md`
+  - `output-file-specs.md`
+  - `linker-contract-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -19,6 +26,18 @@ Node[] (analyzed, resolved)
 * 入力は **Analyze Phase 完了後の Node[]**
 * 出力は **Analyze で確定した意味を忠実に表現する**
 * 出力フェーズは **意味を解釈しない**
+
+### この Spec が決めること
+
+- すべての output に共通する前提条件
+- output フェーズがやってよいこと / いけないこと
+- `.rel` / `.sym` / `.lst` に共通する責務境界
+
+### この Spec が決めないこと
+
+- 各個別ファイルの詳細フォーマット
+- linker の最終成果物仕様
+- parser / analyze の内部データ構造
 
 ---
 

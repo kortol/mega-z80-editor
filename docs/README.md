@@ -6,10 +6,12 @@
 
 - [architecture.md](C:/Workspace/work/mega-z80-editor/docs/architecture.md)
   - 現在のモジュール責務と読みに行く場所
-- [spec/](C:/Workspace/work/mega-z80-editor/docs/spec)
+- [spec/README.md](C:/Workspace/work/mega-z80-editor/docs/spec/README.md)
   - assembler/linker/source/relocation などの仕様メモ
 - [../packages/cli/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/README.md)
   - CLI package の利用方法と内部構成
+- [../packages/cli/docs/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/README.md)
+  - package ローカル docs の入口
 - [../examples/README.md](C:/Workspace/work/mega-z80-editor/examples/README.md)
   - examples の用途別区分
 - [../editor/README.md](C:/Workspace/work/mega-z80-editor/editor/README.md)
@@ -17,7 +19,7 @@
 
 ## Historical Notes
 
-- [dev/](C:/Workspace/work/mega-z80-editor/docs/dev)
+- [dev/README.md](C:/Workspace/work/mega-z80-editor/docs/dev/README.md)
   - P0/P1/P2 のフェーズ別メモ
   - 実装の意図を追うには有用ですが、現状説明としては古い記述を含みます
 

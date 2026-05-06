@@ -72,4 +72,5 @@ link:
 - PEG parser が標準経路です
 - VSCode から使う DAP は `mz80 dap` を経由します
 - RPC デバッグや source map 関連は `src/debugger/` と `src/dap/` にあります
+- package ローカル docs の入口は [docs/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/README.md) です
 - 互換メモは [docs/peg-compat-cases.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/peg-compat-cases.md) を参照してください

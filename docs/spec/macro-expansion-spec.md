@@ -2,6 +2,13 @@
 
 *(mz80-as Internal Macro Expansion Contract – Node/Source based)*
 
+- Status: current reference
+- Audience: parser / macro / analyze contributors
+- Related:
+  - `parser-contract-spec.md`
+  - `node-abi-spec.md`
+  - `analyze-phase-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -19,6 +26,18 @@ Node[] (expanded)
 * Macro Expansion は **Parser と Analyze の中間フェーズ**
 * PEG / legacy parser に依存しない
 * 旧 macro 実装の挙動を **契約として固定**する
+
+### この Spec が決めること
+
+- `NodeMacroDef` / `NodeMacroCall` の消し込み責務
+- 展開後 Node の順序と Source の継承規則
+- macro フェーズで許される処理の上限
+
+### この Spec が決めないこと
+
+- parser の構文認識方法
+- analyze 後の意味確定モデル
+- include 展開の詳細
 
 ---
 

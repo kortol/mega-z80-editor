@@ -2,6 +2,13 @@
 
 *(mz80-as Symbol Contract – Analyze / Emit / Link shared)*
 
+- Status: current reference
+- Audience: analyze / emit / linker contributors
+- Related:
+  - `symbol-table-spec.md`
+  - `relocation-spec.md`
+  - `linker-contract-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -21,6 +28,18 @@ Linker
 * **「シンボルとは何か」**をこの Spec で一意に定義する
 * 各フェーズは **この分類に従属**する
 * ad-hoc な扱いは禁止する
+
+### この Spec が決めること
+
+- Symbol の種類と共通属性
+- 各種 Symbol の意味差
+- Analyze / Emit / Link 間で共有する Symbol の前提
+
+### この Spec が決めないこと
+
+- Symbol Table の内部データ構造
+- relocation の具体的な記録方式
+- linker の最終配置アルゴリズム
 
 ---
 
