@@ -1,7 +1,0 @@
-;#include <test_sections.asm>
-0000  3E 00           LD A,0
-0000  11 11           VAR1: DEFW 1111H
-0000  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00       BUF:  DS 16
-0002  06 01           LD B,1
-0002  22 22           VAR2: DEFW 2222H
-;#endinclude (test_sections.asm)

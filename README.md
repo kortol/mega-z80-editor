@@ -1,88 +1,61 @@
 # MegaZ80Editor
 
-🚧 **Experimental Z80 Assembly Editor Project** 🚧  
-(P0 Baseline Completed: 2025-09-23)
+Z80 向けのアセンブラ、リンカ、デバッガ、VSCode 連携をまとめた monorepo です。
 
----
+現状の中心は `packages/cli` で、ここに assembler/linker/debugger/DAP/source map の実装があります。`editor/` には VSCode extension と、初期段階の LSP/DAP 実験実装が残っています。
 
-## Overview
+## Repository Layout
 
-**MegaZ80Editor** is a monorepo project to provide a modern toolchain for Z80 assembly development, including:
-
-- **CLI (`@mz80/cli`)**  
-  - Config validation (`check-config`)  
-  - Build/Run stubs (to be extended in P1/P2)
-- **Language Server Protocol (LSP)**  
-  - Syntax diagnostics stub  
-  - Integrated with VSCode extension
-- **Debug Adapter Protocol (DAP)**  
-  - Responds to `initialize`, `launch`, `disconnect`  
-  - VSCode Debugger integration verified
-- **VSCode Extension**  
-  - Registers Z80 Assembly language (`.asm`)  
-  - Launches LSP & DAP backends
-
----
-
-## Directory Structure
-
-```
+```text
 mega-z80-editor/
-├── docs/               # Documentation (includes P0 summary)
-├── packages/
-│   └── cli/            # CLI implementation
-├── editor/
-│   ├── lsp/            # Language Server (LSP)
-│   ├── dap/            # Debug Adapter (DAP)
-│   └── vscode-ext/     # VSCode Extension
-└── examples/
-└── hello-msx/      # Example project with mz80.yaml + main.asm
+|- packages/
+|  `- cli/            # 現在の主実装。assembler / linker / debugger / DAP
+|- editor/
+|  |- vscode-ext/     # VSCode extension
+|  |- lsp/            # LSP 実験実装
+|  `- dap/            # 初期 DAP 実験実装
+|- examples/          # 実ファイル検証用のサンプル群
+|- docs/
+|  |- spec/           # 現行仕様メモ
+|  `- dev/            # フェーズ別の履歴・設計メモ
+`- tools/             # ローカル検証用の外部ツール置き場
 ```
 
----
+## Current State
 
-## Emulator setup
-- CP/M emulator (takeda-toshiya): http://takeda-toshiya.my.coocan.jp/cpm/
-- Place binary here: `tools/emulator/cpmemu.exe`
-- openMSX: https://openmsx.org/
-- Place binary here: `tools/emulator/openmsx/`
+- `mz80 as` で `.asm` から `.rel` を生成
+- `mz80 link` で `.rel` から `.bin/.com/.map/.sym/.smap/.log` を生成
+- `mz80 dbg` でバイナリのデバッグ、CP/M 実行、RPC 提供
+- `mz80 dbg-remote` で RPC デバッガへ接続
+- `mz80 dap` で VSCode から利用する DAP bridge を起動
+- VSCode extension から `mz80-dap` launch/attach を利用可能
 
----
+## Workspace Commands
 
-## P0 Achievements (2025-09-23)
-
-- ✅ CLI works (`check-config`, `--json`, `--verbose`, `--quiet`)
-- ✅ LSP responds to document changes (returns diagnostics)
-- ✅ DAP responds to initialize/launch/disconnect
-- ✅ VSCode Extension loads LSP/DAP, Z80 syntax registered
-- ✅ Example project (`hello-msx`) runs with CLI & extension
-
----
-
-## Usage (P0)
-
-### CLI
 ```bash
-cd examples/hello-msx
-node ../../packages/cli/dist/index.js check-config
-node ../../packages/cli/dist/index.js --json check-config
+pnpm install
+pnpm build
+pnpm test
 ```
 
-### LSP (via VSCode Extension)
+個別 package の操作は `pnpm -C packages/cli ...` を使います。
 
-* Open `examples/hello-msx/src/main.asm` in VSCode
-* LSP activates → diagnostics messages appear in **Output: MZ80 Language Server**
+```bash
+pnpm -C packages/cli run build
+pnpm -C packages/cli run test
+pnpm -C packages/cli run lint
+```
 
-### DAP (via VSCode Extension)
+## Documentation
 
-* Launch config (`.vscode/launch.json`) already provided in `examples/hello-msx`
-* Press `F5` → Debugger starts and responds to basic commands
+- 全体案内: [docs/README.md](C:/Workspace/work/mega-z80-editor/docs/README.md)
+- CLI/package の説明: [packages/cli/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/README.md)
+- PEG 互換メモ: [packages/cli/docs/peg-compat-cases.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/peg-compat-cases.md)
+- examples の区分: [examples/README.md](C:/Workspace/work/mega-z80-editor/examples/README.md)
+- editor 配下の位置づけ: [editor/README.md](C:/Workspace/work/mega-z80-editor/editor/README.md)
 
----
+## Notes
 
-## Next Steps (P1 Plan)
-
-* Implement real assembler parser (CLI + LSP diagnostics)
-* Extend DAP with openMSX integration
-* Add testing & CI workflows
-
+- `docs/dev/` は現行仕様というより履歴・フェーズメモです
+- `tools/` はローカル検証用で、配布前提の成果物ではありません
+- `editor/lsp` と `editor/dap` は実験実装で、現行のデバッグ導線は `packages/cli` 側が主です

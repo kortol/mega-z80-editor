@@ -1,6 +1,11 @@
 const fs = require("fs");
+const path = require("path");
 
-const bin = fs.readFileSync("examples/hello-msx/dist/hello-msx.bin");
+const binPath = path.join("examples", "hello-msx", "dist", "hello-msx.bin");
+if (!fs.existsSync(binPath)) {
+  throw new Error(`Missing ${binPath}. Build the hello-msx example before running make-rom.js.`);
+}
+const bin = fs.readFileSync(binPath);
 
 // 16KB ROM バッファ作成
 const rom = Buffer.alloc(0x4000, 0xFF); // 16KB
@@ -19,5 +24,5 @@ rom[0x000E] = 0xC9; // RET (TEXT)
 // プログラム本体を 0x4010 に配置（ROM 内では offset 0x0010）
 bin.copy(rom, 0x0010);
 
-fs.writeFileSync("examples/hello-msx/dist/hello-msx.rom", rom);
+fs.writeFileSync(path.join("examples", "hello-msx", "dist", "hello-msx.rom"), rom);
 console.log("16KB ROM written: hello-msx.rom");

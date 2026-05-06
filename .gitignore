@@ -10,6 +10,7 @@
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+packages/cli/.npm-cache/
 
 # OS junk
 .DS_Store
@@ -34,6 +35,7 @@ tools/z88dk-win32-2.4.zip
 **/.tmp/
 packages/cli/.tmp/
 packages/cli/dist-exe/
+packages/cli/.tmp_peg_compare/
 **/.tmp_tests
 **/.tmp_tests/**
 *.tmp_*
@@ -47,6 +49,22 @@ DUMP.HEX
 DUMP.PRN
 SUM.BBC
 *.code-workspace
+packages/cli/*.bin
+packages/cli/*.lst
+packages/cli/*.rel
+packages/cli/*.sym
+packages/cli/examples/linktest/*.bin
+packages/cli/examples/linktest/*.log
+packages/cli/examples/linktest/*.lst
+packages/cli/examples/linktest/*.map
+packages/cli/examples/linktest/*.rel
+packages/cli/examples/linktest/*.sym
+examples/hello/build/
+examples/hello/dist/
+examples/hello-msx/dist/
+examples/hello-msx/*.rel
+examples/cpm2-asm/*.bin
+examples/p1-c/*.rel.bin
 
 
 # external imported examples

@@ -7,8 +7,8 @@ const path_1 = __importDefault(require("path"));
 const compareParsers_1 = require("./compareParsers");
 const repoRoot = path_1.default.resolve(__dirname, "../../../../..");
 const files = [
-    "packages/cli/sub2.inc",
-    "packages/cli/sub1.inc",
+    "packages/cli/examples/include-smoke/sub2.inc",
+    "packages/cli/examples/include-smoke/sub1.inc",
     "examples/p1-c/p1c_fixture.asm",
     "examples/z80test/src/z80memptr.asm",
     "examples/z80test/src/z80full.asm",
@@ -24,7 +24,7 @@ const files = [
     "examples/z80test/src/idea.asm",
     "examples/z80test/src/crctab.asm",
     "examples/p1-d/fixture-p1d.asm",
-    "packages/cli/main.asm",
+    "packages/cli/examples/include-smoke/main.asm",
     "examples/hello-msx/src/main.asm",
     "packages/cli/examples/linktest/test_sections.asm",
     "packages/cli/examples/linktest/test.asm",

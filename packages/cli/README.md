@@ -1,80 +1,47 @@
-# Z80 PEG Parser (PEG.js / peggy)
+# `@mz80/cli`
 
-This folder contains a **working PEG grammar** for Z80 assembly and an adapter that
-lets the CLI use the PEG parser.
+この package はリポジトリの中心実装です。assembler、linker、debugger、DAP bridge をまとめています。
 
-## Scope
-
-- Labels (`label:` and labeled statements)
-- Instructions (`LD A, 0x10`, `ADD HL, BC`, ...)
-- Directives: `ORG/DB/DW/DS/EQU/END`
-- Extra directives: `DEFB/DEFW/DEFS`, `EXTERN`, `SECTION`, `INCLUDE`, `ALIGN`, `.SYMLEN`, `.WORD32`
-- Macros: `MACRO ... ENDM`
-- Loop macros: `REPT`, `IRP`, `IRPC`
-- Expressions with `+ - * / %` and parentheses
-- Registers and number literals (dec/hex/bin with `0x..` or `h`/`b` suffix)
-
-## Generate parser
-
-Requires peggy (formerly pegjs).
+## Commands
 
 ```bash
-npm i -D peggy
-npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs
-```
-
-## CLI
-
-```bash
-# PEG parser (default)
+mz80 check-config
 mz80 as input.asm output.rel
-
-# source map sidecar
-mz80 as --smap input.asm output.rel
-mz80 link --smap output.bin a.rel b.rel
-mz80 dbg output.bin --smap output.smap
-```
-
-## Debug RPC
-
-```bash
-# stdio JSON-RPC server
-mz80 dbg sample.com --cpm --rpc-stdio
-
-# TCP JSON-RPC server
-mz80 dbg sample.com --cpm --rpc-listen 127.0.0.1:4700
-
-# remote client (script)
-mz80 dbg-remote --connect 127.0.0.1:4700 --cmd "ping; regs; where 0100h; loc src/main.asm 120; break add 0100h; step 1"
-
-# remote client (interactive)
+mz80 link output.bin input.rel
+mz80 dbg program.bin
 mz80 dbg-remote --connect 127.0.0.1:4700
+mz80 dap
 ```
 
-RPC methods include:
-- `resolveAddress` (`{ addr } -> { file,line,column,... } | null`)
-- `resolveLocation` (`{ file,line,column? } -> number[]`)
+## Package Layout
 
-## Lint
+```text
+packages/cli/
+|- src/
+|  |- assembler/      # parser / macro / pseudo / rel writer
+|  |- linker/         # rel parser / linker core / output adapters
+|  |- debugger/       # runtime, CP/M support, RPC, sessions
+|  |- dap/            # DAP bridge
+|  |- cli/            # subcommand entry points
+|  |- io/             # I/O bus abstractions
+|  |- devices/        # debugger device implementations
+|  `- sourcemap/      # source map model
+|- examples/          # package-local smoke examples
+|- docs/              # package-local notes
+`- tools/             # build/test helper scripts
+```
+
+## Development
 
 ```bash
+pnpm -C packages/cli run build
+pnpm -C packages/cli run test
 pnpm -C packages/cli run lint
 ```
 
-## Build Windows exe (`pkg`)
+## Config
 
-```bash
-pnpm -C packages/cli run build:exe
-```
-
-Output: `packages/cli/dist-exe/mz80.exe`
-
-## Config (mz80.yaml)
-
-You can set default CLI options in a config file and override them on the command line.
-Use `--config <file>` to switch config files.
-
-Example:
+`mz80.yaml` で CLI の既定値を指定できます。
 
 ```yaml
 as:
@@ -86,7 +53,6 @@ as:
   symLen: 32
   includePaths:
     - ./inc
-    - ./vendor
 
 link:
   com: true
@@ -101,30 +67,9 @@ link:
   orgBss: 0x9000
 ```
 
-CLI options override config values:
-
-```bash
-# uses config defaults
-mz80 link out.com a.rel b.rel
-
-# override config
-mz80 link --org-data 0xA000 out.com a.rel b.rel
-```
-
-## Use from Node
-
-```js
-import fs from "node:fs";
-import parser from "./src/assembler/parser/gen/z80_assembler.js";
-
-const src = fs.readFileSync("./examples/sample.asm", "utf8");
-const ast = parser.parse(src);
-console.dir(ast, { depth: null });
-```
-
 ## Notes
 
-- The grammar is **scannerless** (no external lexer). Whitespace and `;` comments are handled in the grammar.
-- AST nodes are created **inside the grammar** using actions and carry `pos` (from `location()`).
-- The CLI uses an adapter to map PEG AST into the legacy assembler pipeline.
-- Extend `Mnemonic`, `Register`, and `DirectiveName` as needed.
+- PEG parser が標準経路です
+- VSCode から使う DAP は `mz80 dap` を経由します
+- RPC デバッグや source map 関連は `src/debugger/` と `src/dap/` にあります
+- 互換メモは [docs/peg-compat-cases.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/peg-compat-cases.md) を参照してください
