@@ -3,10 +3,15 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "module": "commonjs",
+    "module": "Node16",
     "target": "es2022",
-    "moduleResolution": "node",
-    "types": ["node", "jest"]
+    "moduleResolution": "node16",
+    "types": [
+      "node",
+      "jest"
+    ]
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }
