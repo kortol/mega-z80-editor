@@ -2,6 +2,13 @@
 
 *(mz80-as Internal Symbol Table Contract)*
 
+- Status: current reference
+- Audience: analyze contributors
+- Related:
+  - `symbol-base-spec.md`
+  - `analyze-phase-spec.md`
+  - `expression-value-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -20,6 +27,18 @@ Emit / Link
 * Symbol Table は **Analyze フェーズの中核データ構造**
 * Parser / Macro フェーズは Symbol Table を操作してはならない
 * Emit / Link は **参照専用**として使用する
+
+### この Spec が決めること
+
+- Symbol の登録・参照・衝突解決ルール
+- Analyze 中の resolved 状態管理
+- Emit / Link が参照してよい前提
+
+### この Spec が決めないこと
+
+- Symbol そのものの種類定義
+- relocation や output の直列化形式
+- 将来の namespace / visibility の完全仕様
 
 ---
 

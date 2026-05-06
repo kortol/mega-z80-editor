@@ -2,6 +2,13 @@
 
 *(mz80 Toolchain – Linker ABI / Responsibility Contract)*
 
+- Status: current reference
+- Audience: linker and output contributors
+- Related:
+  - `output-format-base-spec.md`
+  - `output-file-specs.md`
+  - `relocation-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -21,6 +28,18 @@ Binary Image / Executable
 * 本 Spec は **アセンブラ実装から独立**
 * Linker は **asm の内部構造を一切知らない**
 * 両者の唯一の接点は **出力ファイルフォーマット**
+
+### この Spec が決めること
+
+- linker が受け取る入力と前提条件
+- linker が担当する配置・extern 解決・patching の境界
+- linker が行ってはいけない越権処理
+
+### この Spec が決めないこと
+
+- assembler 内部の Node / SymbolTable の実装
+- parser / analyze / emit の具体ロジック
+- 高度な v2 linker 機能の詳細
 
 本 Spec において以下の用語を区別して用いる。
 
@@ -306,13 +325,3 @@ Linker が報告するエラーは以下に限定される。
 
 ---
 
-## Spec 状況チェック（ここまで）
-
-これで以下がすべて Spec 化されました：
-
-* Assembler（Parser / Analyze / Emit）
-* Expression / Symbol / Relocation
-* Section / Memory Model
-* Output Formats
-* **Linker Contract（本 Spec）**
-* Binary Image 前提

@@ -2,6 +2,13 @@
 
 *(mz80-as Relocation Contract – Analyze / Emit / Link shared)*
 
+- Status: current reference
+- Audience: analyze / emit / linker contributors
+- Related:
+  - `expression-value-spec.md`
+  - `linker-contract-spec.md`
+  - `output-file-specs.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -21,6 +28,18 @@ Linker
 * **Analyze は relocation を「作る」**
 * **Emit は relocation を「書き出す」**
 * **Linker が最終解決する**
+
+### この Spec が決めること
+
+- relocation が発生する条件
+- relocation entry の shape と意味
+- Analyze / Emit / Link の責務分担
+
+### この Spec が決めないこと
+
+- parser の式構文
+- linker のセクション配置戦略
+- `.rel` 物理フォーマットの実装詳細
 
 ---
 

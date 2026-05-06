@@ -2,6 +2,13 @@
 
 *(mz80-as Internal Source Contract)*
 
+- Status: current reference
+- Audience: parser / macro / debugger / output contributors
+- Related:
+  - `node-abi-spec.md`
+  - `output-file-specs.md`
+  - `parser-contract-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -20,6 +27,18 @@ Source = 位置・表示・追跡
 
 この分離は **内部 ABI として固定**され、
 parser 実装（legacy / PEG）や将来の拡張方式に依存してはならない。
+
+### この Spec が決めること
+
+- Source が保持する最小情報
+- Source を生成できるフェーズ
+- error / listing / trace が依存してよい位置情報
+
+### この Spec が決めないこと
+
+- 構文解析や意味解析の仕様
+- ファイル管理や include 解決の実装方式
+- 将来の拡張フィールドの具体値
 
 ---
 

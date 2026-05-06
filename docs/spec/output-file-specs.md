@@ -2,6 +2,13 @@
 
 *(mz80-as Output Artifacts Contract – Integrated)*
 
+- Status: current reference
+- Audience: emit / linker / tooling contributors
+- Related:
+  - `output-format-base-spec.md`
+  - `linker-contract-spec.md`
+  - `source-abi-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -20,6 +27,18 @@ Emit
 * すべての出力は **Analyze Phase 完了後の Node[] を唯一の入力**とする
 * 出力フェーズは **意味を再解釈しない**
 * 各ファイルは **独立に生成可能**でなければならない
+
+### この Spec が決めること
+
+- `.rel` / `.sym` / `.lst` の役割分担
+- 出力ファイル間の整合条件
+- 回帰比較時に何を見るべきか
+
+### この Spec が決めないこと
+
+- linker の数値補正アルゴリズム
+- package ローカルな CLI オプション挙動
+- 将来フォーマット追加時の詳細仕様
 
 ---
 

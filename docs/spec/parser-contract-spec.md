@@ -2,6 +2,13 @@
 
 *(mz80-as Internal Parser Contract – Node/Source based)*
 
+- Status: current reference
+- Audience: parser and front-end contributors
+- Related:
+  - `node-abi-spec.md`
+  - `source-abi-spec.md`
+  - `macro-expansion-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -21,6 +28,18 @@ Node[]
 * legacy parser / PEG parser は **同一の出力契約**に従う
 
 本 Spec に違反する parser 実装は **不正実装**とみなす。
+
+### この Spec が決めること
+
+- parser の入出力境界
+- parser が生成すべき `Node[]` と `Source`
+- parser が越権してはいけない処理
+
+### この Spec が決めないこと
+
+- PEG 文法や legacy 実装の内部詳細
+- マクロ展開後の意味論
+- emit / linker の生成物仕様
 
 ---
 

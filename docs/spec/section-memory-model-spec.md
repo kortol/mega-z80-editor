@@ -2,6 +2,13 @@
 
 *(mz80-as Section / Memory Contract – Assembler-oriented)*
 
+- Status: current reference
+- Audience: assembler / linker contributors
+- Related:
+  - `analyze-phase-spec.md`
+  - `relocation-spec.md`
+  - `linker-contract-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -22,6 +29,18 @@ Emit / Link
 * **アセンブラは配置の論理を定義する**
 * **リンカは最終配置を決定する**
 * 本 Spec は **アセンブラ視点での契約**を定める
+
+### この Spec が決めること
+
+- section kind とその意味
+- assembler 側で確定するロケーションカウンタ規則
+- ORG / SECTION / ALIGN / BSS の扱い
+
+### この Spec が決めないこと
+
+- linker の最終アドレス選択アルゴリズム
+- bank / overlay など v2 以降の拡張仕様
+- output ファイルの表示形式
 
 ---
 
@@ -245,14 +264,3 @@ ALIGN 16
 
 ---
 
-## 14. Spec 全体の完成度チェック
-
-これで mz80-as は以下を **すべて Spec 化**しました。
-
-* 構文（Parser Contract）
-* 意味（Analyze / Expression）
-* 由来（Source）
-* シンボル（Symbol / Table）
-* 再配置（Relocation）
-* 出力（.rel / .sym / .lst）
-* **配置モデル（本 Spec）**

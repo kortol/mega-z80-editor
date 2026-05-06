@@ -2,6 +2,13 @@
 
 *(mz80-as Expression / Literal Contract – Parser-independent)*
 
+- Status: current reference
+- Audience: parser / analyze / emit contributors
+- Related:
+  - `parser-contract-spec.md`
+  - `analyze-phase-spec.md`
+  - `relocation-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -20,6 +27,18 @@ Emit / Link
 * **Parser は式を理解しない**
 * **Analyze が唯一の評価者**
 * 本 Spec は **PEG 文法を規定しない**
+
+### この Spec が決めること
+
+- Node に載る式文字列の扱い
+- Analyze で許容される literal / operator / value の意味
+- extern を含む式が relocation へ落ちる条件
+
+### この Spec が決めないこと
+
+- parser の具体的な tokenization / grammar
+- macro 展開の実装
+- linker の最終バイナリ形式
 
 ---
 
@@ -129,13 +148,13 @@ BUF_SIZE
 
 ### 6.1 許容演算子（v1）
 
-| 種別  | 演算子                     |             |
-| --- | ----------------------- | ----------- |
-| 単項  | `+`, `-`                |             |
-| 算術  | `+`, `-`, `*`, `/`, `%` |             |
-| ビット | `&`, `                  | `, `^`, `~` |
-| シフト | `<<`, `>>`              |             |
-| 括弧  | `(` `)`                 |             |
+| 種別 | 演算子 |
+| --- | --- |
+| 単項 | `+`, `-`, `~` |
+| 算術 | `+`, `-`, `*`, `/`, `%` |
+| ビット | `&`, `|`, `^` |
+| シフト | `<<`, `>>` |
+| 括弧 | `(`, `)` |
 
 * 優先順位は **互換性重視の独自順序**（旧実装/SJASM互換）
   * `^` > `&` > `|`（ビット演算の優先順位を C 準拠から変更）

@@ -2,6 +2,13 @@
 
 *(mz80-as Internal Node Contract – Source-based)*
 
+- Status: current reference
+- Audience: all assembler pipeline contributors
+- Related:
+  - `source-abi-spec.md`
+  - `parser-contract-spec.md`
+  - `analyze-phase-spec.md`
+
 ---
 
 ## 1. 目的と位置づけ
@@ -17,6 +24,18 @@ parse → expandMacros → analyze → emit → (.rel / .lst / .sym)
 * AST / PEG / Token 型を後段へ漏らしてはならない
 
 **Source ABI と組み合わせて初めて Node ABI は成立する。**
+
+### この Spec が決めること
+
+- `Node` の最小 shape
+- 各フェーズが信頼してよい共通前提
+- parser / macro / analyze / emit 間で壊してはいけない境界
+
+### この Spec が決めないこと
+
+- 式の評価方法
+- マクロの具体的な展開規則
+- emit や linker の出力形式詳細
 
 ---
 
