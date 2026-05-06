@@ -143,6 +143,7 @@ function linkModules(mods) {
             }
         }
     }
+    const moduleSectionBases = buildModuleSectionBases(mods, sectionBase);
     return {
         segments: [
             {
@@ -154,6 +155,7 @@ function linkModules(mods) {
         ],
         entry,
         symbols,
+        moduleSectionBases,
     };
 }
 function normalizeSectionName(name) {
@@ -462,11 +464,13 @@ function linkModulesV2(mods, opts = {}) {
             sections: (detailByKind.get(kindUpper) ?? []).sort((a, b) => a.base - b.base),
         };
     });
+    const moduleSectionBases = buildModuleSectionBases(mods, sectionBase);
     return {
         segments,
         entry,
         symbols,
         warnings,
+        moduleSectionBases,
         segmentDetails,
     };
 }
@@ -479,4 +483,23 @@ function formatDefinedAt(defFile, defLine) {
     if (typeof defLine !== "number" || !Number.isFinite(defLine))
         return defFile;
     return `${defFile}:${Math.trunc(defLine)}`;
+}
+function buildModuleSectionBases(mods, sectionBase) {
+    const out = [];
+    for (const [key, base] of sectionBase.entries()) {
+        const sep = key.indexOf("::");
+        if (sep < 0)
+            continue;
+        const modIndex = Number.parseInt(key.slice(0, sep), 10);
+        const section = key.slice(sep + 2) || "CSEG";
+        if (!Number.isFinite(modIndex) || modIndex < 0 || modIndex >= mods.length)
+            continue;
+        out.push({
+            moduleIndex: modIndex,
+            moduleName: mods[modIndex].name,
+            section,
+            base: base & 0xffff,
+        });
+    }
+    return out;
 }

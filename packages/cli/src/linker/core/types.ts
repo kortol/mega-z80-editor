@@ -47,6 +47,12 @@ export interface LinkResult {
   entry?: number;       // エントリポイント
   symbols: Map<string, LinkedSymbol>;
   warnings?: string[];
+  moduleSectionBases?: {
+    moduleIndex: number;
+    moduleName: string;
+    section: string;
+    base: number;
+  }[];
   segmentDetails?: {
     kind: "text" | "data" | "bss" | "custom";
     sections: { name: string; base: number; size: number; align?: number; org?: number }[];

@@ -3,9 +3,20 @@ import * as path from "path";
 import { buildAddrToNames, parseSymFile } from "./symbols";
 import { decodeOne } from "./disasm";
 import { formatHex, parseNum, Z80CoreSnapshot, Z80DebugCore } from "./core";
+import { Z80DebugSession } from "./debugSession";
 import { printDisasm, printHexDump, runCommandScript } from "./commandRunner";
+import { startDebugRpcStdio, startDebugRpcTcp } from "./rpcServer";
+import { SourceMapEntry } from "../sourcemap/model";
+import { buildAddrToSourceEntry, parseDbgSourceMap } from "./sourceMap";
 
-function printStaticDisasm(buf: Uint8Array, base: number, from: number, count: number, addrToNames: Map<number, string[]>): void {
+function printStaticDisasm(
+  buf: Uint8Array,
+  base: number,
+  from: number,
+  count: number,
+  addrToNames: Map<number, string[]>,
+  addrToSource?: Map<number, SourceMapEntry>
+): void {
   let off = Math.max(0, from - base);
   let n = 0;
   while (off < buf.length && n < count) {
@@ -18,7 +29,9 @@ function printStaticDisasm(buf: Uint8Array, base: number, from: number, count: n
       .join(" ");
     const targetNames = d.target != null ? addrToNames.get(d.target) : undefined;
     const note = targetNames && targetNames.length > 0 ? ` ; -> ${targetNames.join(", ")}` : "";
-    console.log(`  ${formatHex(addr)}  ${bytes.padEnd(12)}  ${d.text}${note}`);
+    const src = addrToSource?.get(addr);
+    const srcNote = src ? ` ; ${src.file}:${src.line}` : "";
+    console.log(`  ${formatHex(addr)}  ${bytes.padEnd(12)}  ${d.text}${note}${srcNote}`);
     off += d.size;
     n++;
   }
@@ -45,6 +58,9 @@ export function dbgBinary(
     cmd?: string;
     cpmRoot?: string;
     tail?: string;
+    smap?: string;
+    rpcStdio?: boolean;
+    rpcListen?: string;
   }
 ) {
   const absInput = path.resolve(inputFile);
@@ -76,14 +92,13 @@ export function dbgBinary(
       : undefined;
   const symEntries = symPath ? parseSymFile(symPath) : [];
   const addrToNames = buildAddrToNames(symEntries);
-
-  console.log(`file   : ${absInput}`);
-  console.log(`size   : ${data.length} bytes`);
-  console.log(`base   : ${formatHex(base)}H`);
-  console.log(`from   : ${formatHex(from)}H`);
-  console.log(`sym    : ${symPath ?? "(none)"}`);
-  if (saveStatePath) console.log(`save   : ${saveStatePath}`);
-  if (loadStatePath) console.log(`load   : ${loadStatePath}`);
+  const smapPath = opts.smap
+    ? path.resolve(opts.smap)
+    : fs.existsSync(absInput.replace(/\.[^.]+$/, ".smap"))
+      ? absInput.replace(/\.[^.]+$/, ".smap")
+      : undefined;
+  const smapEntries = smapPath ? parseDbgSourceMap(smapPath) : [];
+  const addrToSource = buildAddrToSourceEntry(smapEntries);
 
   const core = new Z80DebugCore(!!opts.trace);
   if (opts.cpm) {
@@ -95,6 +110,7 @@ export function dbgBinary(
   if (opts.cpmRoot) {
     core.setCpmRoot(path.resolve(opts.cpmRoot));
   }
+  const session = new Z80DebugSession(core, smapEntries);
 
   if (loadStatePath) {
     const runState = readRunState(loadStatePath);
@@ -110,10 +126,35 @@ export function dbgBinary(
     core.setEntry(entry);
   }
 
+  if (opts.rpcStdio || opts.rpcListen) {
+    if (opts.rpcStdio) {
+      startDebugRpcStdio(session);
+      return;
+    }
+    if (opts.rpcListen) {
+      const { host, port } = parseListenAddress(opts.rpcListen);
+      const server = startDebugRpcTcp(session, host, port);
+      console.error(`[dbg-rpc] mode=tcp listen=${host}:${port}`);
+      server.on("error", (e: any) => {
+        console.error(`[dbg-rpc] error: ${e?.message ?? e}`);
+      });
+      return;
+    }
+  }
+
+  console.log(`file   : ${absInput}`);
+  console.log(`size   : ${data.length} bytes`);
+  console.log(`base   : ${formatHex(base)}H`);
+  console.log(`from   : ${formatHex(from)}H`);
+  console.log(`sym    : ${symPath ?? "(none)"}`);
+  console.log(`smap   : ${smapPath ?? "(none)"}`);
+  if (saveStatePath) console.log(`save   : ${saveStatePath}`);
+  if (loadStatePath) console.log(`load   : ${loadStatePath}`);
+
   if (opts.cmd) {
     console.log("");
     console.log("[Command]");
-    runCommandScript(core, opts.cmd, addrToNames);
+    runCommandScript(core, opts.cmd, addrToNames, addrToSource);
     const out = core.getOutput();
     if (out.length > 0) {
       console.log("[BDOS Output]");
@@ -128,7 +169,7 @@ export function dbgBinary(
   printHexDump(core.mem, from, bytes);
   console.log("");
   console.log("[Decode]");
-  printStaticDisasm(data, base, from, decodeCount, addrToNames);
+  printStaticDisasm(data, base, from, decodeCount, addrToNames, addrToSource);
 
   if (opts.cpm) {
     console.log("");
@@ -215,4 +256,18 @@ function writeRunState(filePath: string, state: DebugRunState): void {
   } finally {
     try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
   }
+}
+
+function parseListenAddress(raw: string): { host: string; port: number } {
+  const s = String(raw).trim();
+  const m = /^(.+):(\d+)$/.exec(s);
+  if (m) {
+    const host = m[1];
+    const port = Number.parseInt(m[2], 10);
+    if (!(port >= 1 && port <= 65535)) throw new Error(`Invalid rpc listen port: ${raw}`);
+    return { host, port };
+  }
+  const port = Number.parseInt(s, 10);
+  if (!(port >= 1 && port <= 65535)) throw new Error(`Invalid rpc listen: ${raw}`);
+  return { host: "127.0.0.1", port };
 }

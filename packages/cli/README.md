@@ -28,7 +28,46 @@ npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80
 ```bash
 # PEG parser (default)
 mz80 as input.asm output.rel
+
+# source map sidecar
+mz80 as --smap input.asm output.rel
+mz80 link --smap output.bin a.rel b.rel
+mz80 dbg output.bin --smap output.smap
 ```
+
+## Debug RPC
+
+```bash
+# stdio JSON-RPC server
+mz80 dbg sample.com --cpm --rpc-stdio
+
+# TCP JSON-RPC server
+mz80 dbg sample.com --cpm --rpc-listen 127.0.0.1:4700
+
+# remote client (script)
+mz80 dbg-remote --connect 127.0.0.1:4700 --cmd "ping; regs; where 0100h; loc src/main.asm 120; break add 0100h; step 1"
+
+# remote client (interactive)
+mz80 dbg-remote --connect 127.0.0.1:4700
+```
+
+RPC methods include:
+- `resolveAddress` (`{ addr } -> { file,line,column,... } | null`)
+- `resolveLocation` (`{ file,line,column? } -> number[]`)
+
+## Lint
+
+```bash
+pnpm -C packages/cli run lint
+```
+
+## Build Windows exe (`pkg`)
+
+```bash
+pnpm -C packages/cli run build:exe
+```
+
+Output: `packages/cli/dist-exe/mz80.exe`
 
 ## Config (mz80.yaml)
 
@@ -42,6 +81,7 @@ as:
   relVersion: 2
   sym: true
   lst: true
+  smap: true
   sjasmCompat: true
   symLen: 32
   includePaths:
@@ -52,6 +92,7 @@ link:
   com: true
   map: true
   sym: true
+  smap: true
   log: true
   binFrom: 0x0100
   binTo: 0x7FFF

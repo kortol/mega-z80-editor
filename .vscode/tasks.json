@@ -2,73 +2,56 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Assemble (all .asm in src/)",
+      "label": "cli: build",
       "type": "shell",
-      "command": "node mz80-as",
-      "args": [
-        "src/**/*.asm",
-        "-o",
-        "build/"
-      ],
-      "problemMatcher": [],
-      "group": "build"
+      "command": "pnpm -C packages/cli run build",
+      "group": "build",
+      "problemMatcher": "$tsc"
     },
     {
-      "label": "Link (all .rel in build/)",
+      "label": "cli: test",
       "type": "shell",
-      "command": "node mz80-link",
-      "args": [
-        "build/*.rel",
-        "-o",
-        "dist/output.bin"
-      ],
-      "problemMatcher": [],
-      "group": "build"
+      "command": "pnpm -C packages/cli run test",
+      "group": "test",
+      "problemMatcher": []
     },
     {
-      "label": "Run (openMSX with output.bin)",
+      "label": "cli: lint",
       "type": "shell",
-      "command": "openmsx",
-      "args": [
-        "-machine",
-        "C-BIOS_MSX2+",
-        "-script",
-        "scripts/loadbin.tcl"
-      ],
-      "problemMatcher": [],
-      "group": "test"
+      "command": "pnpm -C packages/cli run lint",
+      "group": "test",
+      "problemMatcher": [
+        "$eslint-stylish"
+      ]
     },
     {
-      "label": "Build & Run",
+      "label": "cli: build exe (pkg)",
+      "type": "shell",
+      "command": "pnpm -C packages/cli run build:exe",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "mz80: assemble current file",
+      "type": "shell",
+      "command": "node packages/cli/dist/index.js as \"${file}\" \"${fileDirname}/${fileBasenameNoExtension}.rel\"",
       "dependsOn": [
-        "Assemble (all .asm in src/)",
-        "Link (all .rel in build/)",
-        "Run (openMSX with output.bin)"
+        "cli: build"
       ],
       "dependsOrder": "sequence",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
+      "group": "build",
+      "problemMatcher": []
     },
     {
-      "label": "Run CP/M Emulator",
+      "label": "mz80: link current rel",
       "type": "shell",
-      "command": "${workspaceFolder}/tools/emulator/cpm.exe",
-      "args": [
-        "${workspaceFolder}/examples/hello-cpm/hello.com"
+      "command": "node packages/cli/dist/index.js link \"${fileDirname}/${fileBasenameNoExtension}.bin\" \"${file}\"",
+      "dependsOn": [
+        "cli: build"
       ],
-      "group": "build"
-    },
-    {
-      "label": "Run MSX Emulator",
-      "type": "shell",
-      "command": "${workspaceFolder}/tools/emulator/msx.exe",
-      "args": [
-        "-cart",
-        "${workspaceFolder}/examples/hello-msx/dist/hello-msx.rom"
-      ],
-      "group": "build"
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
     }
   ]
 }

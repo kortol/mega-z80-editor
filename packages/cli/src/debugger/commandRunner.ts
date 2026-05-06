@@ -1,5 +1,6 @@
 import { decodeOne } from "./disasm";
 import { formatHex, parseNum, Z80DebugCore } from "./core";
+import { SourceMapEntry } from "../sourcemap/model";
 
 export function printHexDump(mem: Uint8Array, from: number, bytes: number): void {
   const start = Math.max(0, Math.min(0xffff, from));
@@ -15,7 +16,8 @@ export function printDisasm(
   mem: Uint8Array,
   from: number,
   count: number,
-  addrToNames: Map<number, string[]>
+  addrToNames: Map<number, string[]>,
+  addrToSource?: Map<number, SourceMapEntry>
 ): void {
   let addr = from & 0xffff;
   for (let i = 0; i < count && addr < 0x10000; i++) {
@@ -27,7 +29,9 @@ export function printDisasm(
       .join(" ");
     const targetNames = d.target != null ? addrToNames.get(d.target) : undefined;
     const note = targetNames && targetNames.length > 0 ? ` ; -> ${targetNames.join(", ")}` : "";
-    console.log(`  ${formatHex(addr)}  ${bytes.padEnd(12)}  ${d.text}${note}`);
+    const src = addrToSource?.get(addr);
+    const srcNote = src ? ` ; ${src.file}:${src.line}` : "";
+    console.log(`  ${formatHex(addr)}  ${bytes.padEnd(12)}  ${d.text}${note}${srcNote}`);
     addr += d.size;
   }
 }
@@ -39,9 +43,13 @@ function printRegs(core: Z80DebugCore): void {
   );
 }
 
-function printStepTrace(core: Z80DebugCore, addrToNames: Map<number, string[]>): void {
+function printStepTrace(
+  core: Z80DebugCore,
+  addrToNames: Map<number, string[]>,
+  addrToSource?: Map<number, SourceMapEntry>
+): void {
   printRegs(core);
-  printDisasm(core.mem, core.state.pc, 1, addrToNames);
+  printDisasm(core.mem, core.state.pc, 1, addrToNames, addrToSource);
 }
 
 function printHelp(): void {
@@ -66,7 +74,8 @@ function runOneCommand(
   core: Z80DebugCore,
   raw: string,
   addrToNames: Map<number, string[]>,
-  ctx: CommandContext
+  ctx: CommandContext,
+  addrToSource?: Map<number, SourceMapEntry>
 ): boolean {
   const line = raw.trim();
   if (!line) return true;
@@ -86,7 +95,7 @@ function runOneCommand(
     const n = t[1] ? parseNum(t[1]) : 1;
     for (let i = 0; i < n; i++) {
       if (ctx.traceEachStep) {
-        printStepTrace(core, addrToNames);
+        printStepTrace(core, addrToNames, addrToSource);
       }
       const res = core.step();
       if (res.stopped) {
@@ -102,7 +111,7 @@ function runOneCommand(
     let stopReason: string | undefined;
     for (let i = 0; i < n; i++) {
       if (ctx.traceEachStep) {
-        printStepTrace(core, addrToNames);
+        printStepTrace(core, addrToNames, addrToSource);
       }
       const res = core.step();
       if (res.stopped) {
@@ -132,7 +141,7 @@ function runOneCommand(
   if (cmd === "disas" || cmd === "u") {
     const addr = t[1] ? parseNum(t[1]) : core.state.pc;
     const count = t[2] ? parseNum(t[2]) : 16;
-    printDisasm(core.mem, addr, count, addrToNames);
+    printDisasm(core.mem, addr, count, addrToNames, addrToSource);
     return true;
   }
   if (cmd === "mem" || cmd === "d") {
@@ -160,7 +169,12 @@ function runOneCommand(
   throw new Error(`Unknown command: ${line}`);
 }
 
-export function runCommandScript(core: Z80DebugCore, script: string, addrToNames: Map<number, string[]>): void {
+export function runCommandScript(
+  core: Z80DebugCore,
+  script: string,
+  addrToNames: Map<number, string[]>,
+  addrToSource?: Map<number, SourceMapEntry>
+): void {
   const ctx: CommandContext = {
     traceEachStep: false,
   };
@@ -170,7 +184,7 @@ export function runCommandScript(core: Z80DebugCore, script: string, addrToNames
     .filter(Boolean);
 
   for (const c of commands) {
-    const keepGoing = runOneCommand(core, c, addrToNames, ctx);
+    const keepGoing = runOneCommand(core, c, addrToNames, ctx, addrToSource);
     if (!keepGoing) break;
   }
 }

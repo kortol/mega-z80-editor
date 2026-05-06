@@ -23,6 +23,23 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "breakpoints": [
+      {
+        "language": "z80-asm"
+      },
+      {
+        "language": "asm"
+      },
+      {
+        "language": "z80"
+      },
+      {
+        "language": "z80asm"
+      },
+      {
+        "language": "plaintext"
+      }
+    ],
     "commands": [
       {
         "command": "mz80.runMake",
@@ -33,10 +50,102 @@
       {
         "type": "mz80-dap",
         "label": "MZ80 Debugger",
-        "program": "./dist/index.js",
-        "languages": ["asm"]
+        "languages": ["z80-asm", "asm", "plaintext", "z80", "z80asm"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to target binary (.com/.bin)"
+              },
+              "smap": {
+                "type": "string",
+                "description": "Source map path (.smap). If omitted, <program basename>.smap is auto-detected."
+              },
+              "sym": {
+                "type": "string",
+                "description": "Symbol path (.sym). If omitted, <program basename>.sym is auto-detected."
+              },
+              "base": {
+                "type": "string",
+                "description": "Optional image base address for dbg (e.g. 0100H)."
+              },
+              "cpm": {
+                "type": "boolean",
+                "description": "Run the target with CP/M BDOS support enabled."
+              },
+              "cpmInteractive": {
+                "type": "boolean",
+                "description": "Enable interactive console input for CP/M/BIOS console calls."
+              },
+              "connect": {
+                "type": "string",
+                "description": "Attach target endpoint (optional in launch)"
+              },
+              "rpcListen": {
+                "type": "string",
+                "default": "127.0.0.1:4700",
+                "description": "Listen endpoint for auto-started debugger backend in launch"
+              },
+              "cliEntry": {
+                "type": "string",
+                "description": "Path to mz80 CLI dist/index.js"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debug adapter process"
+              }
+            }
+          },
+          "attach": {
+            "required": ["connect"],
+            "properties": {
+              "connect": {
+                "type": "string",
+                "default": "127.0.0.1:4700",
+                "description": "RPC endpoint (host:port)"
+              },
+              "cliEntry": {
+                "type": "string",
+                "description": "Path to mz80 CLI dist/index.js"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debug adapter process"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "name": "MZ80 Launch (BBC BASIC)",
+            "type": "mz80-dap",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/bbcbasic-z80/bbcbasic-as.com",
+            "cpm": true,
+            "cpmInteractive": true,
+            "rpcListen": "127.0.0.1:4700"
+          },
+          {
+            "name": "MZ80 Attach (RPC 4700)",
+            "type": "mz80-dap",
+            "request": "attach",
+            "connect": "127.0.0.1:4700"
+          }
+        ]
       }
-    ]
+    ],
+    "configuration": {
+      "title": "MZ80",
+      "properties": {
+        "mz80.debug.cliEntry": {
+          "type": "string",
+          "default": "",
+          "description": "Path to mz80 CLI entry script (dist/index.js). Empty = auto-detect from workspace."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json"

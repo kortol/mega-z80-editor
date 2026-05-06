@@ -9,12 +9,15 @@
     "build": "pnpm run build:parser && tsc -p tsconfig.build.json && node tools/copy-parser.js",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js --help",
+    "lint": "eslint \"src/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "test": "set USERPROFILE=%CD%&& set HOMEPATH=%CD%&& set HOME=%CD%&& jest --runInBand",
     "run:bbcbasic-z80": "pwsh -File tools/run-bbcbasic-z80.ps1",
     "import:z80test": "ts-node tools/import-z80test.ts",
     "gen:mnemonics": "ts-node tools/gen-peggy-mnemonics.ts",
     "build:parser": "npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs",
-    "build:grammar": "npm run gen:mnemonics && npm run build:parser"
+    "build:grammar": "npm run gen:mnemonics && npm run build:parser",
+    "build:exe": "pnpm run build && pkg dist/index.js --targets node18-win-x64 --output dist-exe/mz80.exe"
   },
   "dependencies": {
     "commander": "^12.1.0",
@@ -22,14 +25,23 @@
     "yaml": "^2.6.0"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.46.0",
+    "@typescript-eslint/parser": "^8.46.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.5.2",
     "@types/pino": "^7.0.5",
+    "eslint": "^9.37.0",
     "jest": "^30.1.3",
     "peggy": "^5.0.6",
     "pino-pretty": "^13.1.2",
+    "pkg": "^5.8.1",
     "ts-jest": "^29.4.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
+  },
+  "pkg": {
+    "assets": [
+      "dist/assembler/parser/gen/z80_assembler.js"
+    ]
   }
 }

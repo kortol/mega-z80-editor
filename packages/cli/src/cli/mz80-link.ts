@@ -4,6 +4,8 @@ import { BinOutputAdapter } from "../linker/output/binAdapter";
 import { MapAdapter } from "../linker/output/mapAdapter";
 import { SymAdapter } from "../linker/output/symAdapter";
 import { LogAdapter } from "../linker/output/logAdapter";
+import * as path from "path";
+import { readSourceMap, SourceMapEntry, SourceMapFile, writeSourceMap } from "../sourcemap/model";
 
 export function link(
   inputFiles: string[],
@@ -12,6 +14,7 @@ export function link(
     verbose?: boolean;
     map?: boolean;
     sym?: boolean;
+    smap?: boolean;
     log?: boolean;
     com?: boolean;
     binFrom?: string | number;
@@ -78,9 +81,45 @@ export function link(
     );
   }
 
+  if (opts.smap) {
+    const outPath = outputFile.replace(/\.[^.]+$/, ".smap");
+    const entries: SourceMapEntry[] = [];
+    const sectionBaseIndex = new Map<string, number>();
+    for (const b of result.moduleSectionBases ?? []) {
+      sectionBaseIndex.set(`${b.moduleIndex}:${normalizeSection(b.section)}`, b.base & 0xffff);
+    }
+
+    mods.forEach((mod, i) => {
+      const inPath = inputFiles[i].replace(/\.[^.]+$/, ".smap");
+      const sm = readSourceMap(inPath);
+      if (!sm) return;
+      for (const e of sm.entries) {
+        const sec = normalizeSection(e.section);
+        const base = sectionBaseIndex.get(`${i}:${sec}`) ?? 0;
+        entries.push({
+          ...e,
+          addr: (e.addr + base) & 0xffff,
+          module: mod.name,
+          section: sec,
+        });
+      }
+    });
+    const out: SourceMapFile = {
+      version: 1,
+      kind: "link",
+      output: path.resolve(outputFile).replace(/\\/g, "/"),
+      entries,
+    };
+    writeSourceMap(outPath, out);
+  }
+
   if (verbose) {
     console.log(`✅ Linked ${inputFiles.length} modules -> ${outputFile}`);
   }  
+}
+
+function normalizeSection(section?: string): string {
+  return (section ?? "CSEG").replace(/^\./, "").toUpperCase();
 }
 
 function normalizeFullpathMode(value: unknown): "off" | "rel" | "on" {

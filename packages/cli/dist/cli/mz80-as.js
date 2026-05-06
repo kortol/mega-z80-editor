@@ -47,10 +47,12 @@ const builder_1 = require("../assembler/rel/builder");
 const emit_1 = require("../assembler/codegen/emit");
 const phaseManager_1 = require("../assembler/phaseManager");
 const listing_1 = require("../assembler/output/listing");
+const sourceMap_1 = require("../assembler/output/sourceMap");
 const analyze_1 = require("../assembler/analyze");
 const macro_1 = require("../assembler/macro");
 const pegAdapter_1 = require("../assembler/parser/pegAdapter");
 const conditional_1 = require("../assembler/pseudo/conditional");
+const model_1 = require("../sourcemap/model");
 // --- .sym 出力 ---
 function writeSymFile(ctx, outputFile) {
     const symPath = outputFile.replace(/\.rel$/i, ".sym");
@@ -300,6 +302,11 @@ function finalizeOutput(ctx, outputFile, relVersion) {
         else {
             (0, listing_1.writeLstFile)(ctx, outputFile, ctx.source ?? '');
         }
+    }
+    if (ctx.options.smap) {
+        const smapPath = outputFile.replace(/\.rel$/i, ".smap");
+        const smap = (0, sourceMap_1.buildAssemblerSourceMap)(ctx, ctx.inputFile, outputFile);
+        (0, model_1.writeSourceMap)(smapPath, smap);
     }
     // ------------------------------------------------------------
     // Verbose出力

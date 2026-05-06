@@ -14,7 +14,7 @@ function printHexDump(mem, from, bytes) {
         console.log(`${(0, core_1.formatHex)(addr)}: ${hex}`);
     }
 }
-function printDisasm(mem, from, count, addrToNames) {
+function printDisasm(mem, from, count, addrToNames, addrToSource) {
     let addr = from & 0xffff;
     for (let i = 0; i < count && addr < 0x10000; i++) {
         const names = addrToNames.get(addr);
@@ -26,7 +26,9 @@ function printDisasm(mem, from, count, addrToNames) {
             .join(" ");
         const targetNames = d.target != null ? addrToNames.get(d.target) : undefined;
         const note = targetNames && targetNames.length > 0 ? ` ; -> ${targetNames.join(", ")}` : "";
-        console.log(`  ${(0, core_1.formatHex)(addr)}  ${bytes.padEnd(12)}  ${d.text}${note}`);
+        const src = addrToSource?.get(addr);
+        const srcNote = src ? ` ; ${src.file}:${src.line}` : "";
+        console.log(`  ${(0, core_1.formatHex)(addr)}  ${bytes.padEnd(12)}  ${d.text}${note}${srcNote}`);
         addr += d.size;
     }
 }
@@ -34,9 +36,9 @@ function printRegs(core) {
     const s = core.state;
     console.log(`A=${(0, core_1.formatHex)(s.a, 2)} F=${(0, core_1.formatHex)(s.f, 2)} BC=${(0, core_1.formatHex)((s.b << 8) | s.c)} DE=${(0, core_1.formatHex)((s.d << 8) | s.e)} HL=${(0, core_1.formatHex)((s.h << 8) | s.l)} IX=${(0, core_1.formatHex)(s.ix)} IY=${(0, core_1.formatHex)(s.iy)} SP=${(0, core_1.formatHex)(s.sp)} PC=${(0, core_1.formatHex)(s.pc)}`);
 }
-function printStepTrace(core, addrToNames) {
+function printStepTrace(core, addrToNames, addrToSource) {
     printRegs(core);
-    printDisasm(core.mem, core.state.pc, 1, addrToNames);
+    printDisasm(core.mem, core.state.pc, 1, addrToNames, addrToSource);
 }
 function printHelp() {
     console.log("commands:");
@@ -51,7 +53,7 @@ function printHelp() {
     console.log("  break|b list");
     console.log("  quit|q");
 }
-function runOneCommand(core, raw, addrToNames, ctx) {
+function runOneCommand(core, raw, addrToNames, ctx, addrToSource) {
     const line = raw.trim();
     if (!line)
         return true;
@@ -71,7 +73,7 @@ function runOneCommand(core, raw, addrToNames, ctx) {
         const n = t[1] ? (0, core_1.parseNum)(t[1]) : 1;
         for (let i = 0; i < n; i++) {
             if (ctx.traceEachStep) {
-                printStepTrace(core, addrToNames);
+                printStepTrace(core, addrToNames, addrToSource);
             }
             const res = core.step();
             if (res.stopped) {
@@ -87,7 +89,7 @@ function runOneCommand(core, raw, addrToNames, ctx) {
         let stopReason;
         for (let i = 0; i < n; i++) {
             if (ctx.traceEachStep) {
-                printStepTrace(core, addrToNames);
+                printStepTrace(core, addrToNames, addrToSource);
             }
             const res = core.step();
             if (res.stopped) {
@@ -118,7 +120,7 @@ function runOneCommand(core, raw, addrToNames, ctx) {
     if (cmd === "disas" || cmd === "u") {
         const addr = t[1] ? (0, core_1.parseNum)(t[1]) : core.state.pc;
         const count = t[2] ? (0, core_1.parseNum)(t[2]) : 16;
-        printDisasm(core.mem, addr, count, addrToNames);
+        printDisasm(core.mem, addr, count, addrToNames, addrToSource);
         return true;
     }
     if (cmd === "mem" || cmd === "d") {
@@ -146,7 +148,7 @@ function runOneCommand(core, raw, addrToNames, ctx) {
     }
     throw new Error(`Unknown command: ${line}`);
 }
-function runCommandScript(core, script, addrToNames) {
+function runCommandScript(core, script, addrToNames, addrToSource) {
     const ctx = {
         traceEachStep: false,
     };
@@ -155,7 +157,7 @@ function runCommandScript(core, script, addrToNames) {
         .map((s) => s.trim())
         .filter(Boolean);
     for (const c of commands) {
-        const keepGoing = runOneCommand(core, c, addrToNames, ctx);
+        const keepGoing = runOneCommand(core, c, addrToNames, ctx, addrToSource);
         if (!keepGoing)
             break;
     }

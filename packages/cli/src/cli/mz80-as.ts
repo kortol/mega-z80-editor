@@ -9,10 +9,12 @@ import { initCodegen } from "../assembler/codegen/emit";
 import { setPhase } from "../assembler/phaseManager";
 import { Logger } from "../logger";
 import { writeLstFile, writeLstFileV2 } from "../assembler/output/listing";
+import { buildAssemblerSourceMap } from "../assembler/output/sourceMap";
 import { runAnalyze } from "../assembler/analyze";
 import { expandMacros } from "../assembler/macro";
 import { parsePeg } from "../assembler/parser/pegAdapter";
 import { handleConditional, isConditionActive, isConditionalOp } from "../assembler/pseudo/conditional";
+import { writeSourceMap } from "../sourcemap/model";
 
 // --- .sym 出力 ---
 export function writeSymFile(ctx: AsmContext, outputFile: string) {
@@ -286,6 +288,12 @@ export function finalizeOutput(ctx: AsmContext, outputFile: string, relVersion: 
     } else {
       writeLstFile(ctx, outputFile, ctx.source ?? '');
     }
+  }
+
+  if (ctx.options.smap) {
+    const smapPath = outputFile.replace(/\.rel$/i, ".smap");
+    const smap = buildAssemblerSourceMap(ctx, ctx.inputFile, outputFile);
+    writeSourceMap(smapPath, smap);
   }
 
   // ------------------------------------------------------------

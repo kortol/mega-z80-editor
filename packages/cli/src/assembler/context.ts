@@ -30,6 +30,8 @@ export type AsmOptions = {
   sym?: boolean;
   /** .lst 出力 */
   lst?: boolean;
+  /** .smap 出力 */
+  smap?: boolean;
   /** 既定のシンボル長 (.SYMLEN) */
   symLen?: number;
   /** INCLUDE 検索パス */

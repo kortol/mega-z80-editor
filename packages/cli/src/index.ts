@@ -10,6 +10,7 @@ type Mz80Config = {
     relVersion?: number | string;
     sym?: boolean;
     lst?: boolean;
+    smap?: boolean;
     symLen?: number | string;
     includePaths?: string[];
     sjasmCompat?: boolean;
@@ -18,6 +19,7 @@ type Mz80Config = {
     com?: boolean;
     map?: boolean;
     sym?: boolean;
+    smap?: boolean;
     log?: boolean;
     fullpath?: "off" | "rel" | "on";
     binFrom?: string | number;
@@ -66,6 +68,9 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
     if (as.sjasmCompat !== undefined && typeof as.sjasmCompat !== "boolean") {
       errors.push(`as.sjasmCompat must be boolean (got ${as.sjasmCompat})`);
     }
+    if (as.smap !== undefined && typeof as.smap !== "boolean") {
+      errors.push(`as.smap must be boolean (got ${as.smap})`);
+    }
   }
 
   if (link) {
@@ -74,6 +79,9 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
       if (v !== "off" && v !== "rel" && v !== "on") {
         errors.push(`link.fullpath must be off | rel | on (got ${link.fullpath})`);
       }
+    }
+    if (link.smap !== undefined && typeof link.smap !== "boolean") {
+      errors.push(`link.smap must be boolean (got ${link.smap})`);
     }
     const checkAddr = (key: string, value: any) => {
       if (value === undefined) return;
@@ -97,6 +105,8 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
 import { assemble } from "./cli/mz80-as";
 import { link } from "./cli/mz80-link";
 import { dbgBinary } from "./cli/mz80-dbg";
+import { dbgRemote } from "./cli/mz80-dbg-remote";
+import { dap } from "./cli/mz80-dap";
 import { Console } from "./console";
 
 const program = new Command();
@@ -181,6 +191,7 @@ program
   .option("--rel-version <version>", "Specify the .rel version (1 or 2)", "2")
   .option("--sym", "Generate .sym file")
   .option("--lst", "Generate .lst file")
+  .option("--smap", "Generate .smap file")
   .option("--sjasm-compat", "Enable sjasm/8080 compatibility aliases (e.g. operand M -> (HL))")
   .option("--symlen <n>", "Default symbol length (.SYMLEN)", "32")
   .option("-I, --include <path...>", "Add include search path(s)")
@@ -209,6 +220,8 @@ program
         opts.symlen = (cfg.as.symLen as any) ?? opts.symlen;
       if (shouldUseConfig(command.getOptionValueSource("sjasmCompat")))
         opts.sjasmCompat = cfg.as.sjasmCompat ?? opts.sjasmCompat;
+      if (shouldUseConfig(command.getOptionValueSource("smap")))
+        opts.smap = cfg.as.smap ?? opts.smap;
     }
 
     const relVersion = String(opts.relVersion ?? "2") === "2" ? 2 : 1;
@@ -230,6 +243,7 @@ program
         relVersion,
         sym: !!opts.sym,
         lst: !!opts.lst,
+        smap: !!opts.smap,
         sjasmCompat: !!opts.sjasmCompat,
         symLen: Number.isFinite(symLen) ? symLen : undefined,
         includePaths,
@@ -247,6 +261,7 @@ program
   .description("Link .rel files into .bin / .map / .sym / .log")
   .option("--map", "Generate .map file")
   .option("--sym", "Generate .sym file")
+  .option("--smap", "Generate .smap file")
   .option("--log", "Generate .log file")
   .option("--com", "CP/M COM output (drop bytes before 0100H)")
   .option("--bin-from <addr>", "Start address for binary output")
@@ -268,6 +283,7 @@ program
       if (cfg.link) {
         if (shouldUseConfig(command.getOptionValueSource("map"))) opts.map = cfg.link.map ?? opts.map;
         if (shouldUseConfig(command.getOptionValueSource("sym"))) opts.sym = cfg.link.sym ?? opts.sym;
+        if (shouldUseConfig(command.getOptionValueSource("smap"))) opts.smap = cfg.link.smap ?? opts.smap;
         if (shouldUseConfig(command.getOptionValueSource("log"))) opts.log = cfg.link.log ?? opts.log;
         if (shouldUseConfig(command.getOptionValueSource("com"))) opts.com = cfg.link.com ?? opts.com;
         if (shouldUseConfig(command.getOptionValueSource("binFrom")))
@@ -298,6 +314,7 @@ program
   .command("dbg <input>")
   .description("Debug binary image (.com/.bin): hexdump + lightweight decode")
   .option("--sym <file>", "symbol file for annotation (.sym)")
+  .option("--smap <file>", "source map file for annotation (.smap)")
   .option("--base <addr>", "base address (default: 0100H for .com, 0000H otherwise)")
   .option("--from <addr>", "start address for dump/decode")
   .option("--bytes <n>", "number of bytes for hexdump", "128")
@@ -315,11 +332,39 @@ program
   .option("--trace", "trace CPU state each step for --cpm")
   .option("--bdos-trace", "trace BDOS function calls for --cpm")
   .option("--tail <text>", "CP/M command tail text (written to 0080H)")
+  .option("--rpc-stdio", "start debugger JSON-RPC server over stdio")
+  .option("--rpc-listen <addr>", "start debugger JSON-RPC server over TCP (port or host:port)")
   .action((input, opts) => {
     try {
       dbgBinary(input, opts);
     } catch (err: any) {
       console.error(`❌ Debug failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("dbg-remote")
+  .description("Remote debugger client for dbg JSON-RPC server")
+  .option("--connect <addr>", "remote address (host:port)", "127.0.0.1:4700")
+  .option("--cmd <script>", "command script (e.g. \"ping; regs; break add 0100h\")")
+  .action(async (opts) => {
+    try {
+      await dbgRemote(opts);
+    } catch (err: any) {
+      console.error(`❌ Remote debug failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("dap")
+  .description("Minimal Debug Adapter Protocol bridge over dbg JSON-RPC")
+  .action(() => {
+    try {
+      dap();
+    } catch (err: any) {
+      console.error(`❌ DAP failed: ${err.message}`);
       process.exit(1);
     }
   });

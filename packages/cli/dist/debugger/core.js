@@ -86,9 +86,11 @@ class Z80DebugCore {
     shadow = { a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0 };
     allowOutOfImage = false;
     ioPorts = new Uint8Array(0x100);
+    ioBus = null;
     biosTrack = 0;
     biosSector = 0;
     biosDma = 0x0080;
+    callFrames = [];
     static CPM22_CBASE = 0xdc00;
     static CPM22_FBASE = 0xe406;
     static CPM22_BIOS = {
@@ -129,6 +131,7 @@ class Z80DebugCore {
     }
     loadImage(image, base) {
         this.mem.fill(0);
+        this.callFrames = [];
         // CP/M conventional low-memory stubs.
         this.mem[0x0000] = 0xc3; // JP 0000 (warm boot loop sentinel)
         this.mem[0x0001] = 0x00;
@@ -160,10 +163,70 @@ class Z80DebugCore {
     }
     setEntry(entry) {
         this.state.pc = entry & 0xffff;
+        this.callFrames = [];
+    }
+    getRegisters() {
+        return { ...this.state };
+    }
+    setRegisters(partial) {
+        const s = this.state;
+        const set8 = (k) => {
+            const v = partial[k];
+            if (typeof v === "number")
+                s[k] = v & 0xff;
+        };
+        const set16 = (k) => {
+            const v = partial[k];
+            if (typeof v === "number")
+                s[k] = v & 0xffff;
+        };
+        set8("a");
+        set8("b");
+        set8("c");
+        set8("d");
+        set8("e");
+        set8("h");
+        set8("l");
+        set8("f");
+        set8("i");
+        set8("r");
+        set16("sp");
+        set16("pc");
+        set16("ix");
+        set16("iy");
+    }
+    readMemory(addr, len) {
+        const out = [];
+        const n = Math.max(0, len | 0);
+        let a = addr & 0xffff;
+        for (let i = 0; i < n; i++) {
+            out.push(this.read8(a));
+            a = (a + 1) & 0xffff;
+        }
+        return out;
+    }
+    writeMemory(addr, data) {
+        let a = addr & 0xffff;
+        for (let i = 0; i < data.length; i++) {
+            this.write8(a, data[i] & 0xff);
+            a = (a + 1) & 0xffff;
+        }
+    }
+    readPort(port) {
+        return this.ioRead(port);
+    }
+    writePort(port, value) {
+        this.ioWrite(port, value);
+    }
+    getCallStack() {
+        return this.callFrames.map((frame) => ({ ...frame }));
     }
     setCpmRoot(rootDir) {
         this.cpmRoot = rootDir;
         this.cpm?.setRootDir(rootDir);
+    }
+    setIoBus(ioBus) {
+        this.ioBus = ioBus;
     }
     setAllowOutOfImage(enabled) {
         this.allowOutOfImage = enabled;
@@ -187,6 +250,32 @@ class Z80DebugCore {
             this.mem[0x0081 + i] = bytes[i] & 0x7f;
         this.mem[0x0081 + len] = 0x0d; // CP/M command tail terminator
         this.setDefaultFcbsFromTail(raw);
+    }
+    queueConsoleInput(text, appendCr = false) {
+        const raw = String(text ?? "");
+        const bytes = Buffer.from(raw, "ascii");
+        let prevWasCr = false;
+        let queued = 0;
+        for (let i = 0; i < bytes.length; i++) {
+            const ch = bytes[i] & 0x7f;
+            if (ch === 0x0a) {
+                if (!prevWasCr) {
+                    this.inputQueue.push(0x0d);
+                    queued++;
+                }
+                prevWasCr = false;
+                continue;
+            }
+            this.inputQueue.push(ch);
+            queued++;
+            prevWasCr = ch === 0x0d;
+        }
+        if (appendCr && !prevWasCr) {
+            this.inputQueue.push(0x0d);
+            queued++;
+        }
+        this.pipeInputArmed = true;
+        return queued;
     }
     setDefaultFcbsFromTail(tail) {
         const tokens = tail
@@ -270,6 +359,7 @@ class Z80DebugCore {
             biosTrack: this.biosTrack,
             biosSector: this.biosSector,
             biosDma: this.biosDma,
+            callFrames: this.getCallStack(),
             out: this.getOutput(),
         };
     }
@@ -322,6 +412,12 @@ class Z80DebugCore {
         this.biosTrack = snapshot.biosTrack ?? 0;
         this.biosSector = snapshot.biosSector ?? 0;
         this.biosDma = snapshot.biosDma ?? 0x0080;
+        this.callFrames = [...(snapshot.callFrames ?? [])].map((frame) => ({
+            callSite: frame.callSite & 0xffff,
+            entry: frame.entry & 0xffff,
+            returnAddr: frame.returnAddr & 0xffff,
+            kind: frame.kind === "RST" ? "RST" : "CALL",
+        }));
         this.out.length = 0;
         if (snapshot.out)
             this.out.push(snapshot.out);
@@ -445,6 +541,27 @@ class Z80DebugCore {
         this.state.sp = (this.state.sp + 1) & 0xffff;
         return (lo | (hi << 8)) & 0xffff;
     }
+    pushCallFrame(callSite, entry, returnAddr, kind) {
+        this.callFrames.push({
+            callSite: callSite & 0xffff,
+            entry: entry & 0xffff,
+            returnAddr: returnAddr & 0xffff,
+            kind,
+        });
+        if (this.callFrames.length > 256) {
+            this.callFrames.shift();
+        }
+    }
+    popCallFrame(returnAddr) {
+        const ret = returnAddr & 0xffff;
+        for (let i = this.callFrames.length - 1; i >= 0; i--) {
+            if ((this.callFrames[i].returnAddr & 0xffff) !== ret)
+                continue;
+            this.callFrames.length = i;
+            return;
+        }
+        this.callFrames = [];
+    }
     static FLAG_S = 0x80;
     static FLAG_Z = 0x40;
     static FLAG_Y = 0x20;
@@ -511,9 +628,15 @@ class Z80DebugCore {
         return r === 0;
     }
     ioRead(port) {
+        if (this.ioBus)
+            return this.ioBus.in(port & 0xffff) & 0xff;
         return this.ioPorts[port & 0xff] & 0xff;
     }
     ioWrite(port, value) {
+        if (this.ioBus) {
+            this.ioBus.out(port & 0xffff, value & 0xff);
+            return;
+        }
         this.ioPorts[port & 0xff] = value & 0xff;
     }
     blockIoInStep(dir) {
@@ -1920,22 +2043,50 @@ class Z80DebugCore {
             }
             case 0xc0: { // RET NZ
                 const z = (cpu.f & 0x40) !== 0;
-                cpu.pc = !z ? this.pop16() : (cpu.pc + 1) & 0xffff;
+                if (!z) {
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
+                }
+                else {
+                    cpu.pc = (cpu.pc + 1) & 0xffff;
+                }
                 break;
             }
             case 0xc8: { // RET Z
                 const z = (cpu.f & 0x40) !== 0;
-                cpu.pc = z ? this.pop16() : (cpu.pc + 1) & 0xffff;
+                if (z) {
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
+                }
+                else {
+                    cpu.pc = (cpu.pc + 1) & 0xffff;
+                }
                 break;
             }
             case 0xd0: { // RET NC
                 const c = (cpu.f & 0x01) !== 0;
-                cpu.pc = !c ? this.pop16() : (cpu.pc + 1) & 0xffff;
+                if (!c) {
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
+                }
+                else {
+                    cpu.pc = (cpu.pc + 1) & 0xffff;
+                }
                 break;
             }
             case 0xd8: { // RET C
                 const c = (cpu.f & 0x01) !== 0;
-                cpu.pc = c ? this.pop16() : (cpu.pc + 1) & 0xffff;
+                if (c) {
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
+                }
+                else {
+                    cpu.pc = (cpu.pc + 1) & 0xffff;
+                }
                 break;
             }
             case 0xcd: {
@@ -1945,6 +2096,7 @@ class Z80DebugCore {
                     const fn = cpu.c & 0xff;
                     if (this.cpm22Loaded && this.cpm22SupportsFn(fn)) {
                         this.push16(ret);
+                        this.pushCallFrame(cpu.pc, Z80DebugCore.CPM22_CBASE, ret, "CALL");
                         this.enterCpm22Bdos();
                     }
                     else {
@@ -1956,6 +2108,7 @@ class Z80DebugCore {
                     break;
                 }
                 this.push16(ret);
+                this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                 cpu.pc = nn;
                 break;
             }
@@ -1965,6 +2118,7 @@ class Z80DebugCore {
                 const z = (cpu.f & 0x40) !== 0;
                 if (!z) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -1978,6 +2132,7 @@ class Z80DebugCore {
                 const z = (cpu.f & 0x40) !== 0;
                 if (z) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -1991,6 +2146,7 @@ class Z80DebugCore {
                 const c = (cpu.f & 0x01) !== 0;
                 if (!c) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -2004,6 +2160,7 @@ class Z80DebugCore {
                 const c = (cpu.f & 0x01) !== 0;
                 if (c) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -2017,6 +2174,7 @@ class Z80DebugCore {
                 const pv = (cpu.f & 0x04) !== 0;
                 if (!pv) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -2030,6 +2188,7 @@ class Z80DebugCore {
                 const pv = (cpu.f & 0x04) !== 0;
                 if (pv) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -2043,6 +2202,7 @@ class Z80DebugCore {
                 const s = (cpu.f & 0x80) !== 0;
                 if (!s) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -2056,6 +2216,7 @@ class Z80DebugCore {
                 const s = (cpu.f & 0x80) !== 0;
                 if (s) {
                     this.push16(ret);
+                    this.pushCallFrame(cpu.pc, nn, ret, "CALL");
                     cpu.pc = nn;
                 }
                 else {
@@ -2063,9 +2224,12 @@ class Z80DebugCore {
                 }
                 break;
             }
-            case 0xc9:
-                cpu.pc = this.pop16();
+            case 0xc9: {
+                const ret = this.pop16();
+                this.popCallFrame(ret);
+                cpu.pc = ret;
                 break;
+            }
             case 0xc5:
                 this.push16((cpu.b << 8) | cpu.c);
                 cpu.pc = (cpu.pc + 1) & 0xffff;
@@ -2259,16 +2423,22 @@ class Z80DebugCore {
                 break;
             case 0xf0: { // RET P
                 const s = (cpu.f & 0x80) !== 0;
-                if (!s)
-                    cpu.pc = this.pop16();
+                if (!s) {
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
+                }
                 else
                     cpu.pc = (cpu.pc + 1) & 0xffff;
                 break;
             }
             case 0xf8: { // RET M
                 const s = (cpu.f & 0x80) !== 0;
-                if (s)
-                    cpu.pc = this.pop16();
+                if (s) {
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
+                }
                 else
                     cpu.pc = (cpu.pc + 1) & 0xffff;
                 break;
@@ -2306,7 +2476,9 @@ class Z80DebugCore {
             case 0xf7: // RST 30
             case 0xff: { // RST 38
                 const vec = op & 0x38;
-                this.push16((cpu.pc + 1) & 0xffff);
+                const ret = (cpu.pc + 1) & 0xffff;
+                this.push16(ret);
+                this.pushCallFrame(cpu.pc, vec, ret, "RST");
                 cpu.pc = vec;
                 if (vec === 0x00) {
                     return { stopped: true, reason: "RST 0 (warm boot)" };
@@ -2439,11 +2611,15 @@ class Z80DebugCore {
                 }
                 if (op2 === 0x45 || op2 === 0x55 || op2 === 0x5d || op2 === 0x65 || op2 === 0x6d || op2 === 0x75 || op2 === 0x7d) { // RETN variants
                     this.iff1 = this.iff2;
-                    cpu.pc = this.pop16();
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
                     break;
                 }
                 if (op2 === 0x4d) { // RETI
-                    cpu.pc = this.pop16();
+                    const ret = this.pop16();
+                    this.popCallFrame(ret);
+                    cpu.pc = ret;
                     break;
                 }
                 if (op2 === 0x44 || op2 === 0x4c || op2 === 0x54 || op2 === 0x5c || op2 === 0x64 || op2 === 0x6c || op2 === 0x74 || op2 === 0x7c) { // NEG variants

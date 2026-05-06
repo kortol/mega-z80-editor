@@ -156,6 +156,7 @@ export function linkModules(mods: RelModule[]): LinkResult {
     }
   }
 
+  const moduleSectionBases = buildModuleSectionBases(mods, sectionBase);
   return {
     segments: [
       {
@@ -167,6 +168,7 @@ export function linkModules(mods: RelModule[]): LinkResult {
     ],
     entry,
     symbols,
+    moduleSectionBases,
   };
 }
 
@@ -491,11 +493,13 @@ export function linkModulesV2(
     };
   });
 
+  const moduleSectionBases = buildModuleSectionBases(mods, sectionBase);
   return {
     segments,
     entry,
     symbols,
     warnings,
+    moduleSectionBases,
     segmentDetails,
   };
 }
@@ -508,4 +512,25 @@ function formatDefinedAt(defFile?: string, defLine?: number): string | undefined
   }
   if (typeof defLine !== "number" || !Number.isFinite(defLine)) return defFile;
   return `${defFile}:${Math.trunc(defLine)}`;
+}
+
+function buildModuleSectionBases(
+  mods: RelModule[],
+  sectionBase: Map<string, number>
+): NonNullable<LinkResult["moduleSectionBases"]> {
+  const out: NonNullable<LinkResult["moduleSectionBases"]> = [];
+  for (const [key, base] of sectionBase.entries()) {
+    const sep = key.indexOf("::");
+    if (sep < 0) continue;
+    const modIndex = Number.parseInt(key.slice(0, sep), 10);
+    const section = key.slice(sep + 2) || "CSEG";
+    if (!Number.isFinite(modIndex) || modIndex < 0 || modIndex >= mods.length) continue;
+    out.push({
+      moduleIndex: modIndex,
+      moduleName: mods[modIndex].name,
+      section,
+      base: base & 0xffff,
+    });
+  }
+  return out;
 }

@@ -4,6 +4,7 @@ export function dbgBinary(
   inputFile: string,
   opts: {
     sym?: string;
+    smap?: string;
     base?: string;
     from?: string;
     bytes?: string;
@@ -17,6 +18,8 @@ export function dbgBinary(
     cmd?: string;
     cpmRoot?: string;
     tail?: string;
+    rpcStdio?: boolean;
+    rpcListen?: string;
   }
 ) {
   runBinaryDebugger(inputFile, opts);
