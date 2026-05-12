@@ -3,8 +3,10 @@
   "displayName": "Z80 Assembler Language",
   "version": "0.0.0",
   "private": false,
+  "license": "MIT",
   "publisher": "mz80",
   "description": "Z80 assembler language support with syntax highlighting, diagnostics, semantic tokens, and integrated debugging.",
+  "icon": "media/icon.png",
   "categories": [
     "Programming Languages",
     "Debuggers"
@@ -18,7 +20,8 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kortol/mega-z80-editor.git"
+    "url": "https://github.com/kortol/mega-z80-editor.git",
+    "directory": "editor/vscode-ext"
   },
   "bugs": {
     "url": "https://github.com/kortol/mega-z80-editor/issues"

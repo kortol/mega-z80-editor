@@ -75,8 +75,9 @@ pnpm run link:cli
 
 ## Notes
 
+- この repository 自体のライセンスは MIT です
 - `docs/dev/` は現行仕様というより履歴・フェーズメモです
 - サンプルや互換検証用入力は sibling repo `../mega-z80-examples` を既定で参照します。必要なら `MZ80_EXAMPLES_DIR` で上書きできます
-- `tools/` はローカル検証用で、配布前提の成果物ではありません
+- `tools/` はローカル検証用で、配布前提の成果物ではありません。含まれる外部ツールや資産はそれぞれ元のライセンスに従います
 - `editor/lsp` は extension 同梱用 runtime です。デバッグ導線の本体は `packages/cli` 側にあります
 - root の `clean` script は廃止しました。依存キャッシュ整理だけ必要なら `pnpm run store:prune` を使います
