@@ -9,15 +9,15 @@ const examplesRepo_1 = require("../../examplesRepo");
 const repoRoot = path_1.default.resolve(__dirname, "../../../../..");
 const examplesRoot = (0, examplesRepo_1.resolveExamplesRepoDir)(repoRoot);
 const packageLocalFiles = [
-    "packages/cli/examples/include-smoke/sub2.inc",
-    "packages/cli/examples/include-smoke/sub1.inc",
-    "packages/cli/examples/include-smoke/main.asm",
-    "packages/cli/examples/linktest/test_sections.asm",
-    "packages/cli/examples/linktest/test.asm",
     "packages/cli/src/assembler/__tests__/mac.inc",
     "packages/cli/src/assembler/examples/sample.asm",
 ];
 const externalFiles = [
+    "cli/include-smoke/sub2.inc",
+    "cli/include-smoke/sub1.inc",
+    "cli/include-smoke/main.asm",
+    "cli/linktest/test_sections.asm",
+    "cli/linktest/test.asm",
     "p1-c/p1c_fixture.asm",
     "z80test/src/z80memptr.asm",
     "z80test/src/z80full.asm",
