@@ -59,18 +59,3 @@ packages/cli/examples/linktest/*.lst
 packages/cli/examples/linktest/*.map
 packages/cli/examples/linktest/*.rel
 packages/cli/examples/linktest/*.sym
-examples/hello/build/
-examples/hello/dist/
-examples/hello-msx/dist/
-examples/hello-msx/*.rel
-examples/cpm2-asm/*.bin
-examples/p1-c/*.rel.bin
-
-
-# external imported examples
-examples/Z80-Optimized-Routines/*
-examples/bbcbasic-z80/*
-examples/z80float/*
-examples/z80test/*
-examples/cpm2-asm/*
-examples/cpm2-plm/*

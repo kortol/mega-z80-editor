@@ -1,7 +1,0 @@
-; P1-C .rel (text) listing
-; External symbol table (E)
-E EXT
-
-; External+addend relocations (R): addr size type sym addend
-R 2000 1 ABS EXT +0001
-R 2001 2 ABS EXT -0001

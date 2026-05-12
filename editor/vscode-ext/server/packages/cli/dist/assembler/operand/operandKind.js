@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.OperandKind = void 0;
+var OperandKind;
+(function (OperandKind) {
+    OperandKind[OperandKind["REG8"] = 0] = "REG8";
+    OperandKind[OperandKind["REG8X"] = 1] = "REG8X";
+    OperandKind[OperandKind["REG16"] = 2] = "REG16";
+    OperandKind[OperandKind["REG16X"] = 3] = "REG16X";
+    OperandKind[OperandKind["REG_AF"] = 4] = "REG_AF";
+    OperandKind[OperandKind["REG_AFd"] = 5] = "REG_AFd";
+    OperandKind[OperandKind["REG_IR"] = 6] = "REG_IR";
+    OperandKind[OperandKind["IMM"] = 7] = "IMM";
+    OperandKind[OperandKind["EXPR"] = 8] = "EXPR";
+    OperandKind[OperandKind["MEM"] = 9] = "MEM";
+    OperandKind[OperandKind["REG_IND"] = 10] = "REG_IND";
+    OperandKind[OperandKind["IDX"] = 11] = "IDX";
+    OperandKind[OperandKind["FLAG"] = 12] = "FLAG";
+    OperandKind[OperandKind["UNKNOWN"] = 13] = "UNKNOWN";
+})(OperandKind || (exports.OperandKind = OperandKind = {}));

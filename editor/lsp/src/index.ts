@@ -3,16 +3,14 @@ import {
   ProposedFeatures,
   InitializeParams,
   InitializeResult,
-  DidOpenTextDocumentParams,
-  DidChangeTextDocumentParams,
-  DidCloseTextDocumentParams,
+  SemanticTokensParams,
   TextDocuments,
   TextDocumentSyncKind,
-  Diagnostic,
-  DiagnosticSeverity
 } from "vscode-languageserver/node.js";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { collectDiagnostics } from "./diagnostics";
+import { collectSemanticTokens, getSemanticTokenLegend } from "./semanticTokens";
 
 // 接続生成（stdioベース: LSP標準）
 const connection = createConnection(ProposedFeatures.all);
@@ -24,7 +22,11 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 connection.onInitialize((_params: InitializeParams): InitializeResult => {
   return {
     capabilities: {
-      textDocumentSync: TextDocumentSyncKind.Incremental
+      textDocumentSync: TextDocumentSyncKind.Incremental,
+      semanticTokensProvider: {
+        legend: getSemanticTokenLegend(),
+        full: true,
+      },
     }
   };
 });
@@ -32,34 +34,32 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
 // ドキュメントオープン
 documents.onDidOpen((event) => {
   connection.console.log(`Document opened: ${event.document.uri}`);
+  connection.sendDiagnostics({
+    uri: event.document.uri,
+    diagnostics: collectDiagnostics(event.document),
+  });
 });
 
 // ドキュメント変更
 documents.onDidChangeContent((event) => {
-  // ダミー成功
-  // connection.console.log(`Document changed: ${event.document.uri}`);
-  // // 常に診断なしを返す
-  // connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
-
-  // 仮のエラーダイアグノスティクス
-  const diagnostics: Diagnostic[] = [
-    {
-      severity: DiagnosticSeverity.Error,
-      range: {
-        start: { line: 0, character: 0 },
-        end: { line: 0, character: 5 }
-      },
-      message: "仮エラー: とりあえず何か返しています",
-      source: "mz80"
-    }
-  ];
-
-  connection.sendDiagnostics({ uri: event.document.uri, diagnostics });  
+  connection.sendDiagnostics({
+    uri: event.document.uri,
+    diagnostics: collectDiagnostics(event.document),
+  });
 });
 
 // ドキュメントクローズ
 documents.onDidClose((event) => {
   connection.console.log(`Document closed: ${event.document.uri}`);
+  connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+});
+
+connection.languages.semanticTokens.on((params: SemanticTokensParams) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) {
+    return { data: [] };
+  }
+  return collectSemanticTokens(document, params);
 });
 
 // ドキュメント管理開始

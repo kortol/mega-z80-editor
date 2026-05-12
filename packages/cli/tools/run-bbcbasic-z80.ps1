@@ -3,6 +3,11 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..\..\..")
 $cliDir = Join-Path $repoRoot "packages\cli"
+$examplesRoot = if ($env:MZ80_EXAMPLES_DIR) {
+  Resolve-Path $env:MZ80_EXAMPLES_DIR
+} else {
+  Join-Path (Split-Path $repoRoot -Parent) "mega-z80-examples"
+}
 
 # Keep Node/pnpm lookups inside workspace in sandboxed environments.
 $env:USERPROFILE = $repoRoot
@@ -19,7 +24,10 @@ $files = @(
   "ram"
 )
 
-$exampleDir = Join-Path $repoRoot "examples\bbcbasic-z80"
+$exampleDir = Join-Path $examplesRoot "bbcbasic-z80"
+if (!(Test-Path $exampleDir)) {
+  throw "examples repo not found: $exampleDir"
+}
 $relFiles = @()
 
 foreach ($name in $files) {

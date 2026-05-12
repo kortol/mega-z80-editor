@@ -14,7 +14,6 @@ mega-z80-editor/
 |  |- vscode-ext/     # VSCode extension
 |  |- lsp/            # LSP 実験実装
 |  `- dap/            # 初期 DAP 実験実装
-|- examples/          # 実ファイル検証用のサンプル群
 |- docs/
 |  |- spec/           # 現行仕様メモ
 |  `- dev/            # フェーズ別の履歴・設計メモ
@@ -51,11 +50,12 @@ pnpm -C packages/cli run lint
 - 全体案内: [docs/README.md](C:/Workspace/work/mega-z80-editor/docs/README.md)
 - CLI/package の説明: [packages/cli/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/README.md)
 - PEG 互換メモ: [packages/cli/docs/peg-compat-cases.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/peg-compat-cases.md)
-- examples の区分: [examples/README.md](C:/Workspace/work/mega-z80-editor/examples/README.md)
+- examples repo の説明: [docs/examples-repo.md](C:/Workspace/work/mega-z80-editor/docs/examples-repo.md)
 - editor 配下の位置づけ: [editor/README.md](C:/Workspace/work/mega-z80-editor/editor/README.md)
 
 ## Notes
 
 - `docs/dev/` は現行仕様というより履歴・フェーズメモです
+- サンプルや互換検証用入力は sibling repo `../mega-z80-examples` を既定で参照します。必要なら `MZ80_EXAMPLES_DIR` で上書きできます
 - `tools/` はローカル検証用で、配布前提の成果物ではありません
 - `editor/lsp` と `editor/dap` は実験実装で、現行のデバッグ導線は `packages/cli` 側が主です

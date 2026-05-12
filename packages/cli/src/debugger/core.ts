@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { IOBus } from "../io/IOBus";
+import { resolveExamplesPath } from "../examplesRepo";
 
 export type CpuState = {
   a: number;
@@ -966,10 +967,9 @@ export class Z80DebugCore {
   private tryLoadCpm22Bdos(): void {
     if (!this.cpm22Enabled) return;
     const candidates = [
-      path.resolve(process.cwd(), "../../examples/cpm2-asm/CPM22.bin"),
-      path.resolve(process.cwd(), "examples/cpm2-asm/CPM22.bin"),
+      resolveExamplesPath(process.cwd(), "cpm2-asm", "CPM22.bin"),
       path.resolve(process.cwd(), "CPM22.bin"),
-    ];
+    ].filter((value): value is string => !!value);
     const binPath = candidates.find((p) => fs.existsSync(p));
     if (!binPath) return;
     const bin = fs.readFileSync(binPath);

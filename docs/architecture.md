@@ -14,9 +14,9 @@
 - `editor/dap`
   - 初期 DAP 実験実装
   - 現在の主要経路は `packages/cli/src/dap`
-- `examples`
-  - 実ファイル検証、互換確認、手動検証用サンプル
-  - 生成物は原則追跡しない
+- `../mega-z80-examples`
+  - 実ファイル検証、互換確認、手動検証用サンプルの別 repo
+  - 既定では sibling repo として参照し、必要なら `MZ80_EXAMPLES_DIR` で差し替える
 - `tools`
   - エミュレータや比較用ツールのローカル配置先
 
@@ -40,7 +40,8 @@
 ## Structure Rules
 
 - 実装本体は `packages/cli/src` に置く
-- 例示用の入力ファイルは `examples/` か `packages/cli/examples/` に置く
+- package に密着した小さな smoke fixture は `packages/cli/examples/` に置く
+- 大きいサンプル群や imported corpus は `../mega-z80-examples` に置く
 - 生成物は追跡しない。必要なら build/test で再生成する
 - フェーズ設計メモは `docs/dev/`、現行の参照説明は `README` と `docs/spec/` に寄せる
 - `editor/lsp` と `editor/dap` は実験実装として扱い、現役導線は `packages/cli` と `editor/vscode-ext` を優先する

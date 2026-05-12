@@ -1,4 +1,5 @@
 import { AsmContext, SourcePos, canon } from "../../assembler/context";
+import { AssemblerErrorCode, makeError } from "../../assembler/errors";
 import { MacroParam, Node, NodeInstr, NodeLabel, NodeMacroDef, NodeMacroInvoke, NodePseudo, NodeEmpty } from "../../assembler/node";
 import { tokenize } from "../../assembler/tokenizer";
 
@@ -8,6 +9,14 @@ const pegParser = require("./gen/z80_assembler.js");
 type PegLoc = {
   start?: { line: number; column: number; offset: number };
   end?: { line: number; column: number; offset: number };
+};
+
+type PegExpected = {
+  type?: "literal" | "class" | "any" | "end";
+  text?: string;
+  parts?: Array<string | [string, string]>;
+  inverted?: boolean;
+  description?: string;
 };
 
 function locToPos(ctx: AsmContext, loc?: PegLoc, end = false): SourcePos {
@@ -20,6 +29,38 @@ function locToPos(ctx: AsmContext, loc?: PegLoc, end = false): SourcePos {
     column,
     phase: ctx.phase,
   };
+}
+
+function formatPegExpected(expected: PegExpected): string {
+  if (expected.description) return expected.description;
+  if (expected.type === "literal") return expected.text ? `'${expected.text}'` : "literal";
+  if (expected.type === "class") {
+    if (!expected.parts?.length) return "character";
+    const parts = expected.parts.slice(0, 3).map((part: string | [string, string]) =>
+      Array.isArray(part) ? `${part[0]}-${part[1]}` : part
+    );
+    const body = parts.join(", ");
+    return expected.inverted ? `non-[${body}]` : `[${body}]`;
+  }
+  if (expected.type === "any") return "any character";
+  if (expected.type === "end") return "end of input";
+  return "token";
+}
+
+function describePegSyntaxError(err: any): string {
+  const found = err?.found == null ? "end of input" : JSON.stringify(err.found);
+  const expected = Array.isArray(err?.expected) ? err.expected : [];
+
+  if (!expected.length) {
+    return `Syntax error near ${found}`;
+  }
+
+  const options = Array.from(
+    new Set(expected.map((item: PegExpected) => formatPegExpected(item)))
+  );
+  const listed = options.slice(0, 5).join(", ");
+  const suffix = options.length > 5 ? ", ..." : "";
+  return `Syntax error: expected ${listed}${suffix}, found ${found}`;
 }
 
 function exprToRaw(expr: any): string {
@@ -99,7 +140,11 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
     ast = pegParser.parse(source);
   } catch (err: any) {
     if (err?.name === "SyntaxError" || /Expected/.test(String(err?.message ?? ""))) {
-      throw new Error("Syntax error");
+      throw makeError(
+        AssemblerErrorCode.SyntaxError,
+        describePegSyntaxError(err),
+        { pos: locToPos(ctx, err?.location) }
+      );
     }
     throw err;
   }
@@ -495,6 +540,14 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         const op = String(instr.name).toUpperCase();
         const invokeArgs = (instr.args ?? []).map((a: any) => (a == null ? "" : String(a)));
         const isOpcode = !!ctx.opcodes?.has(canon(op, ctx));
+
+        if (isOpcode && !hasMacro(instr.name)) {
+          const normalizedArgs = invokeArgs.map((arg: string) =>
+            normalizeSjasmOperandAlias(ctx, op, arg)
+          );
+          nodes.push(makeInstr(op, normalizedArgs, pos));
+          continue;
+        }
 
         // "CP" のような opcode 名が parser 都合で macroInvoke 扱いに落ちた場合は、
         // 未定義マクロとして飲み込まずに構文エラーとして止める。

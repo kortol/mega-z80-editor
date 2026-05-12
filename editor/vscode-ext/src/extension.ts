@@ -31,12 +31,23 @@ function findWorkspaceRoot(): string | undefined {
   return folders[0].uri.fsPath;
 }
 
+function resolveBundledCliEntryPath(context: vscode.ExtensionContext): string {
+  return path.join(context.extensionPath, "server", "packages", "cli", "dist", "index.js");
+}
+
+function resolveBundledLspEntryPath(context: vscode.ExtensionContext): string {
+  return path.join(context.extensionPath, "server", "lsp", "dist", "index.js");
+}
+
 function resolveCliEntryPath(cfg: Mz80DebugConfiguration, context: vscode.ExtensionContext): string {
   if (typeof cfg.cliEntry === "string" && cfg.cliEntry.trim().length > 0) {
     return cfg.cliEntry;
   }
   const configured = vscode.workspace.getConfiguration("mz80").get<string>("debug.cliEntry");
   if (configured && configured.trim().length > 0) return configured;
+
+  const bundled = resolveBundledCliEntryPath(context);
+  if (fs.existsSync(bundled)) return bundled;
 
   const wsRoot = findWorkspaceRoot();
   if (wsRoot) {
@@ -73,7 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   // === LSPサーバ設定 ===
-  const serverModule = path.join(context.extensionPath, "..", "lsp", "dist", "index.js");
+  const serverModule = resolveBundledLspEntryPath(context);
   const serverOptions: ServerOptions = {
     run: { module: serverModule, transport: TransportKind.stdio },
     debug: {
