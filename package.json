@@ -7,12 +7,15 @@
     "build": "pnpm -C packages/cli run build && pnpm -C editor/lsp run build && pnpm -C editor/vscode-ext run build",
     "test": "pnpm -C packages/cli run test",
     "check": "pnpm run build && pnpm run test",
+    "mz80": "node packages/cli/dist/index.js",
+    "link:cli": "pnpm -C packages/cli link --global",
     "store:prune": "pnpm store prune",
     "dev:cli": "pnpm -C packages/cli run dev",
     "dev:lsp": "pnpm -C editor/lsp run dev",
     "dev:vscode-ext": "pnpm -C editor/vscode-ext run build"
   },
   "devDependencies": {
+    "@mz80/cli": "workspace:*",
     "@types/node": "^24.5.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"

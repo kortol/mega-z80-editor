@@ -25,8 +25,8 @@ mega-z80-editor/
 - `mz80 link` で `.rel` から `.bin/.com/.map/.sym/.smap/.log` を生成
 - `mz80 dbg` でバイナリのデバッグ、CP/M 実行、RPC 提供
 - `mz80 dbg-remote` で RPC デバッガへ接続
-- `mz80 dap` で VSCode から利用する DAP bridge を起動
-- VSCode extension から `mz80-dap` launch/attach を利用可能
+- `mz80 dap` で VSCode デバッグ用の DAP adapter runtime を起動
+- VSCode extension から `mz80-dap` の `launch/attach` を利用可能
 
 ## Workspace Commands
 
@@ -35,6 +35,7 @@ pnpm install
 pnpm build
 pnpm test
 pnpm run check
+pnpm run mz80 -- --help
 ```
 
 開発用の入口は用途ごとに分けています。
@@ -53,6 +54,16 @@ pnpm -C packages/cli run build
 pnpm -C packages/cli run test
 pnpm -C packages/cli run lint
 ```
+
+repo 内では `pnpm run mz80 -- ...` で CLI を実行できます。bare の `mz80 ...` を使いたい場合は、一度だけ次を実行します。
+
+```bash
+pnpm run mz80 -- as input.asm output.rel
+pnpm run mz80 -- link out.bin a.rel b.rel
+pnpm run link:cli
+```
+
+この方法は、pnpm の global bin directory が PATH に載っている環境を前提にします。
 
 ## Documentation
 
