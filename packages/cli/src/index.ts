@@ -369,42 +369,4 @@ program
     }
   });
 
-// === サブコマンド: build ===
-program
-  .command("build")
-  .description("Build the project (stub in P0 phase)")
-  .action(() => {
-    const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
-      ? "quiet"
-      : opts.verbose
-        ? "verbose"
-        : "normal";
-    const logger = createLogger(logLevel);
-
-    logger.info("🔨 [build] Stub: build process not implemented yet.");
-    if (opts.json) {
-      console.log(JSON.stringify({ status: "ok", message: "build stub" }));
-    }
-  });
-
-// === サブコマンド: run ===
-program
-  .command("run")
-  .description("Run the project (stub in P0 phase)")
-  .action(() => {
-    const opts = program.opts();
-    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
-      ? "quiet"
-      : opts.verbose
-        ? "verbose"
-        : "normal";
-    const logger = createLogger(logLevel);
-
-    logger.info("▶️ [run] Stub: run process not implemented yet.");
-    if (opts.json) {
-      console.log(JSON.stringify({ status: "ok", message: "run stub" }));
-    }
-  });
-
 program.parse(normalizeArgvForFullpath(process.argv));

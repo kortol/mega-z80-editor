@@ -36,6 +36,7 @@ packages/cli/
 pnpm -C packages/cli run build
 pnpm -C packages/cli run test
 pnpm -C packages/cli run lint
+pnpm -C packages/cli run start
 ```
 
 ## Config

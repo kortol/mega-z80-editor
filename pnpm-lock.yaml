@@ -18,25 +18,6 @@ importers:
         specifier: ^5.9.2
         version: 5.9.2
 
-  editor/dap:
-    dependencies:
-      '@vscode/debugadapter':
-        specifier: ^1.68.0
-        version: 1.68.0
-      '@vscode/debugprotocol':
-        specifier: ^1.68.0
-        version: 1.68.0
-    devDependencies:
-      '@types/node':
-        specifier: ^20.14.11
-        version: 20.19.17
-      ts-node:
-        specifier: ^10.9.2
-        version: 10.9.2(@types/node@20.19.17)(typescript@5.9.2)
-      typescript:
-        specifier: ^5.9.2
-        version: 5.9.2
-
   editor/lsp:
     dependencies:
       vscode-languageserver:
@@ -896,13 +877,6 @@ packages:
     resolution: {integrity: sha512-lrW200hZdbfRtztbygyaq/6jP6AKE8qQN2KvPcJ+x7wiD038YtnYtZ82IMNJ69GJibV7bwL3y9FgK+5w/pYt6g==}
     cpu: [x64]
     os: [win32]
-
-  '@vscode/debugadapter@1.68.0':
-    resolution: {integrity: sha512-D6gk5Fw2y4FV8oYmltoXpj+VAZexxJFopN/mcZ6YcgzQE9dgq2L45Aj3GLxScJOD6GeLILcxJIaA8l3v11esGg==}
-    engines: {node: '>=14'}
-
-  '@vscode/debugprotocol@1.68.0':
-    resolution: {integrity: sha512-2J27dysaXmvnfuhFGhfeuxfHRXunqNPxtBoR3koiTOA9rdxWNDTa1zIFLCFMSHJ9MPTPKFcBeblsyaCJCIlQxg==}
 
   '@vscode/vsce-sign-alpine-arm64@2.0.6':
     resolution: {integrity: sha512-wKkJBsvKF+f0GfsUuGT0tSW0kZL87QggEiqNqK6/8hvqsXvpx8OsTEc3mnE1kejkh5r+qUyQ7PtF8jZYN0mo8Q==}
@@ -4033,12 +4007,6 @@ snapshots:
 
   '@unrs/resolver-binding-win32-x64-msvc@1.11.1':
     optional: true
-
-  '@vscode/debugadapter@1.68.0':
-    dependencies:
-      '@vscode/debugprotocol': 1.68.0
-
-  '@vscode/debugprotocol@1.68.0': {}
 
   '@vscode/vsce-sign-alpine-arm64@2.0.6':
     optional: true

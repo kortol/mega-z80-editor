@@ -37,10 +37,8 @@
     "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "test": "set USERPROFILE=%CD%&& set HOMEPATH=%CD%&& set HOME=%CD%&& jest --runInBand",
     "run:bbcbasic-z80": "pwsh -File tools/run-bbcbasic-z80.ps1",
-    "import:z80test": "ts-node tools/import-z80test.ts",
     "gen:mnemonics": "ts-node tools/gen-peggy-mnemonics.ts",
     "build:parser": "npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs",
-    "build:grammar": "npm run gen:mnemonics && npm run build:parser",
     "build:exe": "pnpm run build && pkg dist/index.js --targets node18-win-x64 --output dist-exe/mz80.exe"
   },
   "dependencies": {

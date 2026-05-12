@@ -175,9 +175,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run build",
+    "vscode:prepublish": "pnpm run build:full",
     "build:grammar": "node tools/generate-textmate-grammar.js",
-    "build:runtimes": "pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && node tools/copy-runtime.js",
+    "build:runtimes": "node tools/copy-runtime.js",
+    "build:full": "pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && pnpm run build",
     "build": "pnpm run build:grammar && pnpm run build:runtimes && tsc -p tsconfig.json",
     "package:vsix": "vsce package --no-dependencies --skip-license"
   },

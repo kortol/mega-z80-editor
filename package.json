@@ -4,10 +4,13 @@
   "version": "0.0.0",
   "packageManager": "pnpm@9.12.0",
   "scripts": {
-    "build": "pnpm -r run build",
-    "clean": "pnpm store prune && rimraf node_modules */*/node_modules",
-    "dev": "pnpm -r run dev",
-    "test": "pnpm -r --if-present run test"
+    "build": "pnpm -C packages/cli run build && pnpm -C editor/lsp run build && pnpm -C editor/vscode-ext run build",
+    "test": "pnpm -C packages/cli run test",
+    "check": "pnpm run build && pnpm run test",
+    "store:prune": "pnpm store prune",
+    "dev:cli": "pnpm -C packages/cli run dev",
+    "dev:lsp": "pnpm -C editor/lsp run dev",
+    "dev:vscode-ext": "pnpm -C editor/vscode-ext run build"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

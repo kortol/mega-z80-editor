@@ -2,7 +2,7 @@
 
 Z80 向けのアセンブラ、リンカ、デバッガ、VSCode 連携をまとめた monorepo です。
 
-現状の中心は `packages/cli` で、ここに assembler/linker/debugger/DAP/source map の実装があります。`editor/` には VSCode extension と、初期段階の LSP/DAP 実験実装が残っています。
+現状の中心は `packages/cli` で、ここに assembler/linker/debugger/DAP/source map の実装があります。`editor/` には VSCode extension と、その同梱用の LSP runtime があります。
 
 ## Repository Layout
 
@@ -12,8 +12,7 @@ mega-z80-editor/
 |  `- cli/            # 現在の主実装。assembler / linker / debugger / DAP
 |- editor/
 |  |- vscode-ext/     # VSCode extension
-|  |- lsp/            # LSP 実験実装
-|  `- dap/            # 初期 DAP 実験実装
+|  `- lsp/            # VSCode extension に同梱する LSP runtime
 |- docs/
 |  |- spec/           # 現行仕様メモ
 |  `- dev/            # フェーズ別の履歴・設計メモ
@@ -35,9 +34,19 @@ mega-z80-editor/
 pnpm install
 pnpm build
 pnpm test
+pnpm run check
 ```
 
-個別 package の操作は `pnpm -C packages/cli ...` を使います。
+開発用の入口は用途ごとに分けています。
+
+```bash
+pnpm run dev:cli -- --help
+pnpm run dev:lsp
+pnpm run dev:vscode-ext
+pnpm run store:prune
+```
+
+個別 package の操作は `pnpm -C ...` を使います。
 
 ```bash
 pnpm -C packages/cli run build
@@ -58,4 +67,5 @@ pnpm -C packages/cli run lint
 - `docs/dev/` は現行仕様というより履歴・フェーズメモです
 - サンプルや互換検証用入力は sibling repo `../mega-z80-examples` を既定で参照します。必要なら `MZ80_EXAMPLES_DIR` で上書きできます
 - `tools/` はローカル検証用で、配布前提の成果物ではありません
-- `editor/lsp` と `editor/dap` は実験実装で、現行のデバッグ導線は `packages/cli` 側が主です
+- `editor/lsp` は extension 同梱用 runtime です。デバッグ導線の本体は `packages/cli` 側にあります
+- root の `clean` script は廃止しました。依存キャッシュ整理だけ必要なら `pnpm run store:prune` を使います
