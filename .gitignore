@@ -53,9 +53,3 @@ packages/cli/*.bin
 packages/cli/*.lst
 packages/cli/*.rel
 packages/cli/*.sym
-packages/cli/examples/linktest/*.bin
-packages/cli/examples/linktest/*.log
-packages/cli/examples/linktest/*.lst
-packages/cli/examples/linktest/*.map
-packages/cli/examples/linktest/*.rel
-packages/cli/examples/linktest/*.sym

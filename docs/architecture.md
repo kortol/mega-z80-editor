@@ -40,7 +40,7 @@
 ## Structure Rules
 
 - 実装本体は `packages/cli/src` に置く
-- package に密着した小さな smoke fixture は `packages/cli/examples/` に置く
+- 自動テスト外で使う smoke fixture や link 用サンプルは `../mega-z80-examples/cli/` に置く
 - 大きいサンプル群や imported corpus は `../mega-z80-examples` に置く
 - 生成物は追跡しない。必要なら build/test で再生成する
 - フェーズ設計メモは `docs/dev/`、現行の参照説明は `README` と `docs/spec/` に寄せる

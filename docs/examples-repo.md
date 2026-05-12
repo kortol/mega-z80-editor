@@ -9,14 +9,13 @@
 
 ## What Stays In Main Repo
 
-- `packages/cli/examples/`
-  - package に密着した小さな smoke fixture
 - `packages/cli/tests/`
   - 再現性を重視する自動テスト fixture
 
 ## What Moves Out
 
 - `hello/`, `hello-msx/`, `bbcbasic-z80/`
+- `cli/include-smoke/`, `cli/linktest/`
 - `p1-c/`, `p1-d/`, `z80test/`, `cpm2-asm/`
 - imported corpus や手動検証用の大きいサンプル群
 

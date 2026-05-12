@@ -1,6 +1,0 @@
-    ORG 0100H
-    EXTERN EXTVAL
-ZERO  EQU 0
-START: LD A,(EXTVAL)
-       JP ZERO
-       END

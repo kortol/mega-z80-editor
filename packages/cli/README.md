@@ -26,7 +26,6 @@ packages/cli/
 |  |- io/             # I/O bus abstractions
 |  |- devices/        # debugger device implementations
 |  `- sourcemap/      # source map model
-|- examples/          # package-local smoke examples
 |- docs/              # package-local notes
 `- tools/             # build/test helper scripts
 ```
@@ -74,3 +73,4 @@ link:
 - RPC デバッグや source map 関連は `src/debugger/` と `src/dap/` にあります
 - package ローカル docs の入口は [docs/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/README.md) です
 - 互換メモは [docs/peg-compat-cases.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/peg-compat-cases.md) を参照してください
+- smoke fixture や link 用サンプルは `../mega-z80-examples/cli/` を既定参照します
