@@ -1,9 +1,29 @@
 {
-  "name": "mz80-vscode-ext",
-  "displayName": "MegaZ80Editor",
+  "name": "z80-assembler-language",
+  "displayName": "Z80 Assembler Language",
   "version": "0.0.0",
-  "private": true,
+  "private": false,
   "publisher": "mz80",
+  "description": "Z80 assembler language support with syntax highlighting, diagnostics, semantic tokens, and integrated debugging.",
+  "categories": [
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "keywords": [
+    "z80",
+    "assembler",
+    "assembly",
+    "debugger",
+    "language-server"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kortol/mega-z80-editor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kortol/mega-z80-editor/issues"
+  },
+  "homepage": "https://github.com/kortol/mega-z80-editor",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -21,6 +41,13 @@
         "aliases": ["Z80 Assembly", "z80-asm", "asm"],
         "extensions": [".asm"],
         "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "z80-asm",
+        "scopeName": "source.z80-asm",
+        "path": "./syntaxes/z80-asm.tmLanguage.json"
       }
     ],
     "breakpoints": [
@@ -122,7 +149,7 @@
             "name": "MZ80 Launch (BBC BASIC)",
             "type": "mz80-dap",
             "request": "launch",
-            "program": "${workspaceFolder}/examples/bbcbasic-z80/bbcbasic-as.com",
+            "program": "${workspaceFolder}/../mega-z80-examples/bbcbasic-z80/bbcbasic-as.com",
             "cpm": true,
             "cpmInteractive": true,
             "rpcListen": "127.0.0.1:4700"
@@ -148,14 +175,24 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "vscode:prepublish": "pnpm run build",
+    "build:grammar": "node tools/generate-textmate-grammar.js",
+    "build:runtimes": "pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && node tools/copy-runtime.js",
+    "build": "pnpm run build:grammar && pnpm run build:runtimes && tsc -p tsconfig.json",
+    "package:vsix": "vsce package --no-dependencies --skip-license"
   },
   "devDependencies": {
+    "@vscode/vsce": "^3.6.2",
     "typescript": "^5.9.2",
     "@types/node": "^20.14.11",
     "@types/vscode": "^1.90.0"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "commander": "^12.1.0",
+    "pino": "^10.1.0",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12",
+    "yaml": "^2.6.0"
   }
 }

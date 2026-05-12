@@ -1,6 +1,0 @@
-﻿target: msx1
-mode: standard   # standard / extended
-entry: src/main.asm
-rom:
-  size: 32768
-  mapper: ASCII8

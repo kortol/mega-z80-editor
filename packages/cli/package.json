@@ -1,7 +1,31 @@
 {
   "name": "@mz80/cli",
   "version": "0.0.0",
-  "private": true,
+  "private": false,
+  "description": "CLI for the Mega Z80 assembler, linker, debugger, and DAP bridge.",
+  "keywords": [
+    "z80",
+    "assembler",
+    "linker",
+    "debugger",
+    "dap"
+  ],
+  "homepage": "https://github.com/kortol/mega-z80-editor",
+  "bugs": {
+    "url": "https://github.com/kortol/mega-z80-editor/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kortol/mega-z80-editor.git",
+    "directory": "packages/cli"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "mz80": "dist/index.js"
   },

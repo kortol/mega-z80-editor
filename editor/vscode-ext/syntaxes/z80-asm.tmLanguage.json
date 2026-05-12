@@ -1,0 +1,153 @@
+{
+  "scopeName": "source.z80-asm",
+  "name": "Z80 Assembly",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#label"
+    },
+    {
+      "include": "#directive"
+    },
+    {
+      "include": "#instruction"
+    },
+    {
+      "include": "#register"
+    },
+    {
+      "include": "#condition"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#operator"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.semicolon.z80-asm",
+          "match": ";.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.z80-asm",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.z80-asm",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.z80-asm",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.z80-asm",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "label": {
+      "patterns": [
+        {
+          "name": "entity.name.label.z80-asm",
+          "match": "(?i)^\\s*([.@]?[A-Z_@][A-Z0-9_@.]*)\\s*:"
+        },
+        {
+          "name": "entity.name.label.z80-asm",
+          "match": "(?i)^\\s*([.@]?[A-Z_@][A-Z0-9_@.]*)\\b(?=\\s+(?:EQU|DEFL|:=)\\b)"
+        }
+      ]
+    },
+    "directive": {
+      "patterns": [
+        {
+          "name": "keyword.control.directive.z80-asm",
+          "match": "(?i)(?:\\bLOCALMACRO\\b|\\bEXTERNAL\\b|(?<![A-Za-z0-9_])\\.SYMLEN\\b|(?<![A-Za-z0-9_])\\.WORD32\\b|\\bINCLUDE\\b|\\bINCPATH\\b|\\bSECTION\\b|\\bSEGMENT\\b|\\bCOMMON\\b|\\bELSEIF\\b|\\bEXTERN\\b|\\bGLOBAL\\b|\\bIFNDEF\\b|\\bPUBLIC\\b|\\bREPEAT\\b|\\bALIGN\\b|\\bENDIF\\b|\\bEXITM\\b|\\bIFDEF\\b|\\bIFDIF\\b|\\bIFIDN\\b|\\bLOCAL\\b|\\bMACRO\\b|\\bTITLE\\b|\\bWHILE\\b|\\bASEG\\b|\\bCSEG\\b|\\bDEFB\\b|\\bDEFL\\b|\\bDEFM\\b|\\bDEFS\\b|\\bDEFW\\b|\\bDSEG\\b|\\bELSE\\b|\\bENDM\\b|\\bENDR\\b|\\bENDW\\b|\\bIFNB\\b|\\bIRPC\\b|\\bLIST\\b|\\bPAGE\\b|\\bREPT\\b|\\bEND\\b|\\bEQU\\b|\\bEXT\\b|\\bIFB\\b|\\bIRP\\b|\\bORG\\b|\\bSET\\b|\\bDB\\b|\\bDC\\b|\\bDS\\b|\\bDW\\b|\\bDZ\\b|\\bIF\\b)"
+        }
+      ]
+    },
+    "instruction": {
+      "patterns": [
+        {
+          "name": "keyword.control.instruction.z80-asm",
+          "match": "(?i)(?:\\bMULTU\\b|\\bMULTW\\b|\\bMULUB\\b|\\bMULUW\\b|\\bOTDMR\\b|\\bOTIMR\\b|\\bTSTIO\\b|\\bCALL\\b|\\bCPDR\\b|\\bCPIR\\b|\\bDIVU\\b|\\bDJNZ\\b|\\bHALT\\b|\\bINDR\\b|\\bINIR\\b|\\bLDDR\\b|\\bLDIR\\b|\\bLDUP\\b|\\bLOUD\\b|\\bMULT\\b|\\bOTDM\\b|\\bOTDR\\b|\\bOTIM\\b|\\bOTIR\\b|\\bOUT0\\b|\\bOUTD\\b|\\bOUTI\\b|\\bOUTO\\b|\\bPUSH\\b|\\bRETI\\b|\\bRETN\\b|\\bRLCA\\b|\\bRRCA\\b|\\bADC\\b|\\bADD\\b|\\bAND\\b|\\bBIT\\b|\\bCCF\\b|\\bCPD\\b|\\bCPI\\b|\\bCPL\\b|\\bDAA\\b|\\bDEC\\b|\\bDIV\\b|\\bEXX\\b|\\bIN0\\b|\\bINC\\b|\\bIND\\b|\\bINI\\b|\\bINO\\b|\\bJAF\\b|\\bJAR\\b|\\bLDD\\b|\\bLDI\\b|\\bMLT\\b|\\bNEG\\b|\\bNOP\\b|\\bOUT\\b|\\bPOP\\b|\\bRES\\b|\\bRET\\b|\\bRLA\\b|\\bRLC\\b|\\bRLD\\b|\\bRRA\\b|\\bRRC\\b|\\bRRD\\b|\\bRST\\b|\\bSBC\\b|\\bSCF\\b|\\bSET\\b|\\bSLA\\b|\\bSLL\\b|\\bSLP\\b|\\bSRA\\b|\\bSRL\\b|\\bSUB\\b|\\bTST\\b|\\bXOR\\b|\\bCP\\b|\\bDI\\b|\\bEI\\b|\\bEX\\b|\\bIM\\b|\\bIN\\b|\\bJP\\b|\\bJR\\b|\\bLD\\b|\\bOR\\b|\\bRL\\b|\\bRR\\b)"
+        }
+      ]
+    },
+    "register": {
+      "patterns": [
+        {
+          "name": "variable.language.register.z80-asm",
+          "match": "(?i)\\b(?:A|B|C|D|E|F|H|L|AF|BC|DE|HL|IX|IY|SP|PC|I|R|IXH|IXL|IYH|IYL)\\b"
+        }
+      ]
+    },
+    "condition": {
+      "patterns": [
+        {
+          "name": "constant.language.condition.z80-asm",
+          "match": "(?i)\\b(?:NZ|Z|NC|C|PO|PE|P|M)\\b"
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.z80-asm",
+          "match": "(?i)\\b(?:0X[0-9A-F]+|[0-9][0-9A-F]*H)\\b"
+        },
+        {
+          "name": "constant.numeric.binary.z80-asm",
+          "match": "(?i)\\b(?:[01]+B|0B[01]+)\\b"
+        },
+        {
+          "name": "constant.numeric.octal.z80-asm",
+          "match": "(?i)\\b(?:[0-7]+O|[0-7]+Q)\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.z80-asm",
+          "match": "\\b\\d+\\b"
+        },
+        {
+          "name": "constant.language.current-address.z80-asm",
+          "match": "\\$"
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.expression.z80-asm",
+          "match": "<<|>>|:=|[+\\-*/%&|^~]"
+        },
+        {
+          "name": "punctuation.separator.arguments.z80-asm",
+          "match": ","
+        },
+        {
+          "name": "punctuation.section.parens.z80-asm",
+          "match": "[()\\[\\]]"
+        }
+      ]
+    }
+  }
+}

@@ -12,8 +12,8 @@
   - CLI package の利用方法と内部構成
 - [../packages/cli/docs/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/README.md)
   - package ローカル docs の入口
-- [../examples/README.md](C:/Workspace/work/mega-z80-editor/examples/README.md)
-  - examples の用途別区分
+- [examples-repo.md](C:/Workspace/work/mega-z80-editor/docs/examples-repo.md)
+  - examples を別 repo として扱う方針と参照方法
 - [../editor/README.md](C:/Workspace/work/mega-z80-editor/editor/README.md)
   - editor 配下の現役/実験コンポーネントの整理
 

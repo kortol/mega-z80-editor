@@ -5,7 +5,7 @@
       "name": "MZ80 Launch (BBC BASIC)",
       "type": "mz80-dap",
       "request": "launch",
-      "program": "${workspaceFolder}/examples/bbcbasic-z80/bbcbasic-as.com",
+      "program": "${workspaceFolder}/../mega-z80-examples/bbcbasic-z80/bbcbasic-as.com",
       "rpcListen": "127.0.0.1:4700"
     },
     {
