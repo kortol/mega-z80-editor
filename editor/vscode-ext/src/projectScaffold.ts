@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { synthesizeProjectClean } from "./cleanPatterns";
 import { Mz80ProjectFile } from "./projectConfig";
 
 export function generateProjectFromFolders(workspaceRoot: string, existing?: Mz80ProjectFile): Mz80ProjectFile {
@@ -20,7 +21,7 @@ export function generateProjectFromFolders(workspaceRoot: string, existing?: Mz8
   const targetName = sanitizeTargetName(workspaceName);
   const outputExt = "com";
 
-  return {
+  const project: Mz80ProjectFile = {
     ...(existing ?? {}),
     version: 1,
     project: {
@@ -54,6 +55,13 @@ export function generateProjectFromFolders(workspaceRoot: string, existing?: Mz8
       },
     },
   };
+
+  project.project = {
+    ...(project.project ?? {}),
+    clean: synthesizeProjectClean(project),
+  };
+
+  return project;
 }
 
 function sanitizeTargetName(name: string): string {

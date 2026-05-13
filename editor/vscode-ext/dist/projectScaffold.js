@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateProjectFromFolders = generateProjectFromFolders;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const cleanPatterns_1 = require("./cleanPatterns");
 function generateProjectFromFolders(workspaceRoot, existing) {
     const srcDir = path.join(workspaceRoot, "src");
     if (!fs.existsSync(srcDir) || !fs.statSync(srcDir).isDirectory()) {
@@ -50,7 +51,7 @@ function generateProjectFromFolders(workspaceRoot, existing) {
     const workspaceName = path.basename(workspaceRoot);
     const targetName = sanitizeTargetName(workspaceName);
     const outputExt = "com";
-    return {
+    const project = {
         ...(existing ?? {}),
         version: 1,
         project: {
@@ -84,6 +85,11 @@ function generateProjectFromFolders(workspaceRoot, existing) {
             },
         },
     };
+    project.project = {
+        ...(project.project ?? {}),
+        clean: (0, cleanPatterns_1.synthesizeProjectClean)(project),
+    };
+    return project;
 }
 function sanitizeTargetName(name) {
     const cleaned = name.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");

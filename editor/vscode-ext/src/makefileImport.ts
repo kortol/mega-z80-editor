@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { synthesizeProjectClean } from "./cleanPatterns";
 import { Mz80AsOptions, Mz80CleanOptions, Mz80LinkOptions, Mz80ProjectFile, Mz80TargetConfig } from "./projectConfig";
 
 type ParsedMakeRule = {
@@ -114,9 +115,12 @@ export function importProjectFromSimpleMakefile(workspaceRoot: string, baseConfi
     project: {
       ...(baseConfig?.project ?? {}),
       defaultTarget,
-      clean: detectCleanRule(rules) ?? baseConfig?.project?.clean,
     },
     targets,
+  };
+  merged.project = {
+    ...(merged.project ?? {}),
+    clean: synthesizeProjectClean(merged) ?? detectCleanRule(rules) ?? baseConfig?.project?.clean,
   };
   return { config: merged, makefilePath };
 }

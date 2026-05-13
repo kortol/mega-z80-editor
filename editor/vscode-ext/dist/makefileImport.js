@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.importProjectFromSimpleMakefile = importProjectFromSimpleMakefile;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const cleanPatterns_1 = require("./cleanPatterns");
 const MAKEFILE_NAMES = ["Makefile", "makefile", "GNUmakefile"];
 function importProjectFromSimpleMakefile(workspaceRoot, baseConfig) {
     const makefilePath = findMakefilePath(workspaceRoot);
@@ -116,9 +117,12 @@ function importProjectFromSimpleMakefile(workspaceRoot, baseConfig) {
         project: {
             ...(baseConfig?.project ?? {}),
             defaultTarget,
-            clean: detectCleanRule(rules) ?? baseConfig?.project?.clean,
         },
         targets,
+    };
+    merged.project = {
+        ...(merged.project ?? {}),
+        clean: (0, cleanPatterns_1.synthesizeProjectClean)(merged) ?? detectCleanRule(rules) ?? baseConfig?.project?.clean,
     };
     return { config: merged, makefilePath };
 }
