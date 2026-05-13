@@ -34,6 +34,9 @@
   "activationEvents": [
     "onLanguage:z80-asm",
     "onCommand:mz80.runMake",
+    "onCommand:mz80.generateProjectFromMakefile",
+    "onCommand:mz80.generateProjectFromFolders",
+    "onCommand:mz80.generateLaunchJsonFromProject",
     "onDebugInitialConfigurations",
     "onDebugResolve:mz80-dap"
   ],
@@ -73,7 +76,19 @@
     "commands": [
       {
         "command": "mz80.runMake",
-        "title": "mz80: Run Make"
+        "title": "mz80: Build Default Target"
+      },
+      {
+        "command": "mz80.generateProjectFromMakefile",
+        "title": "mz80: Generate Project From Makefile"
+      },
+      {
+        "command": "mz80.generateProjectFromFolders",
+        "title": "mz80: Generate Project With Folders"
+      },
+      {
+        "command": "mz80.generateLaunchJsonFromProject",
+        "title": "mz80: Generate launch.json From Project"
       }
     ],
     "debuggers": [
@@ -83,8 +98,11 @@
         "languages": ["z80-asm", "asm", "plaintext", "z80", "z80asm"],
         "configurationAttributes": {
           "launch": {
-            "required": ["program"],
             "properties": {
+              "target": {
+                "type": "string",
+                "description": "Target name from mz80.yaml. If set, program/sym/smap are resolved from the project."
+              },
               "program": {
                 "type": "string",
                 "description": "Path to target binary (.com/.bin)"
@@ -152,10 +170,7 @@
             "name": "MZ80 Launch (BBC BASIC)",
             "type": "mz80-dap",
             "request": "launch",
-            "program": "${workspaceFolder}/../mega-z80-examples/bbcbasic-z80/bbcbasic-as.com",
-            "cpm": true,
-            "cpmInteractive": true,
-            "rpcListen": "127.0.0.1:4700"
+            "target": "default"
           },
           {
             "name": "MZ80 Attach (RPC 4700)",
@@ -182,7 +197,7 @@
     "build:grammar": "node tools/generate-textmate-grammar.js",
     "build:runtimes": "node tools/copy-runtime.js",
     "build:full": "pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && pnpm run build",
-    "build": "pnpm run build:grammar && pnpm run build:runtimes && tsc -p tsconfig.json",
+    "build": "pnpm run build:grammar && pnpm run build:runtimes && pnpm exec tsc -p tsconfig.json",
     "package:vsix": "vsce package --no-dependencies --skip-license"
   },
   "devDependencies": {

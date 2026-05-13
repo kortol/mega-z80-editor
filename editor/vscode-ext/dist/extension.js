@@ -39,13 +39,51 @@ const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const node_1 = require("vscode-languageclient/node");
+const makefileImport_1 = require("./makefileImport");
+const projectBuild_1 = require("./projectBuild");
+const projectLaunch_1 = require("./projectLaunch");
+const projectScaffold_1 = require("./projectScaffold");
+const projectConfig_1 = require("./projectConfig");
 let client;
 let dapOutput;
+let buildOutput;
 function findWorkspaceRoot() {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0)
         return undefined;
     return folders[0].uri.fsPath;
+}
+function findCurrentProjectRoot() {
+    const activeDoc = vscode.window.activeTextEditor?.document;
+    if (activeDoc?.uri.scheme === "file") {
+        const folder = vscode.workspace.getWorkspaceFolder(activeDoc.uri);
+        if (folder) {
+            const workspaceRoot = folder.uri.fsPath;
+            let current = path.dirname(activeDoc.uri.fsPath);
+            while (current.startsWith(workspaceRoot)) {
+                if (looksLikeProjectRoot(current))
+                    return current;
+                if (current === workspaceRoot)
+                    break;
+                const parent = path.dirname(current);
+                if (parent === current)
+                    break;
+                current = parent;
+            }
+            return workspaceRoot;
+        }
+    }
+    return findWorkspaceRoot();
+}
+function looksLikeProjectRoot(dir) {
+    if (fs.existsSync(path.join(dir, "src")) && fs.statSync(path.join(dir, "src")).isDirectory()) {
+        return true;
+    }
+    for (const name of ["mz80.yaml", "Makefile", "makefile", "GNUmakefile"]) {
+        if (fs.existsSync(path.join(dir, name)))
+            return true;
+    }
+    return false;
 }
 function resolveBundledCliEntryPath(context) {
     return path.join(context.extensionPath, "server", "packages", "cli", "dist", "index.js");
@@ -69,7 +107,6 @@ function resolveCliEntryPath(cfg, context) {
         if (fs.existsSync(fromWorkspace))
             return fromWorkspace;
     }
-    // fallback for extension development from repository layout
     return path.resolve(context.extensionPath, "..", "..", "packages", "cli", "dist", "index.js");
 }
 function guessSidecarFile(programPath, ext) {
@@ -87,12 +124,13 @@ function asRecord(v) {
 function activate(context) {
     dapOutput = vscode.window.createOutputChannel("MZ80 Debug");
     context.subscriptions.push(dapOutput);
+    buildOutput = vscode.window.createOutputChannel("MZ80 Build");
+    context.subscriptions.push(buildOutput);
     logDap("[ext] activate");
     const activeDoc = vscode.window.activeTextEditor?.document;
     if (activeDoc) {
         logDap(`[editor] active file=${activeDoc.uri.fsPath} lang=${activeDoc.languageId}`);
     }
-    // === LSPサーバ設定 ===
     const serverModule = resolveBundledLspEntryPath(context);
     const serverOptions = {
         run: { module: serverModule, transport: node_1.TransportKind.stdio },
@@ -104,18 +142,23 @@ function activate(context) {
     };
     const clientOptions = {
         documentSelector: [{ scheme: "file", language: "z80-asm" }],
-        outputChannelName: "MZ80 Language Server", // 👈 独自ログチャンネル
+        outputChannelName: "MZ80 Language Server",
     };
     client = new node_1.LanguageClient("mz80Lsp", "MZ80 LSP", serverOptions, clientOptions);
-    // === LSPクライアント開始 ===
     client.start();
-    // `client` 自体は Disposable を実装しているので push 可能
     context.subscriptions.push(client);
-    // === コマンド登録 ===
     context.subscriptions.push(vscode.commands.registerCommand("mz80.runMake", () => {
-        vscode.window.showInformationMessage("mz80: Run Make (P0 stub)");
+        void buildDefaultTarget(context);
     }));
-    // === DAP設定 ===
+    context.subscriptions.push(vscode.commands.registerCommand("mz80.generateProjectFromMakefile", () => {
+        void generateProjectFromMakefile();
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand("mz80.generateProjectFromFolders", () => {
+        void generateProjectFromFolders();
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand("mz80.generateLaunchJsonFromProject", () => {
+        void generateLaunchJsonFromProject();
+    }));
     const configProvider = {
         resolveDebugConfiguration(_folder, config) {
             const active = vscode.window.activeTextEditor;
@@ -131,25 +174,33 @@ function activate(context) {
                 return config;
             config.request = config.request ?? "launch";
             config.cliEntry = resolveCliEntryPath(config, context);
-            config.cwd = config.cwd ?? findWorkspaceRoot();
+            config.cwd = config.cwd ?? findCurrentProjectRoot();
             if (!fs.existsSync(config.cliEntry)) {
                 void vscode.window.showErrorMessage(`mz80 cli not found: ${config.cliEntry}`);
                 logDap(`[config] cli missing: ${config.cliEntry}`);
                 return null;
             }
             if (config.request === "launch") {
+                if ((!config.program || String(config.program).trim().length === 0) && config.cwd) {
+                    applyProjectTargetDefaults(config.cwd, config);
+                }
                 config.rpcListen = config.rpcListen ?? "127.0.0.1:4700";
-                if (!config.program || String(config.program).trim().length === 0) {
+                if ((!config.program || String(config.program).trim().length === 0) && !config.target) {
                     void vscode.window.showErrorMessage("mz80 launch requires `program` (.com/.bin path).");
                     logDap("[config] launch rejected: missing program");
                     return null;
                 }
-                if (/\.com$/i.test(config.program)) {
+                const launchProgram = typeof config.program === "string" && config.program.trim().length > 0
+                    ? config.program
+                    : undefined;
+                if (launchProgram && /\.com$/i.test(launchProgram)) {
                     config.cpm = config.cpm ?? true;
                     config.cpmInteractive = config.cpmInteractive ?? true;
                 }
-                config.smap = config.smap ?? guessSidecarFile(config.program, ".smap");
-                config.sym = config.sym ?? guessSidecarFile(config.program, ".sym");
+                if (launchProgram) {
+                    config.smap = config.smap ?? guessSidecarFile(launchProgram, ".smap");
+                    config.sym = config.sym ?? guessSidecarFile(launchProgram, ".sym");
+                }
                 logDap(`[config] launch program=${config.program} smap=${config.smap ?? "(none)"} sym=${config.sym ?? "(none)"} rpcListen=${config.rpcListen} cpm=${config.cpm ? "on" : "off"} cpmInteractive=${config.cpmInteractive ? "on" : "off"}`);
             }
             else if (config.request === "attach") {
@@ -164,11 +215,20 @@ function activate(context) {
             return config;
         },
         resolveDebugConfigurationWithSubstitutedVariables(_folder, config) {
-            // Ensure sidecar auto-detection still works after ${workspaceFolder} substitution.
-            if (config.type === "mz80-dap" && config.request === "launch" && typeof config.program === "string") {
-                config.smap = config.smap ?? guessSidecarFile(config.program, ".smap");
-                config.sym = config.sym ?? guessSidecarFile(config.program, ".sym");
-                logDap(`[config/subst] program=${config.program} smap=${config.smap ?? "(none)"} sym=${config.sym ?? "(none)"}`);
+            if (config.type === "mz80-dap" && config.request === "launch") {
+                if ((!config.program || String(config.program).trim().length === 0) && config.cwd) {
+                    applyProjectTargetDefaults(config.cwd, config);
+                }
+                if (!config.program || String(config.program).trim().length === 0) {
+                    void vscode.window.showErrorMessage("mz80 launch requires `program` (.com/.bin path).");
+                    logDap("[config/subst] launch rejected: missing program");
+                    return null;
+                }
+                if (typeof config.program === "string" && config.program.trim().length > 0) {
+                    config.smap = config.smap ?? guessSidecarFile(config.program, ".smap");
+                    config.sym = config.sym ?? guessSidecarFile(config.program, ".sym");
+                    logDap(`[config/subst] program=${config.program} smap=${config.smap ?? "(none)"} sym=${config.sym ?? "(none)"}`);
+                }
             }
             return config;
         },
@@ -183,8 +243,8 @@ function activate(context) {
                 logDap(`[descriptor] cli missing: ${cliEntry}`);
                 return undefined;
             }
-            logDap(`[descriptor] start adapter runtime=node cli=${cliEntry} cwd=${cfg.cwd ?? findWorkspaceRoot()}`);
-            return new vscode.DebugAdapterExecutable("node", [cliEntry, "dap"], { cwd: cfg.cwd ?? findWorkspaceRoot() });
+            logDap(`[descriptor] start adapter runtime=node cli=${cliEntry} cwd=${cfg.cwd ?? findCurrentProjectRoot()}`);
+            return new vscode.DebugAdapterExecutable("node", [cliEntry, "dap"], { cwd: cfg.cwd ?? findCurrentProjectRoot() });
         },
     };
     context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory("mz80-dap", descriptorFactory));
@@ -251,4 +311,152 @@ function deactivate() {
         return undefined;
     }
     return client.stop();
+}
+function applyProjectTargetDefaults(workspaceRoot, config) {
+    const project = (0, projectConfig_1.loadProjectFile)(workspaceRoot);
+    const targetName = (0, projectConfig_1.resolveTargetName)(project, config.target);
+    if (!project || !targetName)
+        return;
+    const target = (0, projectConfig_1.resolveTarget)(workspaceRoot, project, targetName);
+    if (!target)
+        return;
+    const launch = (0, projectBuild_1.toLaunchConfiguration)(target);
+    config.target = config.target ?? targetName;
+    config.program = config.program ?? launch.program;
+    config.sym = config.sym ?? launch.sym;
+    config.smap = config.smap ?? launch.smap;
+    config.base = config.base ?? launch.base;
+    config.cpm = config.cpm ?? launch.cpm;
+    config.cpmInteractive = config.cpmInteractive ?? launch.cpmInteractive;
+    config.rpcListen = config.rpcListen ?? launch.rpcListen;
+    logDap(`[project] target=${targetName} program=${config.program}`);
+}
+async function buildDefaultTarget(context) {
+    const workspaceRoot = findCurrentProjectRoot();
+    if (!workspaceRoot) {
+        void vscode.window.showErrorMessage("Open a workspace folder first.");
+        return;
+    }
+    let project = (0, projectConfig_1.loadProjectFile)(workspaceRoot);
+    if (!project || (0, projectConfig_1.listTargetNames)(project).length === 0) {
+        const imported = await maybeGenerateProject(workspaceRoot);
+        if (!imported)
+            return;
+        project = imported;
+    }
+    const targetName = await pickTargetName(project);
+    if (!targetName)
+        return;
+    const target = (0, projectConfig_1.resolveTarget)(workspaceRoot, project, targetName);
+    if (!target) {
+        void vscode.window.showErrorMessage(`Unknown target: ${targetName}`);
+        return;
+    }
+    const cliEntry = resolveCliEntryPath({ type: "mz80-dap", name: "mz80 build", request: "launch" }, context);
+    if (!fs.existsSync(cliEntry)) {
+        void vscode.window.showErrorMessage(`mz80 cli not found: ${cliEntry}`);
+        return;
+    }
+    buildOutput?.show(true);
+    buildOutput?.appendLine(`[build] target=${targetName}`);
+    try {
+        await (0, projectBuild_1.buildTarget)(target, {
+            workspaceRoot,
+            cliEntry,
+            output: buildOutput,
+        });
+        void vscode.window.showInformationMessage(`mz80: built target '${targetName}'`);
+    }
+    catch (err) {
+        void vscode.window.showErrorMessage(`mz80 build failed: ${err?.message ?? err}`);
+    }
+}
+async function generateProjectFromMakefile() {
+    const workspaceRoot = findCurrentProjectRoot();
+    if (!workspaceRoot) {
+        void vscode.window.showErrorMessage("Open a workspace folder first.");
+        return;
+    }
+    try {
+        const existing = (0, projectConfig_1.loadProjectFile)(workspaceRoot);
+        const imported = (0, makefileImport_1.importProjectFromSimpleMakefile)(workspaceRoot, existing);
+        (0, projectConfig_1.saveProjectFile)(workspaceRoot, imported.config);
+        const doc = await vscode.workspace.openTextDocument((0, projectConfig_1.getProjectConfigPath)(workspaceRoot));
+        await vscode.window.showTextDocument(doc);
+        void vscode.window.showInformationMessage(`Generated ${projectConfig_1.PROJECT_CONFIG_FILE} from ${path.basename(imported.makefilePath)}`);
+    }
+    catch (err) {
+        void vscode.window.showErrorMessage(`mz80 project import failed: ${err?.message ?? err}`);
+    }
+}
+async function generateProjectFromFolders() {
+    const workspaceRoot = findCurrentProjectRoot();
+    if (!workspaceRoot) {
+        void vscode.window.showErrorMessage("Open a workspace folder first.");
+        return;
+    }
+    try {
+        const existing = (0, projectConfig_1.loadProjectFile)(workspaceRoot);
+        const project = (0, projectScaffold_1.generateProjectFromFolders)(workspaceRoot, existing);
+        (0, projectConfig_1.saveProjectFile)(workspaceRoot, project);
+        const doc = await vscode.workspace.openTextDocument((0, projectConfig_1.getProjectConfigPath)(workspaceRoot));
+        await vscode.window.showTextDocument(doc);
+        void vscode.window.showInformationMessage(`Generated ${projectConfig_1.PROJECT_CONFIG_FILE} from src/ and build/ folder conventions`);
+    }
+    catch (err) {
+        void vscode.window.showErrorMessage(`mz80 project scaffold failed: ${err?.message ?? err}`);
+    }
+}
+async function generateLaunchJsonFromProject() {
+    const projectRoot = findCurrentProjectRoot();
+    const workspaceRoot = findWorkspaceRoot();
+    if (!projectRoot || !workspaceRoot) {
+        void vscode.window.showErrorMessage("Open a workspace folder first.");
+        return;
+    }
+    const project = (0, projectConfig_1.loadProjectFile)(projectRoot);
+    if (!project || (0, projectConfig_1.listTargetNames)(project).length === 0) {
+        void vscode.window.showErrorMessage(`No targets found in ${projectConfig_1.PROJECT_CONFIG_FILE}.`);
+        return;
+    }
+    try {
+        const launchJson = (0, projectLaunch_1.generateLaunchJson)(workspaceRoot, projectRoot, project);
+        const launchPath = await (0, projectLaunch_1.writeLaunchJson)(workspaceRoot, launchJson);
+        const doc = await vscode.workspace.openTextDocument(launchPath);
+        await vscode.window.showTextDocument(doc);
+        void vscode.window.showInformationMessage(`Generated ${path.relative(workspaceRoot, launchPath)} from ${projectConfig_1.PROJECT_CONFIG_FILE}`);
+    }
+    catch (err) {
+        void vscode.window.showErrorMessage(`mz80 launch.json generation failed: ${err?.message ?? err}`);
+    }
+}
+async function maybeGenerateProject(workspaceRoot) {
+    const choice = await vscode.window.showInformationMessage(`No ${projectConfig_1.PROJECT_CONFIG_FILE} target configuration was found. Generate it from a simple Makefile?`, "Generate", "Cancel");
+    if (choice !== "Generate")
+        return undefined;
+    try {
+        const existing = (0, projectConfig_1.loadProjectFile)(workspaceRoot);
+        const imported = (0, makefileImport_1.importProjectFromSimpleMakefile)(workspaceRoot, existing);
+        (0, projectConfig_1.saveProjectFile)(workspaceRoot, imported.config);
+        const doc = await vscode.workspace.openTextDocument((0, projectConfig_1.getProjectConfigPath)(workspaceRoot));
+        await vscode.window.showTextDocument(doc);
+        return imported.config;
+    }
+    catch (err) {
+        void vscode.window.showErrorMessage(`mz80 project import failed: ${err?.message ?? err}`);
+        return undefined;
+    }
+}
+async function pickTargetName(project) {
+    const names = (0, projectConfig_1.listTargetNames)(project);
+    if (names.length === 0)
+        return undefined;
+    if (names.length === 1)
+        return names[0];
+    const defaultTarget = (0, projectConfig_1.resolveTargetName)(project);
+    const picked = await vscode.window.showQuickPick(names.map((name) => ({
+        label: name,
+        description: name === defaultTarget ? "default" : "",
+    })), { placeHolder: "Select mz80 target" });
+    return picked?.label;
 }

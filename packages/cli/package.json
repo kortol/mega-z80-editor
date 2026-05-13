@@ -31,7 +31,7 @@
     "mz80": "dist/index.js"
   },
   "scripts": {
-    "build": "pnpm run clean:dist && pnpm run build:parser && tsc -p tsconfig.build.json && node tools/copy-parser.js",
+    "build": "pnpm run clean:dist && pnpm run build:parser && pnpm exec tsc -p tsconfig.build.json && node tools/copy-parser.js",
     "clean:dist": "node tools/clean-dist.js",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js --help",
@@ -39,7 +39,7 @@
     "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "test": "set USERPROFILE=%CD%&& set HOMEPATH=%CD%&& set HOME=%CD%&& jest --runInBand",
     "gen:mnemonics": "ts-node tools/gen-peggy-mnemonics.ts",
-    "build:parser": "npx peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs",
+    "build:parser": "pnpm exec peggy -o src/assembler/parser/gen/z80_assembler.js src/assembler/grammar/z80_assembler.pegjs",
     "build:exe": "pnpm run build && pkg dist/index.js --targets node18-win-x64 --output dist-exe/mz80.exe"
   },
   "dependencies": {

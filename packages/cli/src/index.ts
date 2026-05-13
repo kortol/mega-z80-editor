@@ -4,32 +4,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "yaml";
 import { createLogger } from "./logger";
-
-type Mz80Config = {
-  as?: {
-    relVersion?: number | string;
-    sym?: boolean;
-    lst?: boolean;
-    smap?: boolean;
-    symLen?: number | string;
-    includePaths?: string[];
-    sjasmCompat?: boolean;
-  };
-  link?: {
-    com?: boolean;
-    map?: boolean;
-    sym?: boolean;
-    smap?: boolean;
-    log?: boolean;
-    fullpath?: "off" | "rel" | "on";
-    binFrom?: string | number;
-    binTo?: string | number;
-    orgText?: string | number;
-    orgData?: string | number;
-    orgBss?: string | number;
-    orgCustom?: string | number;
-  };
-};
+import { buildProjectTarget, cleanProject, listProjectTargets, loadProjectConfig, Mz80Config } from "./project";
 
 function loadConfigFile(configPath: string, logger?: ReturnType<typeof createLogger>): Mz80Config {
   try {
@@ -137,6 +112,70 @@ program
   .option("--json", "output JSON instead of human-readable text", false)
   .option("--verbose", "enable verbose logging", false)
   .option("--quiet", "suppress all output", false);
+
+program
+  .command("build [target]")
+  .description("Build target from mz80.yaml project configuration")
+  .option("--list", "list available targets and exit")
+  .option("--verbose", "Show detailed output")
+  .option("--quiet", "Suppress logs")
+  .action((target, opts) => {
+    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
+      ? "quiet"
+      : opts.verbose
+        ? "verbose"
+        : "normal";
+    const logger = createLogger(logLevel);
+    const globalOpts = program.opts();
+    const configPath = path.resolve(process.cwd(), globalOpts.config ?? "mz80.yaml");
+    const cfg = loadConfigFile(configPath, logger);
+
+    if (opts.list) {
+      const names = listProjectTargets(cfg);
+      if (names.length === 0) {
+        console.log("(no targets)");
+      } else {
+        for (const name of names) console.log(name);
+      }
+      return;
+    }
+
+    try {
+      const built = buildProjectTarget(configPath, cfg, target, logger);
+      console.log(`✅ Built target '${built.name}' -> ${built.output}`);
+    } catch (err: any) {
+      console.error(`❌ Build failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("clean")
+  .description("Clean generated files defined in mz80.yaml")
+  .option("--verbose", "Show detailed output")
+  .option("--quiet", "Suppress logs")
+  .action((opts) => {
+    const logLevel: "quiet" | "normal" | "verbose" = opts.quiet
+      ? "quiet"
+      : opts.verbose
+        ? "verbose"
+        : "normal";
+    const logger = createLogger(logLevel);
+    const globalOpts = program.opts();
+    const configPath = path.resolve(process.cwd(), globalOpts.config ?? "mz80.yaml");
+    const cfg = loadConfigFile(configPath, logger);
+
+    try {
+      const removed = cleanProject(configPath, cfg);
+      console.log(`✅ Cleaned ${removed.length} file(s)`);
+      if (opts.verbose && removed.length > 0) {
+        for (const file of removed) console.log(file);
+      }
+    } catch (err: any) {
+      console.error(`❌ Clean failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
 
 program
   .command("check-config")
