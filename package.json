@@ -13,7 +13,9 @@
     "store:prune": "pnpm store prune",
     "dev:cli": "pnpm -C packages/cli run dev",
     "dev:lsp": "pnpm -C editor/lsp run dev",
-    "dev:vscode-ext": "pnpm -C editor/vscode-ext run build"
+    "dev:vscode-ext": "pnpm -C editor/vscode-ext run build",
+    "open:vscode-ext": "pnpm -C editor/vscode-ext run build:full && node -e \"const {spawnSync}=require('node:child_process'); const {resolve}=require('node:path'); const ext=resolve('editor/vscode-ext'); const input=process.argv[1]; const ws=input ? resolve(input) : resolve('.'); const args=['--new-window', '--extensionDevelopmentPath=' + ext, ws]; const r=spawnSync('code', args, {stdio:'inherit', shell:process.platform==='win32'}); process.exit(r.status ?? 1);\"",
+    "open:vscode-ext:examples": "pnpm -C editor/vscode-ext run build:full && node -e \"const {spawnSync}=require('node:child_process'); const {resolve}=require('node:path'); const ext=resolve('editor/vscode-ext'); const ws=resolve('..', 'mega-z80-examples'); const args=['--new-window', '--extensionDevelopmentPath=' + ext, ws]; const r=spawnSync('code', args, {stdio:'inherit', shell:process.platform==='win32'}); process.exit(r.status ?? 1);\""
   },
   "devDependencies": {
     "@mz80/cli": "workspace:*",

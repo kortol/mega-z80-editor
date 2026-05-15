@@ -92,6 +92,7 @@ class MinimalDapAdapter {
     pendingStartReq = null;
     targetProc = null;
     emittedTargetOutputLength = 0;
+    outputPollTimer = null;
     carry = Buffer.alloc(0);
     debugLogEnabled = process.env.MZ80_DAP_LOG !== "0";
     start() {
@@ -358,6 +359,29 @@ class MinimalDapAdapter {
             category: "stdout",
             output: chunk,
         });
+    }
+    startOutputPolling(intervalMs = 50) {
+        if (this.outputPollTimer)
+            return;
+        let polling = false;
+        this.outputPollTimer = setInterval(() => {
+            if (!this.connected || !this.running || polling)
+                return;
+            polling = true;
+            void this.emitTargetOutputIfAny()
+                .catch(() => {
+                // Ignore transient polling failures while the run request is settling.
+            })
+                .finally(() => {
+                polling = false;
+            });
+        }, intervalMs);
+    }
+    stopOutputPolling() {
+        if (!this.outputPollTimer)
+            return;
+        clearInterval(this.outputPollTimer);
+        this.outputPollTimer = null;
     }
     async queueConsoleInput(text, appendCr = false) {
         const res = asObject(await this.rpc("queueConsoleInput", { text, appendCr }));
@@ -726,6 +750,7 @@ class MinimalDapAdapter {
                     if (this.running)
                         return;
                     this.running = true;
+                    this.startOutputPolling();
                     void (async () => {
                         try {
                             const result = asObject(await this.rpc("run", { maxSteps: 100000000 }));
@@ -753,6 +778,7 @@ class MinimalDapAdapter {
                             this.sendEvent("stopped", { reason: "exception", threadId: 1, allThreadsStopped: true, text: msg });
                         }
                         finally {
+                            this.stopOutputPolling();
                             this.running = false;
                         }
                     })();
@@ -794,6 +820,7 @@ class MinimalDapAdapter {
                     this.initializedSent = false;
                     this.pendingStartReq = null;
                     this.emittedTargetOutputLength = 0;
+                    this.stopOutputPolling();
                     this.stopTargetIfRunning();
                     this.sendResponse(req, true);
                     this.sendEvent("terminated");

@@ -20,6 +20,7 @@ import {
   resolveTargetName,
   saveProjectFile,
   type Mz80ProjectFile,
+  type ResolvedTargetConfig,
 } from "./projectConfig";
 
 let client: LanguageClient;
@@ -234,10 +235,10 @@ export function activate(context: vscode.ExtensionContext) {
 
       return config;
     },
-    resolveDebugConfigurationWithSubstitutedVariables(
+    async resolveDebugConfigurationWithSubstitutedVariables(
       _folder: vscode.WorkspaceFolder | undefined,
       config: Mz80DebugConfiguration
-    ): vscode.ProviderResult<vscode.DebugConfiguration> {
+    ): Promise<vscode.DebugConfiguration | null> {
       if (config.type === "mz80-dap" && config.request === "launch") {
         if ((!config.program || String(config.program).trim().length === 0) && config.cwd) {
           applyProjectTargetDefaults(config.cwd, config);
@@ -251,6 +252,10 @@ export function activate(context: vscode.ExtensionContext) {
           config.smap = config.smap ?? guessSidecarFile(config.program, ".smap");
           config.sym = config.sym ?? guessSidecarFile(config.program, ".sym");
           logDap(`[config/subst] program=${config.program} smap=${config.smap ?? "(none)"} sym=${config.sym ?? "(none)"}`);
+        }
+        const ensured = await ensureLaunchTargetBuilt(context, config);
+        if (!ensured) {
+          return null;
         }
       }
       return config;
@@ -372,6 +377,58 @@ function applyProjectTargetDefaults(workspaceRoot: string, config: Mz80DebugConf
   config.cpmInteractive = config.cpmInteractive ?? launch.cpmInteractive;
   config.rpcListen = config.rpcListen ?? launch.rpcListen;
   logDap(`[project] target=${targetName} program=${config.program}`);
+}
+
+function resolveConfiguredTarget(workspaceRoot: string, config: Mz80DebugConfiguration): ResolvedTargetConfig | undefined {
+  const project = loadProjectFile(workspaceRoot);
+  const targetName = resolveTargetName(project, config.target);
+  if (!project || !targetName) return undefined;
+  return resolveTarget(workspaceRoot, project, targetName);
+}
+
+async function ensureLaunchTargetBuilt(
+  context: vscode.ExtensionContext,
+  config: Mz80DebugConfiguration,
+): Promise<boolean> {
+  if (config.request !== "launch" || !config.cwd || !config.target) {
+    return true;
+  }
+
+  const target = resolveConfiguredTarget(config.cwd, config);
+  if (!target) {
+    return true;
+  }
+
+  if (fs.existsSync(target.output)) {
+    return true;
+  }
+
+  const cliEntry = resolveCliEntryPath(config, context);
+  if (!fs.existsSync(cliEntry)) {
+    void vscode.window.showErrorMessage(`mz80 cli not found: ${cliEntry}`);
+    logDap(`[build] cli missing: ${cliEntry}`);
+    return false;
+  }
+
+  buildOutput?.show(true);
+  buildOutput?.appendLine(`[build] target=${target.name} (auto)`);
+
+  try {
+    await buildTarget(target, {
+      workspaceRoot: config.cwd,
+      cliEntry,
+      output: buildOutput!,
+    });
+    config.program = target.output;
+    config.sym = config.sym ?? guessSidecarFile(target.output, ".sym");
+    config.smap = config.smap ?? guessSidecarFile(target.output, ".smap");
+    logDap(`[build] completed target=${target.name} output=${target.output}`);
+    return true;
+  } catch (err: any) {
+    void vscode.window.showErrorMessage(`mz80 build failed: ${err?.message ?? err}`);
+    logDap(`[build] failed target=${target.name}: ${err?.message ?? err}`);
+    return false;
+  }
 }
 
 async function buildDefaultTarget(context: vscode.ExtensionContext): Promise<void> {

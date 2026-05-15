@@ -214,7 +214,7 @@ function activate(context) {
             }
             return config;
         },
-        resolveDebugConfigurationWithSubstitutedVariables(_folder, config) {
+        async resolveDebugConfigurationWithSubstitutedVariables(_folder, config) {
             if (config.type === "mz80-dap" && config.request === "launch") {
                 if ((!config.program || String(config.program).trim().length === 0) && config.cwd) {
                     applyProjectTargetDefaults(config.cwd, config);
@@ -228,6 +228,10 @@ function activate(context) {
                     config.smap = config.smap ?? guessSidecarFile(config.program, ".smap");
                     config.sym = config.sym ?? guessSidecarFile(config.program, ".sym");
                     logDap(`[config/subst] program=${config.program} smap=${config.smap ?? "(none)"} sym=${config.sym ?? "(none)"}`);
+                }
+                const ensured = await ensureLaunchTargetBuilt(context, config);
+                if (!ensured) {
+                    return null;
                 }
             }
             return config;
@@ -330,6 +334,50 @@ function applyProjectTargetDefaults(workspaceRoot, config) {
     config.cpmInteractive = config.cpmInteractive ?? launch.cpmInteractive;
     config.rpcListen = config.rpcListen ?? launch.rpcListen;
     logDap(`[project] target=${targetName} program=${config.program}`);
+}
+function resolveConfiguredTarget(workspaceRoot, config) {
+    const project = (0, projectConfig_1.loadProjectFile)(workspaceRoot);
+    const targetName = (0, projectConfig_1.resolveTargetName)(project, config.target);
+    if (!project || !targetName)
+        return undefined;
+    return (0, projectConfig_1.resolveTarget)(workspaceRoot, project, targetName);
+}
+async function ensureLaunchTargetBuilt(context, config) {
+    if (config.request !== "launch" || !config.cwd || !config.target) {
+        return true;
+    }
+    const target = resolveConfiguredTarget(config.cwd, config);
+    if (!target) {
+        return true;
+    }
+    if (fs.existsSync(target.output)) {
+        return true;
+    }
+    const cliEntry = resolveCliEntryPath(config, context);
+    if (!fs.existsSync(cliEntry)) {
+        void vscode.window.showErrorMessage(`mz80 cli not found: ${cliEntry}`);
+        logDap(`[build] cli missing: ${cliEntry}`);
+        return false;
+    }
+    buildOutput?.show(true);
+    buildOutput?.appendLine(`[build] target=${target.name} (auto)`);
+    try {
+        await (0, projectBuild_1.buildTarget)(target, {
+            workspaceRoot: config.cwd,
+            cliEntry,
+            output: buildOutput,
+        });
+        config.program = target.output;
+        config.sym = config.sym ?? guessSidecarFile(target.output, ".sym");
+        config.smap = config.smap ?? guessSidecarFile(target.output, ".smap");
+        logDap(`[build] completed target=${target.name} output=${target.output}`);
+        return true;
+    }
+    catch (err) {
+        void vscode.window.showErrorMessage(`mz80 build failed: ${err?.message ?? err}`);
+        logDap(`[build] failed target=${target.name}: ${err?.message ?? err}`);
+        return false;
+    }
 }
 async function buildDefaultTarget(context) {
     const workspaceRoot = findCurrentProjectRoot();
