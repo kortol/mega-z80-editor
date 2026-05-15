@@ -10,6 +10,7 @@ import {
 import { importProjectFromSimpleMakefile } from "./makefileImport";
 import { buildTarget, toLaunchConfiguration } from "./projectBuild";
 import { generateLaunchJson, writeLaunchJson } from "./projectLaunch";
+import { cleanProjectOutputs } from "./projectClean";
 import { generateProjectFromFolders as scaffoldProjectFromFolders } from "./projectScaffold";
 import {
   getProjectConfigPath,
@@ -171,6 +172,12 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("mz80.generateLaunchJsonFromProject", () => {
       void generateLaunchJsonFromProject();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("mz80.cleanProject", () => {
+      void cleanProject();
     })
   );
 
@@ -525,6 +532,45 @@ async function generateLaunchJsonFromProject(): Promise<void> {
     void vscode.window.showInformationMessage(`Generated ${path.relative(workspaceRoot, launchPath)} from ${PROJECT_CONFIG_FILE}`);
   } catch (err: any) {
     void vscode.window.showErrorMessage(`mz80 launch.json generation failed: ${err?.message ?? err}`);
+  }
+}
+
+async function cleanProject(): Promise<void> {
+  const projectRoot = findCurrentProjectRoot();
+  if (!projectRoot) {
+    void vscode.window.showErrorMessage("Open a workspace folder first.");
+    return;
+  }
+  const project = loadProjectFile(projectRoot);
+  if (!project) {
+    void vscode.window.showErrorMessage(`No ${PROJECT_CONFIG_FILE} was found.`);
+    return;
+  }
+
+  buildOutput?.show(true);
+  buildOutput?.appendLine(`[clean] project=${projectRoot}`);
+
+  try {
+    const result = cleanProjectOutputs(projectRoot, project);
+    for (const filePath of result.deleted) {
+      buildOutput?.appendLine(`[clean] deleted ${path.relative(projectRoot, filePath)}`);
+    }
+    for (const filePath of result.skippedDirectories) {
+      buildOutput?.appendLine(`[clean] skipped directory ${path.relative(projectRoot, filePath)}`);
+    }
+    for (const filePath of result.skippedOutsideRoot) {
+      buildOutput?.appendLine(`[clean] skipped outside project ${filePath}`);
+    }
+    const deletedCount = result.deleted.length;
+    const missingCount = result.missing.length;
+    const skippedCount = result.skippedDirectories.length + result.skippedOutsideRoot.length;
+    void vscode.window.showInformationMessage(
+      `mz80: cleaned ${deletedCount} file(s)` +
+      (missingCount > 0 ? `, ${missingCount} already missing` : "") +
+      (skippedCount > 0 ? `, ${skippedCount} skipped` : "")
+    );
+  } catch (err: any) {
+    void vscode.window.showErrorMessage(`mz80 clean failed: ${err?.message ?? err}`);
   }
 }
 

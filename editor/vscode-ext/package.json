@@ -34,6 +34,7 @@
   "activationEvents": [
     "onLanguage:z80-asm",
     "onCommand:mz80.runMake",
+    "onCommand:mz80.cleanProject",
     "onCommand:mz80.generateProjectFromMakefile",
     "onCommand:mz80.generateProjectFromFolders",
     "onCommand:mz80.generateLaunchJsonFromProject",
@@ -77,6 +78,10 @@
       {
         "command": "mz80.runMake",
         "title": "mz80: Build Default Target"
+      },
+      {
+        "command": "mz80.cleanProject",
+        "title": "mz80: Clean Project Outputs"
       },
       {
         "command": "mz80.generateProjectFromMakefile",
