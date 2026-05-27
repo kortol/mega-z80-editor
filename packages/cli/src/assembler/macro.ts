@@ -116,6 +116,18 @@ function rewriteTokensForMacro(def: NodeMacroDef, inv: NodeMacroInvoke): Token[]
 
   // 大文字キーで統一（caseInsensitive 環境で安全）
   params.forEach((p, i) => argMap.set(p.name.toUpperCase(), args[i]));
+  const fragmentParams = params
+    .map((p, i) => ({ name: p.name, value: args[i] }))
+    .filter((entry) => entry.name.includes("?"));
+
+  function replaceParamFragments(text: string): string {
+    let out = text;
+    for (const { name, value } of fragmentParams) {
+      const pattern = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+      out = out.replace(pattern, value);
+    }
+    return out;
+  }
 
   // ローカルラベルを一意化（%%xxx）
   const localMap = new Map<string, string>();
@@ -145,7 +157,8 @@ function rewriteTokensForMacro(def: NodeMacroDef, inv: NodeMacroInvoke): Token[]
     if (localMap.has(t.text)) {
       return { ...t, text: localMap.get(t.text)! };
     }
-    return { ...t };
+    const replaced = replaceParamFragments(t.text);
+    return { ...t, text: replaced };
   });
 }
 
@@ -283,6 +296,15 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
     ctx.logger?.debug(`[expandMacros] invoke: ${inv.name} @${inv.pos.file}:${inv.pos.line}`);
     const def = getDefByName(ctx, inv.name);
     if (!def) {
+      const mayResolveAfterInclude = ctx.nodes.some(
+        (candidate) =>
+          candidate.kind === "pseudo" &&
+          String((candidate as any).op).toUpperCase() === "INCLUDE"
+      );
+      if (mayResolveAfterInclude) {
+        out.push(n);
+        continue;
+      }
       ctx.errors.push(
         makeError(AssemblerErrorCode.SyntaxError, `Macro '${inv.name}' is not defined`, { pos: inv.pos })
       );
@@ -341,11 +363,12 @@ export function expandMacros(ctx: AsmContext, depth = 0): void {
       const expanded = trimAtExitm(parse(ctx, cloned));
 
       // 5️⃣ ネストしたマクロを再展開
-      if (expanded.some(n => n.kind === "macroInvoke")) {
+      if (expanded.some(n => n.kind === "macroInvoke" || n.kind === "macroLoop")) {
         ctx.logger?.debug(`[expandMacros] nested expand inside ${def.name}`);
         const savedNodes: Node[] | undefined = ctx.nodes;
         const savedStack = [...ctx.macroTableStack];
         ctx.nodes = expanded;
+        ctx.didExpand = false;
         expandMacros(ctx, depth + 1);
         expanded.splice(0, expanded.length, ...ctx.nodes);
         ctx.macroTableStack = savedStack;

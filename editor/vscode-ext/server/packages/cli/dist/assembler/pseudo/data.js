@@ -11,11 +11,30 @@ const emit_1 = require("../codegen/emit");
 const utils_1 = require("../encoder/utils");
 const errors_1 = require("../errors");
 const parseExternExpr_1 = require("../expr/parseExternExpr");
+const sjasmCompat_1 = require("./sjasmCompat");
 function bytesFromLiteral(arg) {
     const isDouble = arg.startsWith('"') && arg.endsWith('"');
     const isSingle = arg.startsWith("'") && arg.endsWith("'");
     if (isDouble || isSingle) {
-        return arg.slice(1, -1).split("").map((ch) => ch.charCodeAt(0) & 0xff);
+        const raw = arg.slice(1, -1);
+        const bytes = [];
+        for (let i = 0; i < raw.length; i++) {
+            const ch = raw[i];
+            if (ch === "\\" && i + 1 < raw.length) {
+                const esc = raw[++i];
+                if (esc === "n")
+                    bytes.push(0x0a);
+                else if (esc === "r")
+                    bytes.push(0x0d);
+                else if (esc === "t")
+                    bytes.push(0x09);
+                else
+                    bytes.push(esc.charCodeAt(0) & 0xff);
+                continue;
+            }
+            bytes.push(ch.charCodeAt(0) & 0xff);
+        }
+        return bytes;
     }
     return [];
 }
@@ -27,7 +46,7 @@ function handleDZ(ctx, node) {
     if (ctx.phase !== "emit") {
         let count = 0;
         for (const a of node.args) {
-            const v = a.value;
+            const v = (0, sjasmCompat_1.resolveSjasmCompatRaw)(ctx, a.value, node.pos) ?? a.value;
             const lit = bytesFromLiteral(v);
             if (lit.length) {
                 count += lit.length;
@@ -83,7 +102,7 @@ function handleDB(ctx, node) {
     if (ctx.phase !== "emit") {
         let count = 0;
         for (const a of node.args) {
-            const v = a.value;
+            const v = (0, sjasmCompat_1.resolveSjasmCompatRaw)(ctx, a.value, node.pos) ?? a.value;
             const lit = bytesFromLiteral(v);
             if (lit.length) {
                 count += lit.length;
@@ -101,7 +120,7 @@ function handleDB(ctx, node) {
         return;
     }
     for (const a of node.args) {
-        const valStr = a.value;
+        const valStr = (0, sjasmCompat_1.resolveSjasmCompatRaw)(ctx, a.value, node.pos) ?? a.value;
         // --- 文字列／文字 ---
         const lit = bytesFromLiteral(valStr);
         if (lit.length) {
@@ -143,7 +162,7 @@ function handleDC(ctx, node) {
     if (ctx.phase !== "emit") {
         let count = 0;
         for (const a of node.args) {
-            const v = a.value;
+            const v = (0, sjasmCompat_1.resolveSjasmCompatRaw)(ctx, a.value, node.pos) ?? a.value;
             const lit = bytesFromLiteral(v);
             if (lit.length) {
                 count += lit.length;
@@ -161,7 +180,7 @@ function handleDC(ctx, node) {
     }
     const outBytes = [];
     for (const a of node.args) {
-        const valStr = a.value;
+        const valStr = (0, sjasmCompat_1.resolveSjasmCompatRaw)(ctx, a.value, node.pos) ?? a.value;
         const lit = bytesFromLiteral(valStr);
         if (lit.length) {
             const copied = [...lit];

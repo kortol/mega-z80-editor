@@ -318,6 +318,20 @@ function replaceLoopRefInString(s: string, ctx: AsmContext, frame: LoopFrame): s
     }
   }
 
+  if (/[A-Za-z_][A-Za-z0-9_]*/.test(s)) {
+    return s.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (name) => {
+      if (frame.locals.has(name)) {
+        return String(frame.locals.get(name));
+      }
+      const key = ctx.caseInsensitive ? name.toUpperCase() : name;
+      const entry: any = ctx.symbols.get(key);
+      if (entry && entry.type === "CONST" && typeof entry.value === "number") {
+        return String(entry.value);
+      }
+      return name;
+    });
+  }
+
   return s;
 }
 

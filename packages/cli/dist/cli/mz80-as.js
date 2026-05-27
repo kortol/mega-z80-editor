@@ -175,6 +175,7 @@ function runEmit(ctx) {
 }
 function runEmitPass(ctx) {
     ctx.loc = 0;
+    ctx.endReached = false;
     ctx.texts = [];
     ctx.relocs = [];
     ctx.unresolved = [];
@@ -271,6 +272,9 @@ function runEmitPass(ctx) {
                 sectionId,
                 kind: "pseudo",
             });
+        }
+        if (ctx.endReached) {
+            break;
         }
     }
 }

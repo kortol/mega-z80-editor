@@ -94,6 +94,8 @@ function createAsmContext(overrides = {}) {
         endReached: false,
         entry: undefined,
         symbols: new Map(),
+        stringDefines: new Map(),
+        sjasmArrays: new Map(),
         unresolved: [],
         externs: new Set(),
         exportSymbols: new Set(),
@@ -140,6 +142,24 @@ function createAsmContext(overrides = {}) {
     }
     if (merged.options?.includePaths) {
         merged.includePaths = [...merged.options.includePaths];
+    }
+    const sjasmPlus = (0, exports.canon)("_SJASMPLUS", merged);
+    if (!merged.symbols.has(sjasmPlus)) {
+        merged.symbols.set(sjasmPlus, {
+            value: 1,
+            sectionId: merged.currentSection,
+            type: "CONST",
+            pos: merged.currentPos,
+        });
+    }
+    const version = (0, exports.canon)("_VERSION", merged);
+    if (!merged.symbols.has(version)) {
+        merged.symbols.set(version, {
+            value: 1,
+            sectionId: merged.currentSection,
+            type: "CONST",
+            pos: merged.currentPos,
+        });
     }
     // logger の最終確定（ctx.id でプレフィクス）
     merged.logger = overrides.logger ?? logger;

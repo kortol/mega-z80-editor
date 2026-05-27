@@ -134,7 +134,7 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
     if (
       line.length === 1 &&
       line[0].kind === "ident" &&
-      ["ENDM", "ENDR"].includes(line[0].text.toUpperCase())
+      ["ENDM", "ENDR", "EDUP"].includes(line[0].text.toUpperCase())
     ) {
       return nodes;
     }
@@ -187,11 +187,11 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
     }
 
     // --- 🟩 ループマクロ命令 (REPT / IRP / IRPC / WHILE / ENDW / ENDM) ---
-    const loopOps = ["REPT", "REPEAT", "IRP", "IRPC", "WHILE", "ENDW", "ENDM", "ENDR"];
+    const loopOps = ["REPT", "REPEAT", "DUP", "IRP", "IRPC", "WHILE", "ENDW", "ENDM", "ENDR", "EDUP"];
     // ループマクロ（REPT/IRP/IRPC/WHILE）
     if (line[0].kind === "ident" && loopOps.includes(line[0].text.toUpperCase())) {
       const rawOp = line[0].text.toUpperCase();
-      const op = (rawOp === "REPEAT" ? "REPT" : rawOp) as LoopKind;
+      const op = (rawOp === "REPEAT" || rawOp === "DUP" ? "REPT" : rawOp) as LoopKind;
       const args = line.slice(1).map((t) => t.text);
 
 
@@ -218,9 +218,9 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
       // 終端語：WHILEはENDW、他はENDM/ENDR/ENDREPEAT を許容
       const terminators = op === "WHILE"
         ? ["ENDW"]
-        : ["ENDM", "ENDR", "ENDREPEAT"];
-      const loopStartOps = ["REPT", "REPEAT", "IRP", "IRPC", "WHILE"];
-      const loopEndOps = ["ENDM", "ENDR", "ENDREPEAT", "ENDW"];
+        : ["ENDM", "ENDR", "ENDREPEAT", "EDUP"];
+      const loopStartOps = ["REPT", "REPEAT", "DUP", "IRP", "IRPC", "WHILE"];
+      const loopEndOps = ["ENDM", "ENDR", "ENDREPEAT", "EDUP", "ENDW"];
 
       // 現在行の最後のトークン位置から先を走査して本文収集
       const startIdx = tokens.indexOf(line[line.length - 1]) + 1;
@@ -383,12 +383,12 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
 
 
 
-    // SET 構文: ident := expr
+    // SET 構文: ident := expr / ident = expr
     if (
       line.length >= 3 &&
       line[0].kind === "ident" &&
       line[1].kind === "op" &&
-      line[1].text === ":="
+      (line[1].text === ":=" || line[1].text === "=")
     ) {
       const symbol = line[0].text;
       const valueTokens = line
@@ -473,6 +473,20 @@ export function parse(ctx: AsmContext, tokens: Token[]): Node[] {
     }
 
     if (isPseudo(op)) {
+      if (op === "DEFINE") {
+        const key = line[1]?.text?.trim();
+        const value = line.slice(2).map((t) => t.text).join("").trim();
+        if (key) {
+          nodes.push({
+            kind: "pseudo",
+            op,
+            args: [{ key, value }],
+            pos: line[0].pos,
+          });
+          return nodes;
+        }
+      }
+
       const pseudoArgs: PseudoArg[] = [];
       for (const a of args) {
         const eqIdx = a.indexOf("=");
@@ -589,6 +603,9 @@ function isPseudo(op: string): boolean {
     "DEFS",
     "EQU",
     "DEFL",
+    "DEFINE",
+    "DEFARRAY",
+    "DISPLAY",
     "SET",
     ".WORD32",
     ".SYMLEN",

@@ -69,6 +69,9 @@ function exprToRaw(expr) {
     if (expr.type === "unaryOp") {
         return `${expr.op}${exprToRaw(expr.expr)}`;
     }
+    if (expr.type === "arrayIndex") {
+        return `${exprToRaw(expr.target)}[${exprToRaw(expr.index)}]`;
+    }
     if (expr.type === "string")
         return expr.raw ?? `"${expr.value ?? ""}"`;
     if (expr.type === "indirect")
@@ -123,10 +126,53 @@ function tokenizeMacroBody(ctx, body, pos) {
     ctx.currentPos = saved;
     return tokens;
 }
+function splitStatementSeparators(source) {
+    let out = "";
+    let inSingle = false;
+    let inDouble = false;
+    let inComment = false;
+    for (let i = 0; i < source.length; i++) {
+        const ch = source[i];
+        const prev = source[i - 1] ?? "";
+        if (inComment) {
+            out += ch;
+            if (ch === "\n")
+                inComment = false;
+            continue;
+        }
+        if (!inDouble && ch === "'" && prev !== "\\") {
+            inSingle = !inSingle;
+            out += ch;
+            continue;
+        }
+        if (!inSingle && ch === "\"" && prev !== "\\") {
+            inDouble = !inDouble;
+            out += ch;
+            continue;
+        }
+        if (!inSingle && !inDouble && ch === ";") {
+            inComment = true;
+            out += ch;
+            continue;
+        }
+        if (!inSingle && !inDouble && ch === ":") {
+            let j = out.length - 1;
+            while (j >= 0 && /[ \t]/.test(out[j]))
+                j--;
+            const prevNonSpace = j >= 0 ? out[j] : "";
+            if (!/[A-Za-z0-9_.$@]/.test(prevNonSpace)) {
+                out += "\n";
+                continue;
+            }
+        }
+        out += ch;
+    }
+    return out;
+}
 function parsePeg(ctx, source) {
     let ast;
     try {
-        ast = pegParser.parse(source);
+        ast = pegParser.parse(splitStatementSeparators(source));
     }
     catch (err) {
         if (err?.name === "SyntaxError" || /Expected/.test(String(err?.message ?? ""))) {
@@ -139,8 +185,9 @@ function parsePeg(ctx, source) {
         "ORG", "DB", "DW", "EQU", "END", "INCLUDE", "MACRO", "ENDM", "REPT", "ENDR",
         "DEFB", "DEFW", "DEFS", "ALIGN", "PUBLIC", "EXTERN", "LOCAL", "SECTION", "SEGMENT", "GLOBAL",
         "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32",
-        "DEFL", "DEFM", "DC", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM", "INCPATH",
-        "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT"
+        "DEFL", "DEFM", "DC", "DEFINE", "DEFARRAY", "DISPLAY", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM", "INCPATH",
+        "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT",
+        "OUTPUT", "OUTEND"
     ]);
     const macroNames = new Set();
     const useMacroOverride = !ctx.options?.strictMacro;
@@ -148,7 +195,16 @@ function parsePeg(ctx, source) {
         macroNames.add((0, context_1.canon)(name, ctx));
     }
     function hasMacro(name) {
-        return macroNames.has((0, context_1.canon)(name, ctx));
+        const key = (0, context_1.canon)(name, ctx);
+        if (macroNames.has(key))
+            return true;
+        if (ctx.macroTable?.has(key))
+            return true;
+        for (let i = (ctx.macroTableStack?.length ?? 0) - 1; i >= 0; i--) {
+            if (ctx.macroTableStack[i].has(key))
+                return true;
+        }
+        return false;
     }
     for (const item of ast ?? []) {
         if (!item)
@@ -414,6 +470,18 @@ function parsePeg(ctx, source) {
                         break;
                     case "DEFL":
                         nodes.push(makePseudo("SET", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
+                        break;
+                    case "DEFINE":
+                        nodes.push(makePseudo("DEFINE", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
+                        break;
+                    case "DEFARRAY":
+                        nodes.push(makePseudo("DEFARRAY", [
+                            { key: String(instr.symbol), value: String(instr.symbol) },
+                            ...toPseudoArgsFromValues(instr.values ?? []),
+                        ], pos));
+                        break;
+                    case "DISPLAY":
+                        nodes.push(makePseudo("DISPLAY", toPseudoArgsFromValues(instr.values ?? []), pos));
                         break;
                     case "DEFM":
                         nodes.push(makePseudo("DB", toPseudoArgsFromValues(instr.values ?? []), pos));

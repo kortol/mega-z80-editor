@@ -102,7 +102,7 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
       }
 
       // --- 記号/1文字演算子 ---
-      if (/^[,:()+\-*/=<>!~&|^]/.test(rest[0])) {
+      if (/^[,:()[\]+\-*/=<>!~&|^]/.test(rest[0])) {
         const ch = rest[0];
         let kind: TokenKind;
         switch (ch) {
@@ -118,6 +118,8 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
           case ")":
             kind = "rparen";
             break;
+          case "[":
+          case "]":
           case "+":
           case "-":
           case "*":
@@ -142,23 +144,30 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
 
       // --- 文字リテラル ---
       if (rest[0] === "'") {
-        if (/^'\\./.test(rest) && rest.length >= 4 && rest[3] === "'") {
-          const text = rest.slice(0, 4); // '\n' とか '\''
-          const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
-          ctx.currentPos.column += 4;
-          continue;
-        } else if (/^'[^\\]'/ .test(rest) && rest.length >= 3 && rest[2] === "'") {
-          const text = rest.slice(0, 3); // 'A'
-          const value = parseNumber(text);
-          tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
-          ctx.currentPos.column += 3;
-          continue;
-        } else {
+        let end = 1;
+        let escape = false;
+        while (end < rest.length) {
+          const ch = rest[end];
+          if (escape) {
+            escape = false;
+          } else if (ch === "\\") {
+            escape = true;
+          } else if (ch === "'") {
+            const text = rest.slice(0, end + 1);
+            const value = parseNumber(text);
+            tokens.push({ kind: "num", text, value, pos: cloneSourcePos(ctx.currentPos) });
+            ctx.currentPos.column += text.length;
+            end = -1;
+            break;
+          }
+          end++;
+        }
+        if (end !== -1) {
           throw new Error(
             `Tokenizer error at line ${lineNo + 1}, col ${ctx.currentPos.column}: '${rest[0]}'`
           );
         }
+        continue;
       }
 
       // --- 文字列リテラル (INCLUDE "file.inc" 等) ---
@@ -262,7 +271,7 @@ export function tokenize(ctx: AsmContext, src: string): Token[] {
       }
 
       // --- 数値または識別子（$,%含む） ---
-      const m = /^([A-Za-z0-9_\$][A-Za-z0-9_.$@]*|\.[A-Za-z_@][A-Za-z0-9_.$@]*|@[A-Za-z_][A-Za-z0-9_.$@]*)/.exec(rest);
+      const m = /^([A-Za-z0-9_\$][A-Za-z0-9_.$@?]*|\.[A-Za-z_@][A-Za-z0-9_.$@?]*|@[A-Za-z_][A-Za-z0-9_.$@?]*)/.exec(rest);
       if (m) {
         const text = m[1];
         if (text === "$") {
@@ -326,6 +335,23 @@ export function parseNumber(text: string): number {
   }
   if (/^'\\\\'$/.test(text)) {
     return 0x5c; // バックスラッシュ
+  }
+  if (/^'([^'\\]|\\.)+'$/.test(text)) {
+    const inner = text.slice(1, -1);
+    const chars: number[] = [];
+    for (let i = 0; i < inner.length; i++) {
+      const ch = inner[i];
+      if (ch === "\\" && i + 1 < inner.length) {
+        const esc = inner[++i];
+        if (esc === "n") chars.push(10);
+        else if (esc === "r") chars.push(13);
+        else if (esc === "t") chars.push(9);
+        else chars.push(esc.charCodeAt(0));
+        continue;
+      }
+      chars.push(ch.charCodeAt(0));
+    }
+    return chars.reduce((acc, value) => ((acc << 8) | (value & 0xff)) >>> 0, 0);
   }
 
   // 16進

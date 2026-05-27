@@ -15,6 +15,8 @@ import { handleInclude } from "./pseudo/include";
 import { handleConditional, isConditionalOp } from "./pseudo/conditional";
 import { handleSET } from "./pseudo/set";
 import { handleDC, handleDZ } from "./pseudo/data";
+import { handleDEFINE } from "./pseudo/define";
+import { handleDEFARRAY } from "./pseudo/defarray";
 import {
   handleEXITM,
   handleEXTERNALAlias,
@@ -71,6 +73,10 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       return handleWORD32(ctx, node);
     case "SET":
       return handleSET(ctx, node);
+    case "DEFINE":
+      return handleDEFINE(ctx, node);
+    case "DEFARRAY":
+      return handleDEFARRAY(ctx, node);
     case "DEFL":
       return handleSET(ctx, { ...node, op: "SET" });
     case "GLOBAL":
@@ -92,6 +98,10 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       return handlePAGE(ctx, node);
     case "LIST":
       return handleLIST(ctx, node);
+    case "OUTPUT":
+    case "OUTEND":
+    case "DISPLAY":
+      return;
     case "EXITM":
       return handleEXITM(ctx, node);
     case "SECTION": {
@@ -132,17 +142,21 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
 
       // --- 🧩 既存の include 機構を利用 ---
       const includeNode = { kind: "pseudo", op: "INCLUDE", args: node.args, pos: node.pos } as NodePseudo;
-      const includedNodes = handleInclude(ctx, includeNode, true);
+      let includedNodes = handleInclude(ctx, includeNode, true);
 
       // --- 🧩 INCLUDE内部をマクロ展開 ---
       const savedNodes = ctx.nodes ?? [];
+      const savedDidExpand = ctx.didExpand;
       ctx.nodes = includedNodes;
 
       if (ctx.phase !== "emit") {
         setPhase(ctx, "macroExpand");
+        ctx.didExpand = false;
         expandMacros(ctx);
+        includedNodes = ctx.nodes ?? includedNodes;
         setPhase(ctx, "analyze");
       }
+      ctx.didExpand = savedDidExpand;
 
       // --- 🧩 スコープ戻し（promote=true で昇格） ---
       popMacroScope(ctx);
@@ -167,6 +181,15 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
         ctx.nodes = merged;
       } else {
         ctx.nodes = savedNodes.concat(includedNodes);
+      }
+
+      if (ctx.phase !== "emit") {
+        const savedDidExpand2 = ctx.didExpand;
+        setPhase(ctx, "macroExpand");
+        ctx.didExpand = false;
+        expandMacros(ctx);
+        ctx.didExpand = savedDidExpand2;
+        setPhase(ctx, "analyze");
       }
       break;
     }

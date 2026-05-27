@@ -78,6 +78,9 @@ function exprToRaw(expr: any): string {
   if (expr.type === "unaryOp") {
     return `${expr.op}${exprToRaw(expr.expr)}`;
   }
+  if (expr.type === "arrayIndex") {
+    return `${exprToRaw(expr.target)}[${exprToRaw(expr.index)}]`;
+  }
   if (expr.type === "string") return expr.raw ?? `"${expr.value ?? ""}"`;
   if (expr.type === "indirect") return `(${exprToRaw(expr.operand)})`;
   if (expr.type === "indexedIndirect") return expr.raw ?? `(${expr.base}${expr.offset ? `${expr.offset.sign}${exprToRaw(expr.offset.value)}` : ""})`;
@@ -134,10 +137,58 @@ function tokenizeMacroBody(ctx: AsmContext, body: string, pos: SourcePos): any[]
   return tokens;
 }
 
+function splitStatementSeparators(source: string): string {
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inComment = false;
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    const prev = source[i - 1] ?? "";
+
+    if (inComment) {
+      out += ch;
+      if (ch === "\n") inComment = false;
+      continue;
+    }
+
+    if (!inDouble && ch === "'" && prev !== "\\") {
+      inSingle = !inSingle;
+      out += ch;
+      continue;
+    }
+    if (!inSingle && ch === "\"" && prev !== "\\") {
+      inDouble = !inDouble;
+      out += ch;
+      continue;
+    }
+    if (!inSingle && !inDouble && ch === ";") {
+      inComment = true;
+      out += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && ch === ":") {
+      let j = out.length - 1;
+      while (j >= 0 && /[ \t]/.test(out[j])) j--;
+      const prevNonSpace = j >= 0 ? out[j] : "";
+      if (!/[A-Za-z0-9_.$@]/.test(prevNonSpace)) {
+        out += "\n";
+        continue;
+      }
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
+
 export function parsePeg(ctx: AsmContext, source: string): Node[] {
   let ast: any;
   try {
-    ast = pegParser.parse(source);
+    ast = pegParser.parse(splitStatementSeparators(source));
   } catch (err: any) {
     if (err?.name === "SyntaxError" || /Expected/.test(String(err?.message ?? ""))) {
       throw makeError(
@@ -154,8 +205,9 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
     "ORG", "DB", "DW", "EQU", "END", "INCLUDE", "MACRO", "ENDM", "REPT", "ENDR",
     "DEFB", "DEFW", "DEFS", "ALIGN", "PUBLIC", "EXTERN", "LOCAL", "SECTION", "SEGMENT", "GLOBAL",
     "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32",
-    "DEFL", "DEFM", "DC", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM", "INCPATH",
-    "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT"
+    "DEFL", "DEFM", "DC", "DEFINE", "DEFARRAY", "DISPLAY", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM", "INCPATH",
+    "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT",
+    "OUTPUT", "OUTEND"
   ]);
 
   const macroNames = new Set<string>();
@@ -166,7 +218,13 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
   }
 
   function hasMacro(name: string) {
-    return macroNames.has(canon(name, ctx));
+    const key = canon(name, ctx);
+    if (macroNames.has(key)) return true;
+    if (ctx.macroTable?.has(key)) return true;
+    for (let i = (ctx.macroTableStack?.length ?? 0) - 1; i >= 0; i--) {
+      if (ctx.macroTableStack[i].has(key)) return true;
+    }
+    return false;
   }
 
   for (const item of ast ?? []) {
@@ -440,6 +498,18 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
             break;
           case "DEFL":
             nodes.push(makePseudo("SET", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
+            break;
+          case "DEFINE":
+            nodes.push(makePseudo("DEFINE", [{ key: String(instr.symbol), value: exprToRaw(instr.value) }], pos));
+            break;
+          case "DEFARRAY":
+            nodes.push(makePseudo("DEFARRAY", [
+              { key: String(instr.symbol), value: String(instr.symbol) },
+              ...toPseudoArgsFromValues(instr.values ?? []),
+            ], pos));
+            break;
+          case "DISPLAY":
+            nodes.push(makePseudo("DISPLAY", toPseudoArgsFromValues(instr.values ?? []), pos));
             break;
           case "DEFM":
             nodes.push(makePseudo("DB", toPseudoArgsFromValues(instr.values ?? []), pos));

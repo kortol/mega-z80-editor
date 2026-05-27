@@ -153,6 +153,8 @@ export interface AsmContext {
 
   // --- シンボル/未解決 ---
   symbols: Map<string, SymbolEntry>;
+  stringDefines?: Map<string, string>;
+  sjasmArrays?: Map<string, string[]>;
   unresolved: UnresolvedEntry[];
   externs: Set<string>;
   exportSymbols: Set<string>;
@@ -301,6 +303,8 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
     endReached: false,
     entry: undefined,
     symbols: new Map<string, SymbolEntry>(),
+    stringDefines: new Map<string, string>(),
+    sjasmArrays: new Map<string, string[]>(),
     unresolved: [],
     externs: new Set<string>(),
     exportSymbols: new Set<string>(),
@@ -357,6 +361,25 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
   }
   if (merged.options?.includePaths) {
     merged.includePaths = [...merged.options.includePaths];
+  }
+
+  const sjasmPlus = canon("_SJASMPLUS", merged);
+  if (!merged.symbols.has(sjasmPlus)) {
+    merged.symbols.set(sjasmPlus, {
+      value: 1,
+      sectionId: merged.currentSection,
+      type: "CONST",
+      pos: merged.currentPos,
+    });
+  }
+  const version = canon("_VERSION", merged);
+  if (!merged.symbols.has(version)) {
+    merged.symbols.set(version, {
+      value: 1,
+      sectionId: merged.currentSection,
+      type: "CONST",
+      pos: merged.currentPos,
+    });
   }
 
   // logger の最終確定（ctx.id でプレフィクス）

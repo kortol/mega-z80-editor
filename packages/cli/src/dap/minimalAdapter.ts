@@ -407,6 +407,20 @@ export class MinimalDapAdapter {
     });
   }
 
+  private async emitTargetOutputUntilStable(maxPasses = 3, delayMs = 10): Promise<void> {
+    let lastLength = this.emittedTargetOutputLength;
+    for (let i = 0; i < maxPasses; i++) {
+      await this.emitTargetOutputIfAny();
+      if (this.emittedTargetOutputLength === lastLength) {
+        return;
+      }
+      lastLength = this.emittedTargetOutputLength;
+      if (i + 1 < maxPasses) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
   private startOutputPolling(intervalMs = 50): void {
     if (this.outputPollTimer) return;
     let polling = false;
@@ -825,7 +839,8 @@ export class MinimalDapAdapter {
               const kind = String(stop.kind ?? "pause");
               if (kind === "targetExit") {
                 this.debugLog("stopped reason=targetExit");
-                await this.emitTargetOutputIfAny();
+                await this.emitTargetOutputUntilStable();
+                this.sendEvent("exited", { exitCode: 0 });
                 this.sendEvent("terminated");
               } else {
                 this.debugLog(`stopped reason=${kind}`);

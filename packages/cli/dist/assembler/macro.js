@@ -101,6 +101,17 @@ function rewriteTokensForMacro(def, inv) {
     });
     // 大文字キーで統一（caseInsensitive 環境で安全）
     params.forEach((p, i) => argMap.set(p.name.toUpperCase(), args[i]));
+    const fragmentParams = params
+        .map((p, i) => ({ name: p.name, value: args[i] }))
+        .filter((entry) => entry.name.includes("?"));
+    function replaceParamFragments(text) {
+        let out = text;
+        for (const { name, value } of fragmentParams) {
+            const pattern = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+            out = out.replace(pattern, value);
+        }
+        return out;
+    }
     // ローカルラベルを一意化（%%xxx）
     const localMap = new Map();
     let seq = 0;
@@ -129,7 +140,8 @@ function rewriteTokensForMacro(def, inv) {
         if (localMap.has(t.text)) {
             return { ...t, text: localMap.get(t.text) };
         }
-        return { ...t };
+        const replaced = replaceParamFragments(t.text);
+        return { ...t, text: replaced };
     });
 }
 function getDefByName(ctx, name) {
@@ -244,6 +256,12 @@ function expandMacros(ctx, depth = 0) {
         ctx.logger?.debug(`[expandMacros] invoke: ${inv.name} @${inv.pos.file}:${inv.pos.line}`);
         const def = getDefByName(ctx, inv.name);
         if (!def) {
+            const mayResolveAfterInclude = ctx.nodes.some((candidate) => candidate.kind === "pseudo" &&
+                String(candidate.op).toUpperCase() === "INCLUDE");
+            if (mayResolveAfterInclude) {
+                out.push(n);
+                continue;
+            }
             ctx.errors.push((0, errors_1.makeError)(errors_1.AssemblerErrorCode.SyntaxError, `Macro '${inv.name}' is not defined`, { pos: inv.pos }));
             continue;
         }
@@ -290,11 +308,12 @@ function expandMacros(ctx, depth = 0) {
             // 4️⃣ 本文再パース
             const expanded = trimAtExitm((0, macroParser_1.parse)(ctx, cloned));
             // 5️⃣ ネストしたマクロを再展開
-            if (expanded.some(n => n.kind === "macroInvoke")) {
+            if (expanded.some(n => n.kind === "macroInvoke" || n.kind === "macroLoop")) {
                 ctx.logger?.debug(`[expandMacros] nested expand inside ${def.name}`);
                 const savedNodes = ctx.nodes;
                 const savedStack = [...ctx.macroTableStack];
                 ctx.nodes = expanded;
+                ctx.didExpand = false;
                 expandMacros(ctx, depth + 1);
                 expanded.splice(0, expanded.length, ...ctx.nodes);
                 ctx.macroTableStack = savedStack;

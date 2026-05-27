@@ -77,6 +77,9 @@ export function runAnalyze(ctx: AsmContext) {
             // INCLUDE 展開で nodes が差し替わるため、同じ index から再処理
             i--;
           }
+          if (ctx.endReached) {
+            return;
+          }
         }
         break;
 

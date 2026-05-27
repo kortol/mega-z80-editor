@@ -168,6 +168,7 @@ export function runEmit(ctx: AsmContext) {
 
 function runEmitPass(ctx: AsmContext) {
   ctx.loc = 0;
+  ctx.endReached = false;
   ctx.texts = [];
   ctx.relocs = [];
   ctx.unresolved = [];
@@ -256,6 +257,10 @@ function runEmitPass(ctx: AsmContext) {
         sectionId,
         kind: "pseudo",
       });
+    }
+
+    if (ctx.endReached) {
+      break;
     }
   }
 }

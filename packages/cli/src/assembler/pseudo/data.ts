@@ -5,12 +5,27 @@ import { resolveExpr16, resolveExpr8 } from "../encoder/utils";
 import { AssemblerErrorCode, makeWarning } from "../errors";
 import { parseExternExpr } from "../expr/parseExternExpr";
 import { NodePseudo } from "../node";
+import { resolveSjasmCompatRaw } from "./sjasmCompat";
 
 function bytesFromLiteral(arg: string): number[] {
   const isDouble = arg.startsWith('"') && arg.endsWith('"');
   const isSingle = arg.startsWith("'") && arg.endsWith("'");
   if (isDouble || isSingle) {
-    return arg.slice(1, -1).split("").map((ch) => ch.charCodeAt(0) & 0xff);
+    const raw = arg.slice(1, -1);
+    const bytes: number[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === "\\" && i + 1 < raw.length) {
+        const esc = raw[++i];
+        if (esc === "n") bytes.push(0x0a);
+        else if (esc === "r") bytes.push(0x0d);
+        else if (esc === "t") bytes.push(0x09);
+        else bytes.push(esc.charCodeAt(0) & 0xff);
+        continue;
+      }
+      bytes.push(ch.charCodeAt(0) & 0xff);
+    }
+    return bytes;
   }
   return [];
 }
@@ -23,7 +38,7 @@ export function handleDZ(ctx: AsmContext, node: NodePseudo) {
   if (ctx.phase !== "emit") {
     let count = 0;
     for (const a of node.args) {
-      const v = a.value;
+      const v = resolveSjasmCompatRaw(ctx, a.value, node.pos) ?? a.value;
       const lit = bytesFromLiteral(v);
       if (lit.length) {
         count += lit.length;
@@ -90,7 +105,7 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
   if (ctx.phase !== "emit") {
     let count = 0;
     for (const a of node.args) {
-      const v = a.value;
+      const v = resolveSjasmCompatRaw(ctx, a.value, node.pos) ?? a.value;
       const lit = bytesFromLiteral(v);
       if (lit.length) { count += lit.length; continue; }
       const ext = parseExternExpr(ctx, v);
@@ -103,7 +118,7 @@ export function handleDB(ctx: AsmContext, node: NodePseudo) {
   }
 
   for (const a of node.args) {
-    const valStr = a.value;
+    const valStr = resolveSjasmCompatRaw(ctx, a.value, node.pos) ?? a.value;
     // --- 文字列／文字 ---
     const lit = bytesFromLiteral(valStr);
     if (lit.length) {
@@ -153,7 +168,7 @@ export function handleDC(ctx: AsmContext, node: NodePseudo) {
   if (ctx.phase !== "emit") {
     let count = 0;
     for (const a of node.args) {
-      const v = a.value;
+      const v = resolveSjasmCompatRaw(ctx, a.value, node.pos) ?? a.value;
       const lit = bytesFromLiteral(v);
       if (lit.length) { count += lit.length; continue; }
       const ext = parseExternExpr(ctx, v);
@@ -166,7 +181,7 @@ export function handleDC(ctx: AsmContext, node: NodePseudo) {
 
   const outBytes: number[] = [];
   for (const a of node.args) {
-    const valStr = a.value;
+    const valStr = resolveSjasmCompatRaw(ctx, a.value, node.pos) ?? a.value;
     const lit = bytesFromLiteral(valStr);
     if (lit.length) {
       const copied = [...lit];

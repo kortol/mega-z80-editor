@@ -18,6 +18,8 @@ const include_1 = require("./pseudo/include");
 const conditional_1 = require("./pseudo/conditional");
 const set_1 = require("./pseudo/set");
 const data_2 = require("./pseudo/data");
+const define_1 = require("./pseudo/define");
+const defarray_1 = require("./pseudo/defarray");
 const compat_1 = require("./pseudo/compat");
 const path_1 = __importDefault(require("path"));
 function handlePseudo(ctx, node) {
@@ -64,6 +66,10 @@ function handlePseudo(ctx, node) {
             return (0, data_1.handleWORD32)(ctx, node);
         case "SET":
             return (0, set_1.handleSET)(ctx, node);
+        case "DEFINE":
+            return (0, define_1.handleDEFINE)(ctx, node);
+        case "DEFARRAY":
+            return (0, defarray_1.handleDEFARRAY)(ctx, node);
         case "DEFL":
             return (0, set_1.handleSET)(ctx, { ...node, op: "SET" });
         case "GLOBAL":
@@ -85,6 +91,10 @@ function handlePseudo(ctx, node) {
             return (0, compat_1.handlePAGE)(ctx, node);
         case "LIST":
             return (0, compat_1.handleLIST)(ctx, node);
+        case "OUTPUT":
+        case "OUTEND":
+        case "DISPLAY":
+            return;
         case "EXITM":
             return (0, compat_1.handleEXITM)(ctx, node);
         case "SECTION": {
@@ -115,15 +125,19 @@ function handlePseudo(ctx, node) {
             (0, macro_1.pushMacroScope)(ctx);
             // --- 🧩 既存の include 機構を利用 ---
             const includeNode = { kind: "pseudo", op: "INCLUDE", args: node.args, pos: node.pos };
-            const includedNodes = (0, include_1.handleInclude)(ctx, includeNode, true);
+            let includedNodes = (0, include_1.handleInclude)(ctx, includeNode, true);
             // --- 🧩 INCLUDE内部をマクロ展開 ---
             const savedNodes = ctx.nodes ?? [];
+            const savedDidExpand = ctx.didExpand;
             ctx.nodes = includedNodes;
             if (ctx.phase !== "emit") {
                 (0, phaseManager_1.setPhase)(ctx, "macroExpand");
+                ctx.didExpand = false;
                 (0, macro_1.expandMacros)(ctx);
+                includedNodes = ctx.nodes ?? includedNodes;
                 (0, phaseManager_1.setPhase)(ctx, "analyze");
             }
+            ctx.didExpand = savedDidExpand;
             // --- 🧩 スコープ戻し（promote=true で昇格） ---
             (0, macro_1.popMacroScope)(ctx);
             node.__included = true;
@@ -145,6 +159,14 @@ function handlePseudo(ctx, node) {
             }
             else {
                 ctx.nodes = savedNodes.concat(includedNodes);
+            }
+            if (ctx.phase !== "emit") {
+                const savedDidExpand2 = ctx.didExpand;
+                (0, phaseManager_1.setPhase)(ctx, "macroExpand");
+                ctx.didExpand = false;
+                (0, macro_1.expandMacros)(ctx);
+                ctx.didExpand = savedDidExpand2;
+                (0, phaseManager_1.setPhase)(ctx, "analyze");
             }
             break;
         }

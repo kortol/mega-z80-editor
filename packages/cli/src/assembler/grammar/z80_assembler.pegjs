@@ -71,6 +71,7 @@ Instruction
   = Directive
   / OpCode
   / MacroInvoke
+  / BareStringDirective
 
 NonMacroInstruction
   = Directive
@@ -89,6 +90,7 @@ NonMacroInstruction
     / EquDirectiveLabel
     / EquDirective
     / SetDirective
+    / AssignDirective
     / EndDirective
     / IfDirective
     / ElseIfDirective
@@ -96,6 +98,9 @@ NonMacroInstruction
     / EndIfDirective
     / IfIdnDirective
     / ExternDirective
+    / DefineDirective
+    / DefArrayDirective
+    / DisplayDirective
     / ExtDirective
     / ExternalDirective
     / SectionDirective
@@ -161,6 +166,11 @@ SetDirective
       return makeNode('directive', { name: 'SET', symbol: name.name, value }, location());
     }
 
+AssignDirective
+  = name:SymbolIdentifier _ "=" _ value:Expression {
+      return makeNode('directive', { name: 'SET', symbol: name.name, value }, location());
+    }
+
 EndDirective
   = "END"i !IdentifierPart value:(_ Expression)? {
       return makeNode('directive', { name: 'END', value: value ? value[1] : null }, location());
@@ -199,6 +209,21 @@ IfIdnDirective
           symbols: symbols.map(s => s.name),
           from,
         }, location());
+      }
+
+  DefineDirective
+    = "DEFINE"i __ symbol:SymbolIdentifier __ value:(StringLiteral / Expression / SymbolIdentifier) {
+        return makeNode('directive', { name: 'DEFINE', symbol: symbol.name, value }, location());
+      }
+
+  DefArrayDirective
+    = "DEFARRAY"i __ symbol:SymbolIdentifier __ values:ExpressionList {
+        return makeNode('directive', { name: 'DEFARRAY', symbol: symbol.name, values }, location());
+      }
+
+  DisplayDirective
+    = "DISPLAY"i __ values:ExpressionList {
+        return makeNode('directive', { name: 'DISPLAY', values }, location());
       }
 
   ExtDirective
@@ -270,6 +295,11 @@ GenericDotDirective
       return makeNode('directive', { name: name.name, values }, location());
     }
 
+BareStringDirective
+  = value:StringLiteral {
+      return makeNode('directive', { name: 'DB', values: [value] }, location());
+    }
+
 // マクロ定義/呼び出し
 MacroDef
   = _ name:MacroName __ "MACRO"i params:MacroParams? _ comment:Comment? EOL body:MacroBody EndmLine {
@@ -308,7 +338,7 @@ MacroLine
   = !EndmLine !EndrLine !EndwLine text:$([^\r\n]*) EOL { return text + "\n"; }
 
 NestedRept
-  = text:$(_ ("REPEAT"i / "REPT"i) __ [^\r\n]* EOL body:MacroBody EndrLineNested) { return text; }
+  = text:$(_ ("REPEAT"i / "REPT"i / "DUP"i) __ [^\r\n]* EOL body:MacroBody EndrLineNested) { return text; }
 
 NestedIrp
   = text:$(_ "IRP"i __ [^\r\n]* EOL body:MacroBody EndmLine) { return text; }
@@ -323,10 +353,10 @@ EndmLine
   = _ "ENDM"i _ Comment? (EOL / EOF) { return; }
 
 EndrLine
-  = _ ("ENDREPEAT"i / "ENDR"i / "ENDM"i) _ Comment? (EOL / EOF) { return; }
+  = _ ("ENDREPEAT"i / "ENDR"i / "ENDM"i / "EDUP"i) _ Comment? (EOL / EOF) { return; }
 
   EndrLineNested
-    = _ ("ENDREPEAT"i / "ENDR"i / "ENDM"i) _ Comment? (EOL / EOF) { return; }
+    = _ ("ENDREPEAT"i / "ENDR"i / "ENDM"i / "EDUP"i) _ Comment? (EOL / EOF) { return; }
 
 EndwLine
   = _ "ENDW"i _ Comment? (EOL / EOF) { return; }
@@ -364,7 +394,7 @@ MacroLoop
   / WhileBlock
 
 ReptBlock
-  = _ op:("REPEAT"i / "REPT"i) __ count:Expression _ Comment? EOL body:MacroBody EndrLine {
+  = _ op:("REPEAT"i / "REPT"i / "DUP"i) __ count:Expression _ Comment? EOL body:MacroBody EndrLine {
       return makeNode('macroLoop', { op: 'REPT', count, body }, location());
     }
 
@@ -618,7 +648,8 @@ Unary
   / Primary
 
 Primary
-  = "(" _ expr:Expression _ ")" { return expr; }
+  = ArrayIndexExpr
+  / "(" _ expr:Expression _ ")" { return expr; }
   / StringLiteral
   / HexNumber
   / BinaryNumber
@@ -626,6 +657,11 @@ Primary
   / AtCounter
   / CurrentAddress
   / ExprIdentifier
+
+ArrayIndexExpr
+  = target:ExprIdentifier _ "[" _ index:Expression _ "]" {
+      return makeNode('arrayIndex', { target, index }, location());
+    }
 
 ExprIdentifier
   = Identifier
@@ -714,7 +750,7 @@ IfIdnArg
     = name:$([A-Za-z_][A-Za-z0-9_]*) { return name; }
 
   MacroParamName
-    = name:$([A-Za-z_@][A-Za-z0-9_@]* ("." [A-Za-z0-9_@]+)*) { return name; }
+    = name:$([A-Za-z_@][A-Za-z0-9_@?]* ("." [A-Za-z0-9_@?]+)*) { return name; }
 
 IdentifierList
   = first:Identifier rest:(_ "," _ Identifier)* {
@@ -729,7 +765,7 @@ ReservedWord
   = ("ORG"i / "DB"i / "DEFB"i / "DZ"i / "DW"i / "DEFW"i / "DS"i / "DEFS"i / "EQU"i / "SET"i / "END"i /
      "IF"i / "ELSEIF"i / "ELSE"i / "ENDIF"i / "IFIDN"i / "IFDIF"i / "IFDEF"i / "IFNDEF"i / "IFB"i / "IFNB"i /
      "EXTERN"i / "EXTERNAL"i / "SECTION"i / "INCLUDE"i / "INCPATH"i / "ALIGN"i / ".SYMLEN"i / ".WORD32"i /
-     "DEFL"i / "DEFM"i / "DC"i / "GLOBAL"i / "PUBLIC"i / "LOCAL"i / "ASEG"i / "CSEG"i / "DSEG"i / "COMMON"i /
+     "DEFL"i / "DEFM"i / "DC"i / "DEFINE"i / "DEFARRAY"i / "DISPLAY"i / "GLOBAL"i / "PUBLIC"i / "LOCAL"i / "ASEG"i / "CSEG"i / "DSEG"i / "COMMON"i /
      "LIST"i / "PAGE"i / "TITLE"i / "EXITM"i /
      "MACRO"i / "ENDM"i / "REPT"i / "REPEAT"i / "ENDR"i / "WHILE"i / "ENDW"i / "IRP"i / "IRPC"i / "LOCALMACRO"i /
      "LD"i / "ADD"i / "ADC"i / "SUB"i / "SBC"i / "INC"i / "DEC"i / "CP"i /
