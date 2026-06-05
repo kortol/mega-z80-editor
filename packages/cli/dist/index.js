@@ -79,6 +79,7 @@ function validateConfig(cfg) {
 }
 // P1 assembler / linker を import
 const mz80_as_1 = require("./cli/mz80-as");
+const mz80_cc_1 = require("./cli/mz80-cc");
 const mz80_ar_1 = require("./cli/mz80-ar");
 const mz80_link_1 = require("./cli/mz80-link");
 const mz80_dbg_1 = require("./cli/mz80-dbg");
@@ -162,6 +163,72 @@ program
     }
     catch (err) {
         logger.error(`Failed to write SCC runtime: ${err?.message ?? err}`);
+        process.exit(1);
+    }
+});
+program
+    .command("cc <input> <output>")
+    .description("Compile Small-C source into mz80 output via dcpp + sccz80")
+    .option("--runtime <name>", `Bundled runtime to link (${runtime_1.SCC_RUNTIME_NAMES.join(", ")})`)
+    .option("--library <path>", "Add a .lib/.a archive to the link", collect, [])
+    .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])
+    .option("--cpp-arg <arg>", "Pass a raw argument to dcpp", collect, [])
+    .option("--scc-arg <arg>", "Pass a raw argument to sccz80", collect, [])
+    .option("--dcpp <path>", "Path to dcpp executable")
+    .option("--sccz80 <path>", "Path to sccz80 executable")
+    .option("--wsl", "Run dcpp and sccz80 through WSL", false)
+    .option("--temp-dir <dir>", "Directory for intermediate files")
+    .option("--keep-temps", "Keep intermediate files", false)
+    .option("--com", "CP/M COM output")
+    .option("--org-text <addr>", "Link base for TEXT/CSEG")
+    .option("--org-data <addr>", "Link base for DATA/DSEG")
+    .option("--org-bss <addr>", "Link base for BSS")
+    .option("--org-custom <addr>", "Link base for CUSTOM")
+    .option("--map", "Generate .map file")
+    .option("--sym", "Generate .sym file")
+    .option("--smap", "Generate .smap file")
+    .option("--log", "Generate .log file")
+    .option("--fullpath [mode]", "Map source path mode: off | rel | on (without value: rel)")
+    .option("--verbose", "Show detailed output")
+    .option("--quiet", "Suppress logs")
+    .action((input, output, opts) => {
+    const logLevel = opts.quiet
+        ? "quiet"
+        : opts.verbose
+            ? "verbose"
+            : "normal";
+    const logger = (0, logger_1.createLogger)(logLevel);
+    if (opts.runtime && !runtime_1.SCC_RUNTIME_NAMES.includes(opts.runtime)) {
+        logger.error(`Unknown SCC runtime: ${opts.runtime}`);
+        process.exit(1);
+    }
+    try {
+        (0, mz80_cc_1.compileSccProgramFromCli)(logger, input, output, {
+            runtime: opts.runtime,
+            library: opts.library,
+            include: opts.include,
+            cppArg: opts.cppArg,
+            sccArg: opts.sccArg,
+            dcpp: opts.dcpp,
+            sccz80: opts.sccz80,
+            wsl: opts.wsl,
+            tempDir: opts.tempDir,
+            keepTemps: opts.keepTemps,
+            com: opts.com,
+            orgText: opts.orgText,
+            orgData: opts.orgData,
+            orgBss: opts.orgBss,
+            orgCustom: opts.orgCustom,
+            map: opts.map,
+            sym: opts.sym,
+            smap: opts.smap,
+            log: opts.log,
+            fullpath: opts.fullpath,
+            verbose: !!opts.verbose,
+        });
+    }
+    catch (err) {
+        logger.error(`Failed to compile SCC program: ${err?.message ?? err}`);
         process.exit(1);
     }
 });

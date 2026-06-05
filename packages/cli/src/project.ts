@@ -4,7 +4,10 @@ import yaml from "yaml";
 import { Logger } from "./logger";
 import { assemble } from "./cli/mz80-as";
 import { link } from "./cli/mz80-link";
+import { compileSccSourceToRel } from "./scc/compileProgram";
+import { ExternalSccCompilerAdapter } from "./scc/compilerAdapter";
 import { getBundledSccRuntime, SccRuntimeName } from "./scc/runtime";
+import { safeRmDir, ToolMode } from "./scc/externalToolchain";
 import { translateSccAsm } from "./scc/translateAsm";
 
 export type Mz80AsOptions = {
@@ -36,6 +39,19 @@ export type Mz80CleanOptions = {
   files?: string[];
 };
 
+export type Mz80CcOptions = {
+  runtime?: SccRuntimeName;
+  libraries?: string[];
+  includeDirs?: string[];
+  cppArgs?: string[];
+  sccArgs?: string[];
+  dcpp?: string;
+  sccz80?: string;
+  toolMode?: ToolMode;
+  tempDir?: string;
+  keepTemps?: boolean;
+};
+
 export type Mz80ProjectTargetModule = string | {
   source: string;
   object?: string;
@@ -47,6 +63,7 @@ export type Mz80ProjectTarget = {
   runtime?: SccRuntimeName;
   runtimeObject?: string;
   libraries?: string[];
+  cc?: Mz80CcOptions;
   as?: Mz80AsOptions;
   link?: Mz80LinkOptions;
 };
@@ -58,12 +75,14 @@ export type Mz80Config = {
   };
   as?: Mz80AsOptions;
   link?: Mz80LinkOptions;
+  cc?: Mz80CcOptions;
   targets?: Record<string, Mz80ProjectTarget>;
 };
 
 export type ResolvedProjectModule = {
   source: string;
   object: string;
+  kind: "asm" | "c";
 };
 
 export type ResolvedProjectTarget = {
@@ -77,6 +96,7 @@ export type ResolvedProjectTarget = {
     object: string;
   };
   libraries: string[];
+  cc?: Mz80CcOptions;
   as?: Mz80AsOptions;
   link?: Mz80LinkOptions;
 };
@@ -125,6 +145,7 @@ export function resolveProjectTarget(
       return {
         source: path.resolve(configDir, entry),
         object: path.resolve(configDir, deriveObjectPath(raw.output, entry)),
+        kind: resolveModuleKind(entry),
       };
     }
     return {
@@ -135,22 +156,40 @@ export function resolveProjectTarget(
           ? entry.object
           : deriveObjectPath(raw.output, entry.source),
       ),
+      kind: resolveModuleKind(entry.source),
     };
   });
+
+  const mergedCc = mergeCcOptions(
+    {
+      runtime: raw.runtime,
+      libraries: raw.libraries,
+    },
+    mergeCcOptions(cfg.cc, raw.cc),
+  );
+
+  const runtimeName = mergedCc?.runtime ?? raw.runtime;
 
   return {
     name: targetName,
     output: path.resolve(configDir, raw.output),
     modules,
-    runtime: raw.runtime
+    runtime: runtimeName
       ? resolveRuntimePaths(
         configDir,
         raw.output,
-        raw.runtime,
+        runtimeName,
         raw.runtimeObject,
       )
       : undefined,
-    libraries: (raw.libraries ?? []).map((entry) => path.resolve(configDir, entry)),
+    libraries: (mergedCc?.libraries ?? raw.libraries ?? []).map((entry) => path.resolve(configDir, entry)),
+    cc: mergedCc
+      ? {
+        ...mergedCc,
+        tempDir: mergedCc.tempDir ? path.resolve(configDir, mergedCc.tempDir) : undefined,
+        includeDirs: (mergedCc.includeDirs ?? []).map((entry) => path.resolve(configDir, entry)),
+      }
+      : undefined,
     as: mergeAsOptions(cfg.as, raw.as),
     link: mergeLinkOptions(cfg.link, raw.link),
   };
@@ -163,6 +202,14 @@ export function buildProjectTarget(
   logger: Logger,
 ): ResolvedProjectTarget {
   const target = resolveProjectTarget(configPath, cfg, requestedTarget);
+  const tempDir = target.cc?.tempDir
+    ? path.resolve(target.cc.tempDir)
+    : path.join(path.dirname(target.output), `.mz80-scc-${target.name}`);
+  const compilerAdapter = new ExternalSccCompilerAdapter({
+    dcppPath: target.cc?.dcpp,
+    sccz80Path: target.cc?.sccz80,
+    toolMode: target.cc?.toolMode ?? "host",
+  });
   if (target.runtime) {
     fs.mkdirSync(path.dirname(target.runtime.source), { recursive: true });
     fs.writeFileSync(target.runtime.source, getBundledSccRuntime(target.runtime.name), "utf8");
@@ -179,24 +226,44 @@ export function buildProjectTarget(
       verbose: false,
     });
   }
-  for (const mod of target.modules) {
-    fs.mkdirSync(path.dirname(mod.object), { recursive: true });
-    assemble(logger, mod.source, mod.object, {
-      ...(target.as ?? {}),
-      relVersion: normalizeRelVersion(target.as?.relVersion),
-      symLen: normalizeSymLen(target.as?.symLen),
-      includePaths: (target.as?.includePaths ?? []).map((p) => path.resolve(path.dirname(configPath), p)),
-      verbose: false,
-    });
-  }
+  try {
+    for (const mod of target.modules) {
+      fs.mkdirSync(path.dirname(mod.object), { recursive: true });
+      if (mod.kind === "c") {
+        compileSccSourceToRel(logger, {
+          inputFile: mod.source,
+          outputRelFile: mod.object,
+          includeDirs: target.cc?.includeDirs ?? [],
+          cppArgs: target.cc?.cppArgs ?? [],
+          sccArgs: target.cc?.sccArgs ?? [],
+          tempDir,
+          verbose: false,
+          sym: !!target.link?.sym,
+          smap: !!target.link?.smap,
+        }, compilerAdapter);
+        continue;
+      }
+      assemble(logger, mod.source, mod.object, {
+        ...(target.as ?? {}),
+        relVersion: normalizeRelVersion(target.as?.relVersion),
+        symLen: normalizeSymLen(target.as?.symLen),
+        includePaths: (target.as?.includePaths ?? []).map((p) => path.resolve(path.dirname(configPath), p)),
+        verbose: false,
+      });
+    }
 
-  fs.mkdirSync(path.dirname(target.output), { recursive: true });
-  link([
-    ...(target.runtime ? [target.runtime.object] : []),
-    ...target.modules.map((mod) => mod.object),
-    ...target.libraries,
-  ], target.output, target.link ?? {});
-  return target;
+    fs.mkdirSync(path.dirname(target.output), { recursive: true });
+    link([
+      ...(target.runtime ? [target.runtime.object] : []),
+      ...target.modules.map((mod) => mod.object),
+      ...target.libraries,
+    ], target.output, target.link ?? {});
+    return target;
+  } finally {
+    if (!target.cc?.keepTemps && !target.cc?.tempDir) {
+      safeRmDir(tempDir);
+    }
+  }
 }
 
 export function cleanProject(configPath: string, cfg: Mz80Config): string[] {
@@ -266,6 +333,18 @@ function mergeLinkOptions(base?: Mz80LinkOptions, override?: Mz80LinkOptions): M
   };
 }
 
+function mergeCcOptions(base?: Mz80CcOptions, override?: Mz80CcOptions): Mz80CcOptions | undefined {
+  if (!base && !override) return undefined;
+  return {
+    ...(base ?? {}),
+    ...(override ?? {}),
+    libraries: override?.libraries ?? base?.libraries,
+    includeDirs: override?.includeDirs ?? base?.includeDirs,
+    cppArgs: override?.cppArgs ?? base?.cppArgs,
+    sccArgs: override?.sccArgs ?? base?.sccArgs,
+  };
+}
+
 function normalizeRelVersion(value?: number | string): 1 | 2 | undefined {
   if (value === undefined) return 2;
   return String(value) === "2" ? 2 : 1;
@@ -275,6 +354,10 @@ function normalizeSymLen(value?: number | string): number | undefined {
   if (value === undefined) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function resolveModuleKind(sourcePath: string): "asm" | "c" {
+  return /\.c$/i.test(sourcePath) ? "c" : "asm";
 }
 
 function expandPattern(rootDir: string, pattern: string): string[] {

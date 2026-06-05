@@ -8,6 +8,8 @@
   - PEG parser の互換状況メモ
 - `scc-cpm-library.md`
   - Small-C library を `mz80` archive / CP/M runtime と組み合わせる手順
+- `scc-ts-migration.md`
+  - Small-C compiler を TypeScript 化するための adapter / fixture / helper 棚卸しメモ
 
 ## Rule
 

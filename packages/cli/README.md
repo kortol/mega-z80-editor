@@ -107,5 +107,6 @@ mz80 scc-lib build/libcpm-stdio.lib C:/Workspace/work/mega-z80-examples/Z80SCC/L
 - RPC デバッグや source map 関連は `src/debugger/` と `src/dap/` にあります
 - package ローカル docs の入口は [docs/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/README.md) です
 - SCC / CP/M library 手順は [docs/scc-cpm-library.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/scc-cpm-library.md) を参照してください
+- SCC compiler TS 移行メモは [docs/scc-ts-migration.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/scc-ts-migration.md) を参照してください
 - 互換メモは [docs/peg-compat-cases.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/peg-compat-cases.md) を参照してください
 - smoke fixture や link 用サンプルは `../mega-z80-examples/cli/` を既定参照します

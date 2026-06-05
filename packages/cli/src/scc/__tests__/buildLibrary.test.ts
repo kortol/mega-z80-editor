@@ -5,6 +5,7 @@ import { assemble } from "../../cli/mz80-as";
 import { link } from "../../cli/mz80-link";
 import { createLogger } from "../../logger";
 import { buildSccLibrary } from "../buildLibrary";
+import { ExternalSccCompilerAdapter } from "../compilerAdapter";
 
 describe("buildSccLibrary", () => {
   test("builds an archive from fake SCC tools and links against it", () => {
@@ -65,7 +66,9 @@ describe("buildSccLibrary", () => {
       tempDir: path.join(tempDir, "work"),
       verbose: false,
     }, {
-      runTool: fakeRunner,
+      compilerAdapter: new ExternalSccCompilerAdapter({
+        runTool: fakeRunner,
+      }),
     });
 
     expect(build.archivePath).toBe(archivePath);
@@ -120,7 +123,10 @@ describe("buildSccLibrary", () => {
       tempDir: path.join(tempDir, "work"),
       toolMode: "wsl",
     }, {
-      runTool: fakeRunner,
+      compilerAdapter: new ExternalSccCompilerAdapter({
+        runTool: fakeRunner,
+        toolMode: "wsl",
+      }),
     });
 
     expect(invocations.map((entry) => entry.toolMode)).toEqual(["wsl", "wsl"]);
