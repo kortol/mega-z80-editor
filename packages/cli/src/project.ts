@@ -4,6 +4,8 @@ import yaml from "yaml";
 import { Logger } from "./logger";
 import { assemble } from "./cli/mz80-as";
 import { link } from "./cli/mz80-link";
+import { getBundledSccRuntime, SccRuntimeName } from "./scc/runtime";
+import { translateSccAsm } from "./scc/translateAsm";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;
@@ -42,6 +44,9 @@ export type Mz80ProjectTargetModule = string | {
 export type Mz80ProjectTarget = {
   output: string;
   modules: Mz80ProjectTargetModule[];
+  runtime?: SccRuntimeName;
+  runtimeObject?: string;
+  libraries?: string[];
   as?: Mz80AsOptions;
   link?: Mz80LinkOptions;
 };
@@ -65,6 +70,13 @@ export type ResolvedProjectTarget = {
   name: string;
   output: string;
   modules: ResolvedProjectModule[];
+  runtime?: {
+    name: SccRuntimeName;
+    source: string;
+    asm: string;
+    object: string;
+  };
+  libraries: string[];
   as?: Mz80AsOptions;
   link?: Mz80LinkOptions;
 };
@@ -130,6 +142,15 @@ export function resolveProjectTarget(
     name: targetName,
     output: path.resolve(configDir, raw.output),
     modules,
+    runtime: raw.runtime
+      ? resolveRuntimePaths(
+        configDir,
+        raw.output,
+        raw.runtime,
+        raw.runtimeObject,
+      )
+      : undefined,
+    libraries: (raw.libraries ?? []).map((entry) => path.resolve(configDir, entry)),
     as: mergeAsOptions(cfg.as, raw.as),
     link: mergeLinkOptions(cfg.link, raw.link),
   };
@@ -142,6 +163,22 @@ export function buildProjectTarget(
   logger: Logger,
 ): ResolvedProjectTarget {
   const target = resolveProjectTarget(configPath, cfg, requestedTarget);
+  if (target.runtime) {
+    fs.mkdirSync(path.dirname(target.runtime.source), { recursive: true });
+    fs.writeFileSync(target.runtime.source, getBundledSccRuntime(target.runtime.name), "utf8");
+    fs.writeFileSync(
+      target.runtime.asm,
+      translateSccAsm(fs.readFileSync(target.runtime.source, "utf8"), { moduleName: target.runtime.name }),
+      "utf8",
+    );
+    assemble(logger, target.runtime.asm, target.runtime.object, {
+      ...(target.as ?? {}),
+      relVersion: normalizeRelVersion(target.as?.relVersion),
+      symLen: normalizeSymLen(target.as?.symLen),
+      includePaths: (target.as?.includePaths ?? []).map((p) => path.resolve(path.dirname(configPath), p)),
+      verbose: false,
+    });
+  }
   for (const mod of target.modules) {
     fs.mkdirSync(path.dirname(mod.object), { recursive: true });
     assemble(logger, mod.source, mod.object, {
@@ -154,7 +191,11 @@ export function buildProjectTarget(
   }
 
   fs.mkdirSync(path.dirname(target.output), { recursive: true });
-  link(target.modules.map((mod) => mod.object), target.output, target.link ?? {});
+  link([
+    ...(target.runtime ? [target.runtime.object] : []),
+    ...target.modules.map((mod) => mod.object),
+    ...target.libraries,
+  ], target.output, target.link ?? {});
   return target;
 }
 
@@ -187,6 +228,27 @@ function deriveObjectPath(targetOutput: string, sourcePath: string): string {
   return path.join(outDir, base);
 }
 
+function resolveRuntimePaths(
+  configDir: string,
+  targetOutput: string,
+  runtimeName: SccRuntimeName,
+  runtimeObject?: string,
+): ResolvedProjectTarget["runtime"] {
+  const objectPath = path.resolve(
+    configDir,
+    runtimeObject && runtimeObject.trim().length > 0
+      ? runtimeObject
+      : path.join(path.dirname(targetOutput), `${runtimeName}.rel`),
+  );
+  const basePath = objectPath.replace(/\.rel$/i, "");
+  return {
+    name: runtimeName,
+    source: `${basePath}.scc.asm`,
+    asm: `${basePath}.asm`,
+    object: objectPath,
+  };
+}
+
 function mergeAsOptions(base?: Mz80AsOptions, override?: Mz80AsOptions): Mz80AsOptions | undefined {
   if (!base && !override) return undefined;
   return {
@@ -205,7 +267,7 @@ function mergeLinkOptions(base?: Mz80LinkOptions, override?: Mz80LinkOptions): M
 }
 
 function normalizeRelVersion(value?: number | string): 1 | 2 | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined) return 2;
   return String(value) === "2" ? 2 : 1;
 }
 

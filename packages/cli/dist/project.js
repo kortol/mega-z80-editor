@@ -13,6 +13,8 @@ const path_1 = __importDefault(require("path"));
 const yaml_1 = __importDefault(require("yaml"));
 const mz80_as_1 = require("./cli/mz80-as");
 const mz80_link_1 = require("./cli/mz80-link");
+const runtime_1 = require("./scc/runtime");
+const translateAsm_1 = require("./scc/translateAsm");
 function loadProjectConfig(configPath, logger) {
     try {
         if (!fs_1.default.existsSync(configPath))
@@ -62,12 +64,28 @@ function resolveProjectTarget(configPath, cfg, requestedTarget) {
         name: targetName,
         output: path_1.default.resolve(configDir, raw.output),
         modules,
+        runtime: raw.runtime
+            ? resolveRuntimePaths(configDir, raw.output, raw.runtime, raw.runtimeObject)
+            : undefined,
+        libraries: (raw.libraries ?? []).map((entry) => path_1.default.resolve(configDir, entry)),
         as: mergeAsOptions(cfg.as, raw.as),
         link: mergeLinkOptions(cfg.link, raw.link),
     };
 }
 function buildProjectTarget(configPath, cfg, requestedTarget, logger) {
     const target = resolveProjectTarget(configPath, cfg, requestedTarget);
+    if (target.runtime) {
+        fs_1.default.mkdirSync(path_1.default.dirname(target.runtime.source), { recursive: true });
+        fs_1.default.writeFileSync(target.runtime.source, (0, runtime_1.getBundledSccRuntime)(target.runtime.name), "utf8");
+        fs_1.default.writeFileSync(target.runtime.asm, (0, translateAsm_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: target.runtime.name }), "utf8");
+        (0, mz80_as_1.assemble)(logger, target.runtime.asm, target.runtime.object, {
+            ...(target.as ?? {}),
+            relVersion: normalizeRelVersion(target.as?.relVersion),
+            symLen: normalizeSymLen(target.as?.symLen),
+            includePaths: (target.as?.includePaths ?? []).map((p) => path_1.default.resolve(path_1.default.dirname(configPath), p)),
+            verbose: false,
+        });
+    }
     for (const mod of target.modules) {
         fs_1.default.mkdirSync(path_1.default.dirname(mod.object), { recursive: true });
         (0, mz80_as_1.assemble)(logger, mod.source, mod.object, {
@@ -79,7 +97,11 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger) {
         });
     }
     fs_1.default.mkdirSync(path_1.default.dirname(target.output), { recursive: true });
-    (0, mz80_link_1.link)(target.modules.map((mod) => mod.object), target.output, target.link ?? {});
+    (0, mz80_link_1.link)([
+        ...(target.runtime ? [target.runtime.object] : []),
+        ...target.modules.map((mod) => mod.object),
+        ...target.libraries,
+    ], target.output, target.link ?? {});
     return target;
 }
 function cleanProject(configPath, cfg) {
@@ -110,6 +132,18 @@ function deriveObjectPath(targetOutput, sourcePath) {
     const base = path_1.default.basename(sourcePath).replace(/\.[^.]+$/, ".rel");
     return path_1.default.join(outDir, base);
 }
+function resolveRuntimePaths(configDir, targetOutput, runtimeName, runtimeObject) {
+    const objectPath = path_1.default.resolve(configDir, runtimeObject && runtimeObject.trim().length > 0
+        ? runtimeObject
+        : path_1.default.join(path_1.default.dirname(targetOutput), `${runtimeName}.rel`));
+    const basePath = objectPath.replace(/\.rel$/i, "");
+    return {
+        name: runtimeName,
+        source: `${basePath}.scc.asm`,
+        asm: `${basePath}.asm`,
+        object: objectPath,
+    };
+}
 function mergeAsOptions(base, override) {
     if (!base && !override)
         return undefined;
@@ -129,7 +163,7 @@ function mergeLinkOptions(base, override) {
 }
 function normalizeRelVersion(value) {
     if (value === undefined)
-        return undefined;
+        return 2;
     return String(value) === "2" ? 2 : 1;
 }
 function normalizeSymLen(value) {
