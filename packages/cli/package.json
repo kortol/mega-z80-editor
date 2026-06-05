@@ -64,7 +64,8 @@
   },
   "pkg": {
     "assets": [
-      "dist/assembler/parser/gen/z80_assembler.js"
+      "dist/assembler/parser/gen/z80_assembler.js",
+      "dist/scc/runtime/*.scc.asm"
     ]
   }
 }

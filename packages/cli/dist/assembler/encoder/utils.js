@@ -34,9 +34,12 @@ const tokenizer_1 = require("../tokenizer");
 function resolveLocalSymbolName(ctx, name) {
     let resolved = name;
     if (resolved.startsWith(".")) {
-        const base = ctx.currentGlobalLabel;
-        if (base)
-            resolved = `${base}${resolved}`;
+        const externName = ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
+        if (!ctx.externs.has(externName)) {
+            const base = ctx.currentGlobalLabel;
+            if (base)
+                resolved = `${base}${resolved}`;
+        }
     }
     return ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
 }

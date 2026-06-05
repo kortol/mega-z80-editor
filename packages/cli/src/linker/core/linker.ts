@@ -181,9 +181,9 @@ function inferSectionKind(name?: string, kind?: RelSectionInfo["kind"]): RelSect
   if (kind) return kind;
   const n = normalizeSectionName(name);
   if (n === "ASEG") return "ASEG";
-  if (n.includes("TEXT") || n === "CSEG") return "TEXT";
+  if (n.includes("TEXT") || n.includes("CODE") || n === "CSEG") return "TEXT";
   if (n.includes("DATA") || n === "DSEG") return "DATA";
-  if (n.includes("BSS")) return "BSS";
+  if (n.includes("BSS") || n.includes("STACK")) return "BSS";
   return "CUSTOM";
 }
 

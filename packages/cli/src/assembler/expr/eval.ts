@@ -212,11 +212,15 @@ export function evalExpr(expr: Expr, ctx: EvalContext): EvalResult {
   }
 }
 
-function resolveLocalSymbolName(name: string, ctx: { currentGlobalLabel?: string; caseInsensitive?: boolean }): string {
+function resolveLocalSymbolName(name: string, ctx: { currentGlobalLabel?: string; caseInsensitive?: boolean; externs?: Set<string> }): string {
   let resolved = name;
   if (name?.startsWith(".")) {
-    const base = ctx.currentGlobalLabel;
-    if (base) resolved = `${base}${name}`;
+    const externName = ctx.caseInsensitive ? name.toUpperCase() : name;
+    const externs = "externs" in ctx && ctx.externs instanceof Set ? ctx.externs : undefined;
+    if (!externs?.has(externName)) {
+      const base = ctx.currentGlobalLabel;
+      if (base) resolved = `${base}${name}`;
+    }
   }
   return ctx.caseInsensitive ? resolved.toUpperCase() : resolved;
 }

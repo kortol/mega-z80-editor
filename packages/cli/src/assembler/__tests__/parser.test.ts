@@ -219,6 +219,23 @@ describe("parser", () => {
     ]);
   });
 
+  test("ASxxxx/SCC dotted directives are parsed", () => {
+    const ctx = makeCtx();
+    const nodes = parseLines(
+      ctx,
+      ".module hello.i\n.globl .gchar,.gint,.pchar,.pint\n.area _CODE\n.ascii \"ABC\"\n.asciz \"Z\"\n.dw .main\n.ds 8"
+    );
+    expect(nodes).toMatchObject([
+      { kind: "pseudo", op: ".MODULE", args: [{ value: "hello.i" }] },
+      { kind: "pseudo", op: ".GLOBL", args: [{ value: ".gchar" }, { value: ".gint" }, { value: ".pchar" }, { value: ".pint" }] },
+      { kind: "pseudo", op: ".AREA", args: [{ value: "_CODE" }] },
+      { kind: "pseudo", op: ".ASCII", args: [{ value: '"ABC"' }] },
+      { kind: "pseudo", op: ".ASCIZ", args: [{ value: '"Z"' }] },
+      { kind: "pseudo", op: "DW", args: [{ value: ".main" }] },
+      { kind: "pseudo", op: "DS", args: [{ value: "8" }] },
+    ]);
+  });
+
   test("P2-M: parse condition/list/segment directives", () => {
     const ctx = makeCtx();
     const nodes = parseLines(

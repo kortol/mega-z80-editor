@@ -120,9 +120,9 @@ export function emitSection(
   const upper = name.toUpperCase();
   const kind =
     upper === "ASEG" ? "ASEG" :
-      upper.includes("TEXT") || upper === "CSEG" ? "TEXT" :
+      upper.includes("TEXT") || upper.includes("CODE") || upper === "CSEG" ? "TEXT" :
         upper.includes("DATA") || upper === "DSEG" ? "DATA" :
-          upper.includes("BSS") ? "BSS" : "CUSTOM";
+          upper.includes("BSS") || upper.includes("STACK") ? "BSS" : "CUSTOM";
 
   // 現在のセクションを保存
   const prev = ctx.sections.get(ctx.currentSection);

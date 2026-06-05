@@ -55,19 +55,27 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       return handleEXTERNALAlias(ctx, node);
     case ".SYMLEN":
       return handleSYMLEN(ctx, node);
+    case ".MODULE":
+      ctx.moduleName = node.args?.[0]?.value ?? ctx.moduleName;
+      return;
     case "DB":
     case "DEFB":
     case "DEFM":
+    case ".DB":
+    case ".ASCII":
       return handleDB(ctx, node);
     case "DC":
       return handleDC(ctx, node);
     case "DZ":
+    case ".ASCIZ":
       return handleDZ(ctx, node);
     case "DW":
     case "DEFW":
+    case ".DW":
       return handleDW(ctx, node);
     case "DS":
     case "DEFS":
+    case ".DS":
       return handleDS(ctx, node); // 何もしない（領域確保は context.js の reserveBytes() で実施済み）
     case ".WORD32":
       return handleWORD32(ctx, node);
@@ -81,6 +89,7 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       return handleSET(ctx, { ...node, op: "SET" });
     case "GLOBAL":
     case "PUBLIC":
+    case ".GLOBL":
       return handleGLOBAL(ctx, node);
     case "LOCAL":
       return handleLOCAL(ctx, node);
@@ -109,6 +118,11 @@ export function handlePseudo(ctx: AsmContext, node: NodePseudo): void {
       const alignArg = node.args?.find((a) => a.key?.toUpperCase() === "ALIGN");
       const align = alignArg ? Number(alignArg.value) : 1;
       handleSECTION(ctx, name, { align: align });
+      break;
+    }
+    case ".AREA": {
+      const name = node.args?.[0]?.value ?? "_CODE";
+      handleSECTION(ctx, name);
       break;
     }
     case "ALIGN": {

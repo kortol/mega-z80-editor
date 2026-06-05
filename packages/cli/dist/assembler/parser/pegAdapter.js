@@ -94,6 +94,9 @@ function operandToRaw(op) {
 function toPseudoArgsFromValues(values) {
     return values.map((v) => ({ value: String(exprToRaw(v)) }));
 }
+function rawArgsFromDirectiveValues(values) {
+    return values.map((v) => String(exprToRaw(v)).trim()).filter((v) => v.length > 0);
+}
 function makePseudo(op, args, pos) {
     return { kind: "pseudo", op, args, pos };
 }
@@ -169,10 +172,24 @@ function splitStatementSeparators(source) {
     }
     return out;
 }
+function normalizeAsxxxxCompat(source) {
+    return source
+        .split(/\r?\n/)
+        .map((line) => {
+        if (/^\s*\.module\b/i.test(line)) {
+            return line.replace(/^(\s*)\.module\b/i, "$1MODULE");
+        }
+        if (/^\s*\.globl\b/i.test(line)) {
+            return line.replace(/^(\s*)\.globl\b/i, "$1GLOBL");
+        }
+        return line;
+    })
+        .join("\n");
+}
 function parsePeg(ctx, source) {
     let ast;
     try {
-        ast = pegParser.parse(splitStatementSeparators(source));
+        ast = pegParser.parse(splitStatementSeparators(normalizeAsxxxxCompat(source)));
     }
     catch (err) {
         if (err?.name === "SyntaxError" || /Expected/.test(String(err?.message ?? ""))) {
@@ -187,7 +204,9 @@ function parsePeg(ctx, source) {
         "IF", "ELSE", "ELSEIF", "ENDIF", "IFIDN", "DZ", "DS", ".SYMLEN", ".WORD32",
         "DEFL", "DEFM", "DC", "DEFINE", "DEFARRAY", "DISPLAY", "IFDEF", "IFNDEF", "IFB", "IFNB", "IFDIF", "EXITM", "INCPATH",
         "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT",
-        "OUTPUT", "OUTEND"
+        "OUTPUT", "OUTEND",
+        ".MODULE", ".GLOBL", ".AREA", ".ASCII", ".ASCIZ", ".DB", ".DW", ".DS",
+        "MODULE", "GLOBL"
     ]);
     const macroNames = new Set();
     const useMacroOverride = !ctx.options?.strictMacro;
@@ -426,6 +445,19 @@ function parsePeg(ctx, source) {
                     continue;
                 }
             }
+            if (labelName?.startsWith(".") && !labelColon) {
+                const dottedOp = labelName.toUpperCase();
+                if (instr.type === "directive") {
+                    const args = rawArgsFromDirectiveValues(instr.values ?? []);
+                    nodes.push(makePseudo(dottedOp, args.map((value) => ({ value })), linePos));
+                    continue;
+                }
+                if (instr.type === "macroInvoke") {
+                    const args = [String(instr.name), ...(instr.args ?? []).map((a) => (a == null ? "" : String(a)))];
+                    nodes.push(makePseudo(dottedOp, args.filter((value) => value.length > 0).map((value) => ({ value })), linePos));
+                    continue;
+                }
+            }
             // FOO EQU 10 / FOO SET 20 などのラベル横並びシンタックスを対応
             if (labelName && instr.type === "macroInvoke") {
                 const op = String(instr.name).toUpperCase();
@@ -567,6 +599,30 @@ function parsePeg(ctx, source) {
                         break;
                     case ".SYMLEN":
                         nodes.push(makePseudo(".SYMLEN", instr.value ? [{ value: exprToRaw(instr.value) }] : [], pos));
+                        break;
+                    case ".MODULE":
+                        nodes.push(makePseudo(".MODULE", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".GLOBL":
+                        nodes.push(makePseudo(".GLOBL", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".AREA":
+                        nodes.push(makePseudo(".AREA", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".ASCII":
+                        nodes.push(makePseudo(".ASCII", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".ASCIZ":
+                        nodes.push(makePseudo(".ASCIZ", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".DB":
+                        nodes.push(makePseudo("DB", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".DW":
+                        nodes.push(makePseudo("DW", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
+                        break;
+                    case ".DS":
+                        nodes.push(makePseudo("DS", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));
                         break;
                     case ".ORG":
                         nodes.push(makePseudo("ORG", toPseudoArgsFromValues(instr.values ?? (instr.args ?? [])), pos));

@@ -1,9 +1,13 @@
 // src/linker/core/parser.ts
-import * as fs from "fs";
 import { RelModule, RelSectionInfo } from "./types";
 
 export function parseRelFile(filename: string): RelModule {
+  const fs = require("fs") as typeof import("fs");
   const buf = fs.readFileSync(filename);
+  return parseRelBuffer(filename, buf);
+}
+
+export function parseRelBuffer(filename: string, buf: Buffer | Uint8Array): RelModule {
   // v2 begins with binary magic "MZ8R" + version byte, then text body.
   const isV2 = buf.length >= 5
     && buf[0] === 0x4d // M

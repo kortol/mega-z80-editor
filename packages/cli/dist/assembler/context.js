@@ -231,6 +231,9 @@ exports.canon = canon;
 function resolveLocalLabel(ctx, name) {
     if (!name?.startsWith("."))
         return name;
+    const externName = (0, exports.canon)(name, ctx);
+    if (ctx.externs.has(externName))
+        return name;
     if (!ctx.currentGlobalLabel)
         return name;
     return `${ctx.currentGlobalLabel}${name}`;

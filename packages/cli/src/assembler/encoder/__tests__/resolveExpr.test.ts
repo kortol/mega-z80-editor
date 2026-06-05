@@ -54,6 +54,16 @@ describe("resolveExpr8/16", () => {
       expect(ctx.unresolved[0].sectionId).toBe(0);
     });
 
+    test(".PINT keeps extern identity inside a global label scope", () => {
+      ctx.currentGlobalLabel = "IN8255";
+      ctx.externs.add(".PINT");
+      const val = resolveExpr16(ctx, ".pint", pos);
+      expect(val).toBe(0);
+      expect(ctx.unresolved).toContainEqual(expect.objectContaining({
+        addr: 1, symbol: ".PINT", size: 2,
+      }));
+    });
+
     test("EXT+1", () => {
       resolveExpr8(ctx, "EXT+1", pos);
       expect(ctx.unresolved).toContainEqual(expect.objectContaining({

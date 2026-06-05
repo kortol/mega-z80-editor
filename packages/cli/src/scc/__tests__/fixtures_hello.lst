@@ -1,0 +1,271 @@
+; --- SECTION: .text ---
+;#include "fixtures_hello_mz80.asm"
+in8255:
+0000  C5              push	bc
+0001  21 00 00        ld	hl,0	 ;-2(ix)
+0004  39              add	hl,sp
+0005  E5              push	hl
+0006  21 00 10        ld	hl,4096
+0009  D1              pop	de
+000A  CD ** **        call	.pint
+__scc_local_2:
+000D  21 00 00        ld	hl,0	 ;-2(ix)
+0010  39              add	hl,sp
+0011  CD ** **        call	.gint
+0014  E5              push	hl
+0015  21 00 00        ld	hl,0
+0018  D1              pop	de
+0019  CD ** **        call	.gt
+001C  7C              ld	a,h
+001D  B5              or	l
+001E  C2 ** **        JP	nz,__scc_local_4
+0021  C3 ** **        JP	__scc_local_5
+__scc_local_3:
+0024  21 00 00        ld	hl,0	 ;-2(ix)
+0027  39              add	hl,sp
+0028  E5              push	hl
+0029  CD ** **        call	.gint
+002C  2B              dec	hl
+002D  D1              pop	de
+002E  CD ** **        call	.pint
+0031  C3 ** **        JP	__scc_local_2
+__scc_local_4:
+0034  C3 ** **        JP	__scc_local_3
+__scc_local_5:
+0037  3E BD           ld	a,0xbd
+0039  01 03 00        ld	bc,0x3
+003C  ED 79           out	(c),a
+003E  3E 05           ld	a,0x05
+0040  01 03 00        ld	bc,0x3
+0043  ED 79           out	(c),a
+0045  3E 09           ld	a,0x09
+0047  01 03 00        ld	bc,0x3
+004A  ED 79           out	(c),a
+__scc_local_1:
+004C  C1              pop	bc
+004D  C9              ret
+outchar:
+loop:
+004E  01 02 00        ld	bc,0x2
+0051  DB **           in	a,(c)
+0053  CB **           bit	6,a
+0055  20 F7           jr	nz,loop
+0057  CB 4F           bit	1,a
+0059  28 F3           jr	z,loop
+005B  21 02 00        ld	hl,2	 ;2(ix)
+005E  39              add	hl,sp
+005F  CD ** **        call	.gint
+0062  7D              ld	a,l
+0063  01 01 00        ld	bc,0x1
+0066  ED 79           out	(c),a
+0068  01 00 20        ld	bc,0x2000
+006B  DB **           in	a,(c)
+__scc_local_6:
+006D  C9              ret
+outstr:
+__scc_local_8:
+006E  ** 02 00        ld	hl,2	 ;2(ix)
+0071  39              add	hl,sp
+0072  CD ** **        call	.gint
+0075  CD ** **        call	.gchar
+0078  7C              ld	a,h
+0079  B5              or	l
+007A  CA ** **        JP	z,__scc_local_9
+007D  21 02 00        ld	hl,2	 ;2(ix)
+0080  39              add	hl,sp
+0081  CD ** **        call	.gint
+0084  CD ** **        call	.gchar
+0087  E5              push	hl
+0088  3E 01           ld	a,1
+008A  CD ** **        call	outchar
+008D  C1              pop	bc
+008E  21 02 00        ld	hl,2	 ;2(ix)
+0091  39              add	hl,sp
+0092  E5              push	hl
+0093  CD ** **        call	.gint
+0096  23              inc	hl
+0097  D1              pop	de
+0098  CD ** **        call	.pint
+009B  C3 ** **        JP	__scc_local_8
+__scc_local_9:
+__scc_local_7:
+009E  C9              ret
+main:
+009F  3B              dec	sp
+00A0  3E 00           ld	a,0
+00A2  CD ** **        call	in8255
+00A5  21 ** **        ld	hl,__scc_local_0+0
+00A8  E5              push	hl
+00A9  3E 01           ld	a,1
+00AB  CD ** **        call	outstr
+00AE  C1              pop	bc
+00AF  21 00 00        ld	hl,0	 ;-1(ix)
+00B2  39              add	hl,sp
+00B3  E5              push	hl
+00B4  21 30 00        ld	hl,48
+00B7  D1              pop	de
+00B8  CD ** **        call	.pchar
+__scc_local_11:
+00BB  21 00 00        ld	hl,0	 ;-1(ix)
+00BE  39              add	hl,sp
+00BF  CD ** **        call	.gchar
+00C2  E5              push	hl
+00C3  21 39 00        ld	hl,57
+00C6  D1              pop	de
+00C7  CD ** **        call	.le
+00CA  7C              ld	a,h
+00CB  B5              or	l
+00CC  C2 ** **        JP	nz,__scc_local_13
+00CF  C3 ** **        JP	__scc_local_14
+__scc_local_12:
+00D2  21 00 00        ld	hl,0	 ;-1(ix)
+00D5  39              add	hl,sp
+00D6  E5              push	hl
+00D7  CD ** **        call	.gchar
+00DA  23              inc	hl
+00DB  D1              pop	de
+00DC  CD ** **        call	.pchar
+00DF  C3 ** **        JP	__scc_local_11
+__scc_local_13:
+00E2  21 00 00        ld	hl,0	 ;-1(ix)
+00E5  39              add	hl,sp
+00E6  CD ** **        call	.gchar
+00E9  E5              push	hl
+00EA  3E 01           ld	a,1
+00EC  CD ** **        call	outchar
+00EF  C1              pop	bc
+00F0  C3 ** **        JP	__scc_local_12
+__scc_local_14:
+00F3  21 00 00        ld	hl,0	 ;-1(ix)
+00F6  39              add	hl,sp
+00F7  E5              push	hl
+00F8  21 41 00        ld	hl,65
+00FB  D1              pop	de
+00FC  CD ** **        call	.pchar
+__scc_local_15:
+00FF  21 00 00        ld	hl,0	 ;-1(ix)
+0102  39              add	hl,sp
+0103  CD ** **        call	.gchar
+0106  E5              push	hl
+0107  21 5A 00        ld	hl,90
+010A  D1              pop	de
+010B  CD ** **        call	.le
+010E  7C              ld	a,h
+010F  B5              or	l
+0110  C2 ** **        JP	nz,__scc_local_17
+0113  C3 ** **        JP	__scc_local_18
+__scc_local_16:
+0116  21 00 00        ld	hl,0	 ;-1(ix)
+0119  39              add	hl,sp
+011A  E5              push	hl
+011B  CD ** **        call	.gchar
+011E  23              inc	hl
+011F  D1              pop	de
+0120  CD ** **        call	.pchar
+0123  C3 ** **        JP	__scc_local_15
+__scc_local_17:
+0126  21 00 00        ld	hl,0	 ;-1(ix)
+0129  39              add	hl,sp
+012A  CD ** **        call	.gchar
+012D  E5              push	hl
+012E  3E 01           ld	a,1
+0130  CD ** **        call	outchar
+0133  C1              pop	bc
+0134  C3 ** **        JP	__scc_local_16
+__scc_local_18:
+0137  21 00 00        ld	hl,0	 ;-1(ix)
+013A  39              add	hl,sp
+013B  E5              push	hl
+013C  21 61 00        ld	hl,97
+013F  D1              pop	de
+0140  CD ** **        call	.pchar
+__scc_local_19:
+0143  21 00 00        ld	hl,0	 ;-1(ix)
+0146  39              add	hl,sp
+0147  CD ** **        call	.gchar
+014A  E5              push	hl
+014B  21 7A 00        ld	hl,122
+014E  D1              pop	de
+014F  CD ** **        call	.le
+0152  7C              ld	a,h
+0153  B5              or	l
+0154  C2 ** **        JP	nz,__scc_local_21
+0157  C3 ** **        JP	__scc_local_22
+__scc_local_20:
+015A  21 00 00        ld	hl,0	 ;-1(ix)
+015D  39              add	hl,sp
+015E  E5              push	hl
+015F  CD ** **        call	.gchar
+0162  23              inc	hl
+0163  D1              pop	de
+0164  CD ** **        call	.pchar
+0167  C3 ** **        JP	__scc_local_19
+__scc_local_21:
+016A  21 00 00        ld	hl,0	 ;-1(ix)
+016D  39              add	hl,sp
+016E  CD ** **        call	.gchar
+0171  E5              push	hl
+0172  3E 01           ld	a,1
+0174  CD ** **        call	outchar
+0177  C1              pop	bc
+0178  C3 ** **        JP	__scc_local_20
+__scc_local_22:
+017B  21 ** **        ld	hl,__scc_local_0+33
+017E  E5              push	hl
+017F  3E 01           ld	a,1
+0181  CD ** **        call	outstr
+0184  C1              pop	bc
+__scc_local_10:
+0185  33              inc	sp
+0186  C9              ret
+;#endinclude (fixtures_hello_mz80.asm)
+; --- SECTION: .data ---
+;#include "fixtures_hello_mz80.asm"
+__scc_local_0:
+0000  5A 38 30 20       __scc_local_0:         DB 90,56,48,32,83,109,97,108
+    53 6D 61 6C
+0008  6C 20 43 20       DB 108,32,67,32,100,101,118,101
+    64 65 76 65
+0010  6C 6F 70 6D       DB 108,111,112,109,101,110,116,32
+    65 6E 74 20
+0018  73 79 73 74       DB 115,121,115,116,101,109,13,10
+    65 6D 0D 0A
+0020  00 0D 0A 00       DB 0,13,10,0
+;#endinclude (fixtures_hello_mz80.asm)
+; --- SECTION: .bss ---
+;#include "fixtures_hello_mz80.asm"
+PUBLIC in8255
+PUBLIC outchar
+PUBLIC outstr
+PUBLIC main
+EXTERN .and
+EXTERN .asl
+EXTERN .asr
+EXTERN .bool
+EXTERN .case
+EXTERN .com
+EXTERN .div
+EXTERN .eq
+EXTERN .gchar
+EXTERN .ge
+EXTERN .gint
+EXTERN .gt
+EXTERN .le
+EXTERN .lneg
+EXTERN .lt
+EXTERN .mul
+EXTERN .ne
+EXTERN .neg
+EXTERN .or
+EXTERN .pchar
+EXTERN .pint
+EXTERN .sub
+EXTERN .sxt
+EXTERN .uge
+EXTERN .ugt
+EXTERN .ule
+EXTERN .ult
+EXTERN .xor
+EXTERN edata
+EXTERN etext
+;#endinclude (fixtures_hello_mz80.asm)

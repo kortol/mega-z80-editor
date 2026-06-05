@@ -48,19 +48,27 @@ function handlePseudo(ctx, node) {
             return (0, compat_1.handleEXTERNALAlias)(ctx, node);
         case ".SYMLEN":
             return (0, equ_1.handleSYMLEN)(ctx, node);
+        case ".MODULE":
+            ctx.moduleName = node.args?.[0]?.value ?? ctx.moduleName;
+            return;
         case "DB":
         case "DEFB":
         case "DEFM":
+        case ".DB":
+        case ".ASCII":
             return (0, data_1.handleDB)(ctx, node);
         case "DC":
             return (0, data_2.handleDC)(ctx, node);
         case "DZ":
+        case ".ASCIZ":
             return (0, data_2.handleDZ)(ctx, node);
         case "DW":
         case "DEFW":
+        case ".DW":
             return (0, data_1.handleDW)(ctx, node);
         case "DS":
         case "DEFS":
+        case ".DS":
             return (0, data_1.handleDS)(ctx, node); // 何もしない（領域確保は context.js の reserveBytes() で実施済み）
         case ".WORD32":
             return (0, data_1.handleWORD32)(ctx, node);
@@ -74,6 +82,7 @@ function handlePseudo(ctx, node) {
             return (0, set_1.handleSET)(ctx, { ...node, op: "SET" });
         case "GLOBAL":
         case "PUBLIC":
+        case ".GLOBL":
             return (0, compat_1.handleGLOBAL)(ctx, node);
         case "LOCAL":
             return (0, compat_1.handleLOCAL)(ctx, node);
@@ -102,6 +111,11 @@ function handlePseudo(ctx, node) {
             const alignArg = node.args?.find((a) => a.key?.toUpperCase() === "ALIGN");
             const align = alignArg ? Number(alignArg.value) : 1;
             (0, section_1.handleSECTION)(ctx, name, { align: align });
+            break;
+        }
+        case ".AREA": {
+            const name = node.args?.[0]?.value ?? "_CODE";
+            (0, section_1.handleSECTION)(ctx, name);
             break;
         }
         case "ALIGN": {

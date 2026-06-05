@@ -4,8 +4,10 @@ import { BinOutputAdapter } from "../linker/output/binAdapter";
 import { MapAdapter } from "../linker/output/mapAdapter";
 import { SymAdapter } from "../linker/output/symAdapter";
 import { LogAdapter } from "../linker/output/logAdapter";
+import { isArchivePath, loadArchiveFile } from "../linker/archive";
 import * as path from "path";
 import { readSourceMap, SourceMapEntry, SourceMapFile, writeSourceMap } from "../sourcemap/model";
+import { RelModule } from "../linker/core/types";
 
 export function link(
   inputFiles: string[],
@@ -28,10 +30,7 @@ export function link(
 ) {
   const verbose = !!opts.verbose; 
 
-  const mods = inputFiles.map((f) => {
-    if (verbose) console.log(`[LOAD] ${f}`);
-    return parseRelFile(f);
-  });
+  const { mods, sourceMaps } = loadLinkInputs(inputFiles, verbose);
 
   const hasV2 = mods.some((m) => m.version === 2);
   const hasV1 = mods.some((m) => !m.version || m.version === 1);
@@ -90,8 +89,7 @@ export function link(
     }
 
     mods.forEach((mod, i) => {
-      const inPath = inputFiles[i].replace(/\.[^.]+$/, ".smap");
-      const sm = readSourceMap(inPath);
+      const sm = sourceMaps[i];
       if (!sm) return;
       for (const e of sm.entries) {
         const sec = normalizeSection(e.section);
@@ -116,6 +114,74 @@ export function link(
   if (verbose) {
     console.log(`✅ Linked ${inputFiles.length} modules -> ${outputFile}`);
   }  
+}
+
+function loadLinkInputs(
+  inputFiles: string[],
+  verbose: boolean,
+): { mods: RelModule[]; sourceMaps: Array<SourceMapFile | null> } {
+  const directMods: RelModule[] = [];
+  const directMaps: Array<SourceMapFile | null> = [];
+  const archives = [];
+
+  for (const filePath of inputFiles) {
+    if (isArchivePath(filePath)) {
+      if (verbose) console.log(`[ARCHIVE] ${filePath}`);
+      archives.push(loadArchiveFile(filePath));
+      continue;
+    }
+    if (verbose) console.log(`[LOAD] ${filePath}`);
+    directMods.push(parseRelFile(filePath));
+    directMaps.push(readSourceMap(filePath.replace(/\.[^.]+$/, ".smap")));
+  }
+
+  if (archives.length === 0) {
+    return { mods: directMods, sourceMaps: directMaps };
+  }
+
+  const selectedMods = [...directMods];
+  const selectedMaps = [...directMaps];
+  const satisfied = new Set<string>();
+  const unresolved = new Set<string>();
+
+  const refreshState = () => {
+    satisfied.clear();
+    unresolved.clear();
+    for (const mod of selectedMods) {
+      for (const sym of mod.symbols) {
+        if (sym.storage !== "EXT") satisfied.add(sym.name);
+      }
+    }
+    for (const mod of selectedMods) {
+      for (const ext of mod.externs) {
+        if (!satisfied.has(ext)) unresolved.add(ext);
+      }
+    }
+  };
+
+  refreshState();
+
+  let changed = true;
+  const usedMembers = new Set<string>();
+  while (changed) {
+    changed = false;
+    for (const archive of archives) {
+      for (const member of archive.members) {
+        const memberKey = `${archive.path}:${member.name}`;
+        if (usedMembers.has(memberKey)) continue;
+        const provides = member.module.symbols.some((sym) => sym.storage !== "EXT" && unresolved.has(sym.name));
+        if (!provides) continue;
+        if (verbose) console.log(`[ARCHIVE-LOAD] ${archive.path} -> ${member.name}`);
+        usedMembers.add(memberKey);
+        selectedMods.push(member.module);
+        selectedMaps.push(null);
+        refreshState();
+        changed = true;
+      }
+    }
+  }
+
+  return { mods: selectedMods, sourceMaps: selectedMaps };
 }
 
 function normalizeSection(section?: string): string {

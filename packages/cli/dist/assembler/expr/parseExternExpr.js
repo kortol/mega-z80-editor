@@ -16,7 +16,10 @@ function parseExternExpr(ctx, expr) {
         symbols: ctx.symbols,
         externs: ctx.externs,
         pass: 1,
-        errors: ctx.errors,
+        // Probe on a scratch error list so forward local labels do not leak
+        // undefined-symbol diagnostics when the caller is only checking whether
+        // the expression is relocatable.
+        errors: [],
         visiting: new Set(),
         loc: ctx.loc,
         currentGlobalLabel: ctx.currentGlobalLabel,

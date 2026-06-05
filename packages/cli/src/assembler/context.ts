@@ -485,6 +485,8 @@ export const canon = (s: string, ctx: AsmContext) =>
 /** Resolve dot-local labels against current global label. */
 export function resolveLocalLabel(ctx: AsmContext, name: string): string {
   if (!name?.startsWith(".")) return name;
+  const externName = canon(name, ctx);
+  if (ctx.externs.has(externName)) return name;
   if (!ctx.currentGlobalLabel) return name;
   return `${ctx.currentGlobalLabel}${name}`;
 }

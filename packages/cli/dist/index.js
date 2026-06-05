@@ -79,11 +79,17 @@ function validateConfig(cfg) {
 }
 // P1 assembler / linker を import
 const mz80_as_1 = require("./cli/mz80-as");
+const mz80_ar_1 = require("./cli/mz80-ar");
 const mz80_link_1 = require("./cli/mz80-link");
 const mz80_dbg_1 = require("./cli/mz80-dbg");
 const mz80_dbg_remote_1 = require("./cli/mz80-dbg-remote");
 const mz80_dap_1 = require("./cli/mz80-dap");
+const mz80_scc_lib_1 = require("./cli/mz80-scc-lib");
+const mz80_scc_asm_1 = require("./cli/mz80-scc-asm");
+const mz80_scc_runtime_1 = require("./cli/mz80-scc-runtime");
 const console_1 = require("./console");
+const runtime_1 = require("./scc/runtime");
+const libraryPresets_1 = require("./scc/libraryPresets");
 const program = new commander_1.Command();
 program.enablePositionalOptions();
 function normalizeArgvForFullpath(argv) {
@@ -103,6 +109,10 @@ function normalizeArgvForFullpath(argv) {
     }
     return out;
 }
+function collect(value, previous) {
+    previous.push(value);
+    return previous;
+}
 program
     .name("mz80")
     .description("MegaZ80Editor CLI (P0 phase)")
@@ -111,6 +121,110 @@ program
     .option("--json", "output JSON instead of human-readable text", false)
     .option("--verbose", "enable verbose logging", false)
     .option("--quiet", "suppress all output", false);
+program
+    .command("scc-asm <input> <output>")
+    .description("Translate SCC/ASxxxx-style Z80 asm into mz80 asm")
+    .option("--verbose", "Show detailed output")
+    .option("--quiet", "Suppress logs")
+    .action((input, output, opts) => {
+    const logLevel = opts.quiet
+        ? "quiet"
+        : opts.verbose
+            ? "verbose"
+            : "normal";
+    const logger = (0, logger_1.createLogger)(logLevel);
+    try {
+        (0, mz80_scc_asm_1.translateSccAsmFile)(logger, path_1.default.resolve(input), path_1.default.resolve(output));
+    }
+    catch (err) {
+        logger.error(`Failed to translate SCC asm: ${err?.message ?? err}`);
+        process.exit(1);
+    }
+});
+program
+    .command("scc-runtime <name> <output>")
+    .description(`Write bundled SCC runtime source (${runtime_1.SCC_RUNTIME_NAMES.join(", ")})`)
+    .option("--verbose", "Show detailed output")
+    .option("--quiet", "Suppress logs")
+    .action((name, output, opts) => {
+    const logLevel = opts.quiet
+        ? "quiet"
+        : opts.verbose
+            ? "verbose"
+            : "normal";
+    const logger = (0, logger_1.createLogger)(logLevel);
+    if (!runtime_1.SCC_RUNTIME_NAMES.includes(name)) {
+        logger.error(`Unknown SCC runtime: ${name}`);
+        process.exit(1);
+    }
+    try {
+        (0, mz80_scc_runtime_1.writeSccRuntimeFile)(logger, name, path_1.default.resolve(output));
+    }
+    catch (err) {
+        logger.error(`Failed to write SCC runtime: ${err?.message ?? err}`);
+        process.exit(1);
+    }
+});
+program
+    .command("ar <output> <inputs...>")
+    .description("Archive .rel files into a reusable mz80 library (.a/.lib)")
+    .option("--verbose", "Show detailed output")
+    .option("--quiet", "Suppress logs")
+    .action((output, inputs, opts) => {
+    const logLevel = opts.quiet
+        ? "quiet"
+        : opts.verbose
+            ? "verbose"
+            : "normal";
+    const logger = (0, logger_1.createLogger)(logLevel);
+    try {
+        (0, mz80_ar_1.archiveRelFiles)(logger, output, inputs);
+    }
+    catch (err) {
+        logger.error(`Failed to create archive: ${err?.message ?? err}`);
+        process.exit(1);
+    }
+});
+program
+    .command("scc-lib <output> <inputs...>")
+    .description("Build an mz80 archive from Small-C library sources via dcpp + sccz80")
+    .option("--preset <name>", `Use a bundled source preset (${Object.keys(libraryPresets_1.SCC_LIBRARY_PRESETS).join(", ")})`)
+    .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])
+    .option("--cpp-arg <arg>", "Pass a raw argument to dcpp", collect, [])
+    .option("--scc-arg <arg>", "Pass a raw argument to sccz80", collect, [])
+    .option("--dcpp <path>", "Path to dcpp executable")
+    .option("--sccz80 <path>", "Path to sccz80 executable")
+    .option("--wsl", "Run dcpp and sccz80 through WSL", false)
+    .option("--temp-dir <dir>", "Directory for intermediate files")
+    .option("--keep-temps", "Keep intermediate files", false)
+    .option("--verbose", "Show detailed output")
+    .option("--quiet", "Suppress logs")
+    .action((output, inputs, opts) => {
+    const logLevel = opts.quiet
+        ? "quiet"
+        : opts.verbose
+            ? "verbose"
+            : "normal";
+    const logger = (0, logger_1.createLogger)(logLevel);
+    try {
+        (0, mz80_scc_lib_1.buildSccLibraryArchive)(logger, output, inputs, {
+            include: opts.include,
+            preset: opts.preset,
+            cppArg: opts.cppArg,
+            sccArg: opts.sccArg,
+            dcpp: opts.dcpp,
+            sccz80: opts.sccz80,
+            wsl: opts.wsl,
+            tempDir: opts.tempDir,
+            keepTemps: opts.keepTemps,
+            verbose: !!opts.verbose,
+        });
+    }
+    catch (err) {
+        logger.error(`Failed to build SCC library: ${err?.message ?? err}`);
+        process.exit(1);
+    }
+});
 program
     .command("build [target]")
     .description("Build target from mz80.yaml project configuration")

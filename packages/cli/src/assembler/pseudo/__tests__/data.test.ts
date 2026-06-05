@@ -101,8 +101,6 @@ describe("pseudo - DB/DW", () => {
     // 擬似的にparseExternExprが "EXT+1" のような形式を認識する前提
     handlePseudo(ctx, makeNode("DB", ["EXT+1"]));
 
-    console.log(ctx);
-
     expect(ctx.unresolved.length).toBe(1);
     const u = ctx.unresolved[0];
     expect(u.symbol).toBe("EXT");
@@ -149,6 +147,22 @@ describe("pseudo - DB/DW", () => {
     expect(u.size).toBe(2);
     expect(u.addr).toBe(0);
     expect(ctx.texts[0].data).toEqual([0x34, 0x12]);
+  });
+
+  test("DW forward local label in analyze phase does not leak undefined-symbol errors", () => {
+    const ctx = createContext({ moduleName: "TEST" });
+    initCodegen(ctx, { withDefaultSections: true });
+    ctx.phase = "analyze";
+    ctx.symbols.set("LBL", {
+      value: 0x1234,
+      type: "LABEL",
+      sectionId: 0,
+      pos: { line: 1, file: "test.asm", phase: "analyze" },
+    } as any);
+
+    handlePseudo(ctx, makeNode("DW", ["LBL"]));
+
+    expect(ctx.errors).toEqual([]);
   });
 
   test("DS EXT1-$ registers unresolved (future support)", () => {

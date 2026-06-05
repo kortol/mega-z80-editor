@@ -169,11 +169,11 @@ function inferSectionKind(name, kind) {
     const n = normalizeSectionName(name);
     if (n === "ASEG")
         return "ASEG";
-    if (n.includes("TEXT") || n === "CSEG")
+    if (n.includes("TEXT") || n.includes("CODE") || n === "CSEG")
         return "TEXT";
     if (n.includes("DATA") || n === "DSEG")
         return "DATA";
-    if (n.includes("BSS"))
+    if (n.includes("BSS") || n.includes("STACK"))
         return "BSS";
     return "CUSTOM";
 }

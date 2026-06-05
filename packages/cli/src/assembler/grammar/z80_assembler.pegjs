@@ -103,6 +103,8 @@ NonMacroInstruction
     / DisplayDirective
     / ExtDirective
     / ExternalDirective
+    / ModuleDirective
+    / GloblDirective
     / SectionDirective
     / IncludeDirective
     / IncPathDirective
@@ -236,6 +238,16 @@ IfIdnDirective
         return makeNode('directive', { name: 'EXTERNAL', symbols: symbols.map(s => s.name) }, location());
       }
 
+  ModuleDirective
+    = "MODULE"i __ value:IncludeBare {
+        return makeNode('directive', { name: '.MODULE', values: [value] }, location());
+      }
+
+  GloblDirective
+    = "GLOBL"i __ symbols:SymbolIdentifierList {
+        return makeNode('directive', { name: '.GLOBL', values: symbols }, location());
+      }
+
 SectionDirective
   = "SECTION"i __ name:Identifier opts:SectionOpts? {
       return makeNode('directive', { name: 'SECTION', section: name.name, ...opts }, location());
@@ -290,9 +302,20 @@ Word32Directive
     }
 
 GenericDotDirective
-  = name:DotIdentifier args:(_ (StringLiteral / Expression))? {
-      const values = args ? [args[1]] : [];
+  = name:DotIdentifier args:(_ DotDirectiveArgList)? {
+      const values = args ? args[1] : [];
       return makeNode('directive', { name: name.name, values }, location());
+    }
+
+DotDirectiveArgList
+  = first:DotDirectiveArg rest:(_ "," _ DotDirectiveArg)* {
+      return [first, ...rest.map(r => r[3])];
+    }
+
+DotDirectiveArg
+  = StringLiteral
+  / raw:$([^,;\r\n]+) {
+      return raw.trim();
     }
 
 BareStringDirective
@@ -754,6 +777,11 @@ IfIdnArg
 
 IdentifierList
   = first:Identifier rest:(_ "," _ Identifier)* {
+      return [first, ...rest.map(r => r[3])];
+    }
+
+SymbolIdentifierList
+  = first:SymbolIdentifier rest:(_ "," _ SymbolIdentifier)* {
       return [first, ...rest.map(r => r[3])];
     }
 

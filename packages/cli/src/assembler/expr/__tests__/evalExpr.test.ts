@@ -68,6 +68,13 @@ describe("evalExpr", () => {
       expect(formatResult(evalExpr(parseE(ctx, "EXT"), ec))).toBe("extern(EXT+0)");
     });
 
+    test(".PINT with current global label still resolves as extern", () => {
+      ec.currentGlobalLabel = "IN8255";
+      ec.caseInsensitive = true;
+      ec.externs.add(".PINT");
+      expect(formatResult(evalExpr(parseE(ctx, ".pint"), ec))).toBe("extern(.PINT+0)");
+    });
+
     test("-EXT => error", () => {
       expect(evalExpr(parseE(ctx, "-EXT"), ec).kind).toBe("Error");
     });
