@@ -299,6 +299,17 @@ program
   .command("build [target]")
   .description("Build target from mz80.yaml project configuration")
   .option("--list", "list available targets and exit")
+  .option("--runtime <name>", `Override bundled runtime (${SCC_RUNTIME_NAMES.join(", ")})`)
+  .option("--library <path>", "Override link archive input", collect, [])
+  .option("-I, --include <dir>", "Override include directory for dcpp", collect, [])
+  .option("--cpp-arg <arg>", "Override raw dcpp argument", collect, [])
+  .option("--scc-arg <arg>", "Override raw sccz80 argument", collect, [])
+  .option("--dcpp <path>", "Override dcpp executable")
+  .option("--sccz80 <path>", "Override sccz80 executable")
+  .option("--wsl", "Run dcpp and sccz80 through WSL", false)
+  .option("--temp-dir <dir>", "Override intermediate directory")
+  .option("--keep-temps", "Keep intermediate files", false)
+  .option("--trace-pipeline", "Log Small-C pipeline stages", false)
   .option("--verbose", "Show detailed output")
   .option("--quiet", "Suppress logs")
   .action((target, opts) => {
@@ -323,7 +334,21 @@ program
     }
 
     try {
-      const built = buildProjectTarget(configPath, cfg, target, logger);
+      const built = buildProjectTarget(configPath, cfg, target, logger, {
+        runtime: opts.runtime,
+        libraries: opts.library?.length ? opts.library : undefined,
+        cc: {
+          includeDirs: opts.include?.length ? opts.include : undefined,
+          cppArgs: opts.cppArg?.length ? opts.cppArg : undefined,
+          sccArgs: opts.sccArg?.length ? opts.sccArg : undefined,
+          dcpp: opts.dcpp,
+          sccz80: opts.sccz80,
+          toolMode: opts.wsl ? "wsl" : undefined,
+          tempDir: opts.tempDir,
+          keepTemps: opts.keepTemps ? true : undefined,
+          tracePipeline: opts.tracePipeline ? true : undefined,
+        },
+      });
       console.log(`✅ Built target '${built.name}' -> ${built.output}`);
     } catch (err: any) {
       console.error(`❌ Build failed: ${err.message}`);

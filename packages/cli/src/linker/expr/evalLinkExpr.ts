@@ -8,13 +8,14 @@ import {
 } from "./types";
 
 /**
- * P1-F: リンク時式評価 (symbol ± const, numberのみ対応)
+ * P1-F: リンク時式評価 (flat + / - sequence of symbols and constants)
  *
  * 入力例:
  *   "1234"
  *   "FOO"
  *   "BAR+2"
  *   "EXTSYM-4"
+ *   "FOO+BAR-4"
  *
  * 出力:
  *   { ok:true, value: number } または { ok:false, unresolved: [...] }
@@ -40,46 +41,47 @@ export function evalLinkExpr(
     return { ok: true, value: wrap16 ? num & 0xFFFF : num };
   }
 
-  // --- 2️⃣ シンボル ± 定数、または定数 ± 定数 ---
-  // Accept linker symbol names that may include dots (e.g. TESTNAME.TEST, .text)
-  // in addition to plain identifiers.
-  const m = trim.match(
-    /^([A-Za-z_.$?][A-Za-z0-9_.$?]*|[0-9A-F]+H|0x[0-9A-F]+|\d+)([+\-]\d+|[+\-]0x[0-9A-Fa-f]+|[+\-][0-9A-Fa-f]+H)?$/i
-  );
-
-  if (!m) {
-    return { ok: false, errors: ["Unsupported expression (only symbol±const supported)"] };
+  // --- 2️⃣ 平坦な + / - 連結式 ---
+  const parsed = parseFlatExpression(trim);
+  if (!parsed) {
+    return { ok: false, errors: ["Unsupported expression (only flat +/- expressions supported)"] };
   }
 
-  const name = m[1];
-  const addend = m[2] ? parseNumber(m[2]) ?? 0 : 0;
+  let total = 0;
+  for (const term of parsed) {
+    const numVal = parseNumber(term.token);
+    if (numVal !== null) {
+      total += term.sign * numVal;
+      continue;
+    }
 
-  // 「数値 ± 定数」なら直接計算して返す
-  if (parseNumber(name) !== null) {
-    const base = parseNumber(name)!;
-    const val = base + addend;
-    return { ok: true, value: wrap16 ? val & 0xFFFF : val };
+    let sym: ResolveResult;
+    try {
+      sym = resolve(term.token, ctx);
+    } catch (e) {
+      return { ok: false, errors: [`Resolver threw exception: ${(e as Error).message}`] };
+    }
+
+    if (sym.kind === "defined") {
+      total += term.sign * sym.addr;
+      continue;
+    }
+
+    if (sym.kind === "extern" || sym.kind === "unknown") {
+      unresolved.add(term.token);
+      continue;
+    }
+
+    errors.push("Unexpected resolution state");
   }
 
-  // --- 3️⃣ リゾルバ呼び出し ---
-  let sym: ResolveResult;
-  try {
-    sym = resolve(name, ctx);
-  } catch (e) {
-    return { ok: false, errors: [`Resolver threw exception: ${(e as Error).message}`] };
+  if (errors.length > 0) {
+    return { ok: false, errors };
   }
-
-  if (sym.kind === "defined") {
-    const val = (sym.addr + addend) & 0xFFFF;
-    return { ok: true, value: wrap16 ? val & 0xFFFF : val };
-  }
-
-  if (sym.kind === "extern" || sym.kind === "unknown") {
-    unresolved.add(name);
+  if (unresolved.size > 0) {
     return { ok: false, unresolved: Array.from(unresolved) };
   }
-
-  return { ok: false, errors: ["Unexpected resolution state"] };
+  return { ok: true, value: wrap16 ? total & 0xFFFF : total };
 }
 
 /** 数値文字列 → number */
@@ -91,4 +93,35 @@ function parseNumber(token: string): number | null {
   if (/^0X[0-9A-F]+$/.test(body)) return sign * parseInt(body.slice(2), 16);
   if (/^[+\-]?\d+$/.test(t)) return parseInt(t, 10);
   return null;
+}
+
+function parseFlatExpression(expr: string): Array<{ sign: 1 | -1; token: string }> | null {
+  const tokens: Array<{ sign: 1 | -1; token: string }> = [];
+  let i = 0;
+  let sign: 1 | -1 = 1;
+  while (i < expr.length) {
+    while (i < expr.length && /\s/.test(expr[i]!)) i++;
+    if (i >= expr.length) break;
+
+    const ch = expr[i]!;
+    if (ch === "+") {
+      sign = 1;
+      i++;
+      continue;
+    }
+    if (ch === "-") {
+      sign = -1;
+      i++;
+      continue;
+    }
+
+    const start = i;
+    while (i < expr.length && !/[+\-\s]/.test(expr[i]!)) i++;
+    const token = expr.slice(start, i).trim();
+    if (!token) return null;
+    tokens.push({ sign, token });
+    sign = 1;
+  }
+
+  return tokens.length > 0 ? tokens : null;
 }

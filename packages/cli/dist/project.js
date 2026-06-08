@@ -89,8 +89,8 @@ function resolveProjectTarget(configPath, cfg, requestedTarget) {
         link: mergeLinkOptions(cfg.link, raw.link),
     };
 }
-function buildProjectTarget(configPath, cfg, requestedTarget, logger) {
-    const target = resolveProjectTarget(configPath, cfg, requestedTarget);
+function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides) {
+    const target = applyBuildOverrides(resolveProjectTarget(configPath, cfg, requestedTarget), configPath, overrides);
     const tempDir = target.cc?.tempDir
         ? path_1.default.resolve(target.cc.tempDir)
         : path_1.default.join(path_1.default.dirname(target.output), `.mz80-scc-${target.name}`);
@@ -98,6 +98,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger) {
         dcppPath: target.cc?.dcpp,
         sccz80Path: target.cc?.sccz80,
         toolMode: target.cc?.toolMode ?? "host",
+        tracePipeline: target.cc?.tracePipeline,
     });
     if (target.runtime) {
         fs_1.default.mkdirSync(path_1.default.dirname(target.runtime.source), { recursive: true });
@@ -217,6 +218,28 @@ function mergeCcOptions(base, override) {
         includeDirs: override?.includeDirs ?? base?.includeDirs,
         cppArgs: override?.cppArgs ?? base?.cppArgs,
         sccArgs: override?.sccArgs ?? base?.sccArgs,
+    };
+}
+function applyBuildOverrides(target, configPath, overrides) {
+    if (!overrides)
+        return target;
+    const configDir = path_1.default.dirname(configPath);
+    const mergedCc = mergeCcOptions(target.cc, overrides.cc);
+    const runtimeName = overrides.runtime ?? target.runtime?.name;
+    return {
+        ...target,
+        runtime: runtimeName
+            ? resolveRuntimePaths(configDir, target.output, runtimeName, target.runtime?.object)
+            : undefined,
+        libraries: (overrides.libraries ?? target.libraries).map((entry) => path_1.default.resolve(configDir, entry)),
+        cc: mergedCc
+            ? {
+                ...mergedCc,
+                tempDir: mergedCc.tempDir ? path_1.default.resolve(configDir, mergedCc.tempDir) : undefined,
+                includeDirs: (mergedCc.includeDirs ?? []).map((entry) => path_1.default.resolve(configDir, entry)),
+                libraries: (mergedCc.libraries ?? []).map((entry) => path_1.default.resolve(configDir, entry)),
+            }
+            : undefined,
     };
 }
 function normalizeRelVersion(value) {

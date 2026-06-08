@@ -50,6 +50,13 @@ export type Mz80CcOptions = {
   toolMode?: ToolMode;
   tempDir?: string;
   keepTemps?: boolean;
+  tracePipeline?: boolean;
+};
+
+export type BuildProjectOverrides = {
+  runtime?: SccRuntimeName;
+  libraries?: string[];
+  cc?: Mz80CcOptions;
 };
 
 export type Mz80ProjectTargetModule = string | {
@@ -200,8 +207,9 @@ export function buildProjectTarget(
   cfg: Mz80Config,
   requestedTarget: string | undefined,
   logger: Logger,
+  overrides?: BuildProjectOverrides,
 ): ResolvedProjectTarget {
-  const target = resolveProjectTarget(configPath, cfg, requestedTarget);
+  const target = applyBuildOverrides(resolveProjectTarget(configPath, cfg, requestedTarget), configPath, overrides);
   const tempDir = target.cc?.tempDir
     ? path.resolve(target.cc.tempDir)
     : path.join(path.dirname(target.output), `.mz80-scc-${target.name}`);
@@ -209,6 +217,7 @@ export function buildProjectTarget(
     dcppPath: target.cc?.dcpp,
     sccz80Path: target.cc?.sccz80,
     toolMode: target.cc?.toolMode ?? "host",
+    tracePipeline: target.cc?.tracePipeline,
   });
   if (target.runtime) {
     fs.mkdirSync(path.dirname(target.runtime.source), { recursive: true });
@@ -342,6 +351,37 @@ function mergeCcOptions(base?: Mz80CcOptions, override?: Mz80CcOptions): Mz80CcO
     includeDirs: override?.includeDirs ?? base?.includeDirs,
     cppArgs: override?.cppArgs ?? base?.cppArgs,
     sccArgs: override?.sccArgs ?? base?.sccArgs,
+  };
+}
+
+function applyBuildOverrides(
+  target: ResolvedProjectTarget,
+  configPath: string,
+  overrides?: BuildProjectOverrides,
+): ResolvedProjectTarget {
+  if (!overrides) return target;
+  const configDir = path.dirname(configPath);
+  const mergedCc = mergeCcOptions(target.cc, overrides.cc);
+  const runtimeName = overrides.runtime ?? target.runtime?.name;
+  return {
+    ...target,
+    runtime: runtimeName
+      ? resolveRuntimePaths(
+        configDir,
+        target.output,
+        runtimeName,
+        target.runtime?.object,
+      )
+      : undefined,
+    libraries: (overrides.libraries ?? target.libraries).map((entry) => path.resolve(configDir, entry)),
+    cc: mergedCc
+      ? {
+        ...mergedCc,
+        tempDir: mergedCc.tempDir ? path.resolve(configDir, mergedCc.tempDir) : undefined,
+        includeDirs: (mergedCc.includeDirs ?? []).map((entry) => path.resolve(configDir, entry)),
+        libraries: (mergedCc.libraries ?? []).map((entry) => path.resolve(configDir, entry)),
+      }
+      : undefined,
   };
 }
 

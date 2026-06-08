@@ -45,6 +45,7 @@ export type ExternalSccCompilerAdapterOptions = {
   toolMode?: ToolMode;
   runTool?: RunTool;
   assembleFile?: AssembleFile;
+  tracePipeline?: boolean;
 };
 
 export class ExternalSccCompilerAdapter implements CompilerAdapter {
@@ -53,6 +54,7 @@ export class ExternalSccCompilerAdapter implements CompilerAdapter {
   private readonly toolMode: ToolMode;
   private readonly runTool: RunTool;
   private readonly assembleFile: AssembleFile;
+  private readonly tracePipeline: boolean;
 
   constructor(opts: ExternalSccCompilerAdapterOptions = {}) {
     this.dcppPath = opts.dcppPath ?? "dcpp";
@@ -60,12 +62,13 @@ export class ExternalSccCompilerAdapter implements CompilerAdapter {
     this.toolMode = opts.toolMode ?? "host";
     this.runTool = opts.runTool ?? defaultRunTool;
     this.assembleFile = opts.assembleFile ?? assemble;
+    this.tracePipeline = !!opts.tracePipeline;
   }
 
   compileToRel(logger: Logger, opts: CompilerAdapterCompileOptions): CompileSccSourceResult {
     const resolvedInput = path.resolve(opts.inputFile);
     const stageRoot = path.resolve(opts.tempDir);
-    const stem = path.basename(resolvedInput, path.extname(resolvedInput)).toLowerCase();
+    const stem = sanitizeStageStem(path.basename(resolvedInput, path.extname(resolvedInput)).toLowerCase());
     const stageDir = path.join(stageRoot, stem);
     fs.mkdirSync(stageDir, { recursive: true });
     const includeDirs = prepareToolchainIncludeDirs(stageRoot, this.toolMode, opts.includeDirs ?? []);
@@ -75,22 +78,41 @@ export class ExternalSccCompilerAdapter implements CompilerAdapter {
     const asmFile = path.join(stageDir, `${stem}.asm`);
     const relFile = opts.outputRelFile ? path.resolve(opts.outputRelFile) : path.join(stageDir, `${stem}.rel`);
 
-    this.runTool(
-      this.dcppPath,
-      [...buildCppArgs(includeDirs, opts.cppArgs), resolvedInput, preArg],
-      stageDir,
-      this.toolMode,
-    );
+    const dcppArgs = [...buildCppArgs(includeDirs, opts.cppArgs), resolvedInput, preArg];
+    const sccArgs = [...(opts.sccArgs ?? []), preArg];
+    trace(logger, this.tracePipeline, `SCC stage dir: ${stageDir}`);
+    trace(logger, this.tracePipeline, `SCC preprocess: ${formatToolInvocation(this.dcppPath, dcppArgs, this.toolMode)}`);
+    try {
+      this.runTool(
+        this.dcppPath,
+        dcppArgs,
+        stageDir,
+        this.toolMode,
+      );
+    } catch (error: any) {
+      throw new Error(`SCC preprocess failed for ${resolvedInput}: ${error?.message ?? error}`);
+    }
 
-    this.runTool(
-      this.sccz80Path,
-      [...(opts.sccArgs ?? []), preArg],
-      stageDir,
-      this.toolMode,
-    );
+    trace(logger, this.tracePipeline, `SCC compile: ${formatToolInvocation(this.sccz80Path, sccArgs, this.toolMode)}`);
+    try {
+      this.runTool(
+        this.sccz80Path,
+        sccArgs,
+        stageDir,
+        this.toolMode,
+      );
+    } catch (error: any) {
+      throw new Error(`SCC compile failed for ${resolvedInput}: ${error?.message ?? error}`);
+    }
 
-    const generatedAsmPath = findGeneratedSccAsm(stageDir, stem);
+    let generatedAsmPath: string;
+    try {
+      generatedAsmPath = findGeneratedSccAsm(stageDir, stem);
+    } catch (error: any) {
+      throw new Error(`SCC asm discovery failed for ${resolvedInput}: ${error?.message ?? error}`);
+    }
     const translated = translateSccAsmFromFile(generatedAsmPath, sccAsmFile);
+    trace(logger, this.tracePipeline, `SCC translate: ${generatedAsmPath} -> ${translated.asmFile}`);
     fs.mkdirSync(path.dirname(relFile), { recursive: true });
     const ctx = this.assembleFile(logger, translated.asmFile, relFile, {
       relVersion: 2,
@@ -144,4 +166,19 @@ function copyAsm(inputPath: string, outputPath: string): string {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.copyFileSync(inputPath, outputPath);
   return outputPath;
+}
+
+function trace(logger: Logger, enabled: boolean, message: string): void {
+  if (!enabled) return;
+  logger.info(message);
+}
+
+function formatToolInvocation(command: string, args: string[], toolMode: ToolMode): string {
+  return toolMode === "wsl"
+    ? `wsl ${command} ${args.join(" ")}`
+    : `${command} ${args.join(" ")}`;
+}
+
+function sanitizeStageStem(stem: string): string {
+  return stem.replace(/[^a-z0-9_.$@]/gi, "_");
 }

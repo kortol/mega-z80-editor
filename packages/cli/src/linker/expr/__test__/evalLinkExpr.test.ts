@@ -67,7 +67,8 @@ describe("P1-F: evalLinkExpr (with LinkResolveContext)", () => {
   it("returns error for unsupported expression", () => {
     const res = evalLinkExpr("A+B-4", resolver);
     expect(res.ok).toBe(false);
-    expect(res.errors?.[0]).toMatch(/Unsupported/);
+    expect(res.unresolved).toContain("A");
+    expect(res.unresolved).toContain("B");
   });
 
   it("returns error for empty expression", () => {
@@ -80,5 +81,17 @@ describe("P1-F: evalLinkExpr (with LinkResolveContext)", () => {
     const res = evalLinkExpr("0xFFFF+2", resolver);
     expect(res.ok).toBe(true);
     expect(res.value).toBe(1);
+  });
+
+  it("evaluates symbol plus symbol minus constant", () => {
+    const res = evalLinkExpr("FOO+BAR-4", resolver);
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe((0x200 + 0x300 - 4) & 0xffff);
+  });
+
+  it("allows whitespace around operators", () => {
+    const res = evalLinkExpr("FOO + 10H - 2", resolver);
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe((0x200 + 0x10 - 2) & 0xffff);
   });
 });

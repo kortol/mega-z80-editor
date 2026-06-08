@@ -226,4 +226,172 @@ describe("buildProjectTarget", () => {
     expect(result.reason).toBe("BDOS 0: terminate");
     expect(core.getOutput()).toBe("PROJECT SCC OK");
   });
+
+  test("supports multiple C modules, mixed asm modules, and build overrides", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-project-mixed-"));
+    const buildDir = path.join(tempDir, "build");
+    const mainPath = path.join(tempDir, "MAIN.C");
+    const helperPath = path.join(tempDir, "HELPER.C");
+    const bannerAsmPath = path.join(tempDir, "banner.asm");
+    const putsAsmPath = path.join(tempDir, "puts.asm");
+    const putsRelPath = path.join(buildDir, "puts.rel");
+    const libPath = path.join(buildDir, "libputs.lib");
+    const dcppScript = path.join(tempDir, "dcpp.cjs");
+    const dcppCmd = path.join(tempDir, "dcpp.cmd");
+    const sccScript = path.join(tempDir, "sccz80.cjs");
+    const sccCmd = path.join(tempDir, "sccz80.cmd");
+    const configPath = path.join(tempDir, "mz80.yaml");
+
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.writeFileSync(mainPath, "main(){helper();banner();}\n", "utf8");
+    fs.writeFileSync(helperPath, "helper(){puts(\"MULTI OK\");}\n", "utf8");
+    fs.writeFileSync(
+      bannerAsmPath,
+      [
+        "SECTION TEXT",
+        "PUBLIC BANNER",
+        "BANNER:",
+        "\tRET",
+        "END",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      putsAsmPath,
+      [
+        "SECTION TEXT",
+        "PUBLIC PUTS",
+        "PUTS:",
+        "\tLD HL,2",
+        "\tADD HL,SP",
+        "\tLD E,(HL)",
+        "\tINC HL",
+        "\tLD D,(HL)",
+        "\tLD C,9",
+        "\tCALL 5",
+        "\tRET",
+        "END",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    expect(assemble(createLogger("quiet"), putsAsmPath, putsRelPath, { relVersion: 2 }).errors).toEqual([]);
+    createArchive([putsRelPath], libPath);
+
+    fs.writeFileSync(
+      dcppScript,
+      [
+        'const fs = require("node:fs");',
+        'const path = require("node:path");',
+        "const args = process.argv.slice(2);",
+        "const inputPath = args[args.length - 2];",
+        "const outputArg = args[args.length - 1];",
+        "const outputPath = path.isAbsolute(outputArg) ? outputArg : path.join(process.cwd(), outputArg);",
+        'fs.writeFileSync(outputPath, fs.readFileSync(inputPath, "utf8"), "utf8");',
+      ].join("\n"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      sccScript,
+      [
+        'const fs = require("node:fs");',
+        'const path = require("node:path");',
+        "const args = process.argv.slice(2);",
+        "const inputPath = args[args.length - 1];",
+        "const stem = path.basename(inputPath, path.extname(inputPath)).toLowerCase();",
+        "const asmPath = path.join(process.cwd(), `${stem}.asm`);",
+        "const source = stem === 'main' ? [",
+        '"\\t.globl\\thelper,banner,main",',
+        '"\\t.module\\tmain.i",',
+        '"\\t.area\\t_CODE",',
+        '"main:",',
+        '"\\tcall\\thelper",',
+        '"\\tcall\\tbanner",',
+        '"\\tret",',
+        '"\\t.area\\t_BSS",',
+        '"",',
+        "] : [",
+        '"\\t.globl\\tputs,helper",',
+        '"\\t.module\\thelper.i",',
+        '"\\t.area\\t_CODE",',
+        '"helper:",',
+        '"\\tld\\thl,#.0+0",',
+        '"\\tpush\\thl",',
+        '"\\tcall\\tputs",',
+        '"\\tpop\\tbc",',
+        '"\\tret",',
+        '"\\t.area\\t_DATA",',
+        '"\\.0:\\t.ascii\\t\\"MULTI OK$\\"",',
+        '"\\t.area\\t_BSS",',
+        '"",',
+        "];",
+        "fs.writeFileSync(asmPath, source.join(\"\\n\"), \"utf8\");",
+      ].join("\n"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      dcppCmd,
+      `@echo off\r\n"${process.execPath}" "%~dp0\\dcpp.cjs" %*\r\n`,
+      "utf8",
+    );
+    fs.writeFileSync(
+      sccCmd,
+      `@echo off\r\n"${process.execPath}" "%~dp0\\sccz80.cjs" %*\r\n`,
+      "utf8",
+    );
+    fs.writeFileSync(
+      configPath,
+      [
+        "targets:",
+        "  demo:",
+        "    output: build/demo.com",
+        "    runtime: cpmlibc",
+        "    link:",
+        "      com: true",
+        "      orgText: 100H",
+        "    modules:",
+        "      - MAIN.C",
+        "      - HELPER.C",
+        "      - banner.asm",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const built = buildProjectTarget(configPath, {
+      targets: {
+        demo: {
+          output: "build/demo.com",
+          runtime: "cpmlibc",
+          link: { com: true, orgText: "100H" },
+          modules: ["MAIN.C", "HELPER.C", "banner.asm"],
+        },
+      },
+    }, "demo", createLogger("quiet"), {
+      libraries: ["build/libputs.lib"],
+      cc: {
+        dcpp: dcppCmd,
+        sccz80: sccCmd,
+        keepTemps: true,
+        tracePipeline: true,
+      },
+    });
+
+    expect(fs.existsSync(built.output)).toBe(true);
+    expect(built.modules.map((entry) => entry.kind)).toEqual(["c", "c", "asm"]);
+    expect(fs.existsSync(path.join(buildDir, "main.rel"))).toBe(true);
+    expect(fs.existsSync(path.join(buildDir, "helper.rel"))).toBe(true);
+    expect(fs.existsSync(path.join(buildDir, "banner.rel"))).toBe(true);
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(built.output), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("MULTI OK");
+  });
 });
