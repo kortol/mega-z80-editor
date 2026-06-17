@@ -20,16 +20,24 @@ function assembleCompareHelperRuntime(tempDir: string): string {
     "\t.module\tgt_helper",
     "\t.area\t_CODE",
     ".gt:",
+    "\tld\ta,d",
+    "\tcp\th",
+    "\tjr\tc,.false",
+    "\tjr\tnz,.true",
     "\tld\ta,e",
     "\tcp\tl",
     "\tjr\tc,.false",
     "\tjr\tz,.false",
+    ".true:",
     "\tld\thl,#1",
     "\tret",
     ".false:",
     "\tld\thl,#0",
     "\tret",
     ".eq:",
+    "\tld\ta,d",
+    "\tcp\th",
+    "\tjr\tnz,.neq",
     "\tld\ta,e",
     "\tcp\tl",
     "\tjr\tnz,.neq",
@@ -39,9 +47,13 @@ function assembleCompareHelperRuntime(tempDir: string): string {
     "\tld\thl,#0",
     "\tret",
     ".ne:",
+    "\tld\ta,d",
+    "\tcp\th",
+    "\tjr\tnz,.diff",
     "\tld\ta,e",
     "\tcp\tl",
     "\tjr\tz,.same",
+    ".diff:",
     "\tld\thl,#1",
     "\tret",
     ".same:",
@@ -50,6 +62,28 @@ function assembleCompareHelperRuntime(tempDir: string): string {
     "",
   ].join("\n");
   fs.writeFileSync(helperAsmPath, translateSccAsm(helperSource, { moduleName: "gt_helper" }), "utf8");
+  expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
+  return helperRelPath;
+}
+
+function assemblePickFirst16Runtime(tempDir: string): string {
+  const helperAsmPath = path.join(tempDir, "pickfirst16.asm");
+  const helperRelPath = path.join(tempDir, "pickfirst16.rel");
+  const helperSource = [
+    "\t.globl\tpickfirst16",
+    "\t.module\tpickfirst16",
+    "\t.area\t_CODE",
+    "pickfirst16:",
+    "\tld\thl,#4",
+    "\tadd\thl,sp",
+    "\tld\ta,(hl)",
+    "\tinc\thl",
+    "\tld\th,(hl)",
+    "\tld\tl,a",
+    "\tret",
+    "",
+  ].join("\n");
+  fs.writeFileSync(helperAsmPath, translateSccAsm(helperSource, { moduleName: "pickfirst16" }), "utf8");
   expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
   return helperRelPath;
 }
@@ -605,5 +639,149 @@ describe("TsSccCompilerAdapter", () => {
 
     expect(result.reason).toBe("BDOS 0: terminate");
     expect(core.getOutput()).toBe("M");
+  });
+
+  test("statement-level local int vs arg int eq helper fixture compares a callee-local 16-bit slot against a 16-bit argument", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-arg-int-eq-link-"));
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-arg-int-eq-helper-scc" }).compileToRel(createLogger("quiet"), {
+      inputFile: path.join(tempDir, "stmt-local-int-arg-int-eq-helper.c"),
+      tempDir,
+    }).relFile;
+    const outPath = path.join(tempDir, "stmt-local-int-arg-int-eq-helper.com");
+
+    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int_arg_int_eq_helper", "stmt_local_int_arg_int_eq_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-arg-int-eq-helper-scc"));
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("Q");
+  });
+
+  test("statement-level local int vs arg int ne helper fixture compares a callee-local 16-bit slot against a different 16-bit argument", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-arg-int-ne-link-"));
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-arg-int-ne-helper-scc" }).compileToRel(createLogger("quiet"), {
+      inputFile: path.join(tempDir, "stmt-local-int-arg-int-ne-helper.c"),
+      tempDir,
+    }).relFile;
+    const outPath = path.join(tempDir, "stmt-local-int-arg-int-ne-helper.com");
+
+    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int_arg_int_ne_helper", "stmt_local_int_arg_int_ne_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-arg-int-ne-helper-scc"));
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("R");
+  });
+
+  test("statement-level mixed two-arg int call fixture evaluates a local 16-bit caller expression before pushing arguments", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-call-two-arg-int-mixed-link-"));
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-call-two-arg-int-mixed-scc" }).compileToRel(createLogger("quiet"), {
+      inputFile: path.join(tempDir, "stmt-call-two-arg-int-mixed.c"),
+      tempDir,
+    }).relFile;
+    const outPath = path.join(tempDir, "stmt-call-two-arg-int-mixed.com");
+
+    expect(fs.readFileSync(path.join(tempDir, "stmt_call_two_arg_int_mixed", "stmt_call_two_arg_int_mixed.scc.asm"), "utf8")).toBe(readSccFixture("stmt-call-two-arg-int-mixed-scc"));
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("S");
+  });
+
+  test("statement-level local int vs arg int gt helper fixture compares a larger callee-local 16-bit slot against a smaller 16-bit argument", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-arg-int-gt-link-"));
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-arg-int-gt-helper-scc" }).compileToRel(createLogger("quiet"), {
+      inputFile: path.join(tempDir, "stmt-local-int-arg-int-gt-helper.c"),
+      tempDir,
+    }).relFile;
+    const outPath = path.join(tempDir, "stmt-local-int-arg-int-gt-helper.com");
+
+    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int_arg_int_gt_helper", "stmt_local_int_arg_int_gt_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-arg-int-gt-helper-scc"));
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("T");
+  });
+
+  test("statement-level extern two-arg int call fixture pushes a local 16-bit value and calls an external routine", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-extern-two-arg-int-link-"));
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const helperRelPath = assemblePickFirst16Runtime(tempDir);
+    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-extern-two-arg-int-call-scc" }).compileToRel(createLogger("quiet"), {
+      inputFile: path.join(tempDir, "stmt-extern-two-arg-int-call.c"),
+      tempDir,
+    }).relFile;
+    const outPath = path.join(tempDir, "stmt-extern-two-arg-int-call.com");
+
+    expect(fs.readFileSync(path.join(tempDir, "stmt_extern_two_arg_int_call", "stmt_extern_two_arg_int_call.scc.asm"), "utf8")).toBe(readSccFixture("stmt-extern-two-arg-int-call-scc"));
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("U");
   });
 });

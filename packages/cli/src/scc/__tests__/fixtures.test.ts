@@ -41,6 +41,11 @@ describe("SCC_OUTPUT_FIXTURES", () => {
     expect(readSccFixture("stmt-two-arg-ne-helper-scc")).toContain("\tcall\t.ne");
     expect(readSccFixture("stmt-call-two-arg-mixed-scc")).toContain("\tld\t(hl),#67");
     expect(readSccFixture("stmt-two-arg-local-ne-helper-scc")).toContain("\tld\t(hl),#67");
+    expect(readSccFixture("stmt-local-int-arg-int-eq-helper-scc")).toContain("\tld\thl,#4");
+    expect(readSccFixture("stmt-local-int-arg-int-ne-helper-scc")).toContain("\tcall\t.ne");
+    expect(readSccFixture("stmt-local-int-arg-int-gt-helper-scc")).toContain("\tcall\t.gt");
+    expect(readSccFixture("stmt-call-two-arg-int-mixed-scc")).toContain("\tld\t(hl),#83");
+    expect(readSccFixture("stmt-extern-two-arg-int-call-scc")).toContain("\tcall\tpickfirst16");
   });
 
   test("stdio fixtures cover the remaining library entry points", () => {

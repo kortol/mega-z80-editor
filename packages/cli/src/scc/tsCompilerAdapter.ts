@@ -675,6 +675,180 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
           },
         ],
       };
+    case "stmt-local-int-arg-int-eq-helper-scc":
+      return {
+        moduleName: "stmt_local_int_arg_int_eq_helper.i",
+        exports: [".eq", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 90 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "checkmix" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 81 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "checkmix",
+            statements: [
+              { kind: "reserveBytes", count: 2 },
+              { kind: "storeImm16ToLocal", offset: 0, value: 90 },
+              { kind: "compareExprHelper", left: { kind: "argInt", offset: 4 }, right: { kind: "localInt", offset: 2 }, helper: ".eq" },
+              { kind: "releaseBytes", count: 2 },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-local-int-arg-int-ne-helper-scc":
+      return {
+        moduleName: "stmt_local_int_arg_int_ne_helper.i",
+        exports: [".ne", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 91 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "checkmixne" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 82 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "checkmixne",
+            statements: [
+              { kind: "reserveBytes", count: 2 },
+              { kind: "storeImm16ToLocal", offset: 0, value: 90 },
+              { kind: "compareExprHelper", left: { kind: "argInt", offset: 4 }, right: { kind: "localInt", offset: 2 }, helper: ".ne" },
+              { kind: "releaseBytes", count: 2 },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-local-int-arg-int-gt-helper-scc":
+      return {
+        moduleName: "stmt_local_int_arg_int_gt_helper.i",
+        exports: [".gt", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 90 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "checkmixgt" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 84 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "checkmixgt",
+            statements: [
+              { kind: "reserveBytes", count: 2 },
+              { kind: "storeImm16ToLocal", offset: 0, value: 91 },
+              { kind: "compareExprHelper", left: { kind: "localInt", offset: 0 }, right: { kind: "argInt", offset: 6 }, helper: ".gt" },
+              { kind: "releaseBytes", count: 2 },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-call-two-arg-int-mixed-scc":
+      return {
+        moduleName: "stmt_call_two_arg_int_mixed.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "reserveBytes", count: 2 },
+              { kind: "storeImm16ToLocal", offset: 0, value: 83 },
+              { kind: "pushExprArg", expr: { kind: "localInt", offset: 0 } },
+              { kind: "pushExprArg", expr: { kind: "const", value: 84 } },
+              { kind: "call", target: "pickfirst16" },
+              { kind: "popBc" },
+              { kind: "popBc" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "releaseBytes", count: 2 },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "pickfirst16",
+            statements: [
+              { kind: "loadExprHl", expr: { kind: "argInt", offset: 4 } },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-extern-two-arg-int-call-scc":
+      return {
+        moduleName: "stmt_extern_two_arg_int_call.i",
+        exports: ["pickfirst16", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "reserveBytes", count: 2 },
+              { kind: "storeImm16ToLocal", offset: 0, value: 85 },
+              { kind: "pushExprArg", expr: { kind: "localInt", offset: 0 } },
+              { kind: "pushExprArg", expr: { kind: "const", value: 86 } },
+              { kind: "call", target: "pickfirst16" },
+              { kind: "popBc" },
+              { kind: "popBc" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "releaseBytes", count: 2 },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
     default:
       return null;
   }

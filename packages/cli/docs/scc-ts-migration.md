@@ -76,6 +76,16 @@ fixture の入口は `src/scc/fixtures.ts` です。
   - caller 側で local byte と定数を評価して 2 引数 push し、callee が古い側を返す statement fixture
 - `stmt-two-arg-local-ne-helper-scc`
   - caller 側で local byte と定数を 2 引数として積み、callee が `.ne` helper で比較して分岐する statement fixture
+- `stmt-local-int-arg-int-eq-helper-scc`
+  - callee-local の 16-bit slot と 16-bit 引数を `.eq` helper で比較して分岐する statement fixture
+- `stmt-local-int-arg-int-ne-helper-scc`
+  - callee-local の 16-bit slot と 16-bit 引数を `.ne` helper で比較して分岐する statement fixture
+- `stmt-local-int-arg-int-gt-helper-scc`
+  - callee-local の 16-bit slot とより小さい 16-bit 引数を `.gt` helper で比較して分岐する statement fixture
+- `stmt-call-two-arg-int-mixed-scc`
+  - caller 側で local 16-bit 値と定数を評価して 2 引数 push し、callee が古い側の 16-bit 引数を返す statement fixture
+- `stmt-extern-two-arg-int-call-scc`
+  - caller 側で local 16-bit 値と定数を評価して 2 引数 push し、external routine を call する statement fixture
 - `hello.rel`, `hello.lst`, `hello.sym`
   - translator / assembler / linker の比較用 artifact
 
@@ -197,3 +207,13 @@ TS compiler 差し替え時の責務境界は以下です。
 `stmt-call-two-arg-mixed-scc` も追加済みです。これは caller 側で stack-relative local byte と定数を評価して 2 引数として push し、callee が `SP+4` の古い引数を返し、bundled CP/M runtime と link して `C` を出力できます。
 
 `stmt-two-arg-local-ne-helper-scc` も追加済みです。これは caller 側で local byte と定数を push し、callee が `SP+4` と `SP+2` から読み出して `.ne` helper で比較し、helper module と link して `M` を出力できます。
+
+`stmt-local-int-arg-int-eq-helper-scc` も追加済みです。これは callee 内で 2 byte の local slot を確保して値を書き込み、`SP+4` の 16-bit 引数と `.eq` helper で比較し、helper module と link して `Q` を出力できます。
+
+`stmt-local-int-arg-int-ne-helper-scc` も追加済みです。これは callee 内で 2 byte の local slot を確保して値を書き込み、`SP+4` の 16-bit 引数と `.ne` helper で比較し、helper module と link して `R` を出力できます。
+
+`stmt-local-int-arg-int-gt-helper-scc` も追加済みです。これは callee 内で 2 byte の local slot により大きい値を書き込み、`SP+6` の 16-bit 引数と `.gt` helper で比較し、helper module と link して `T` を出力できます。
+
+`stmt-call-two-arg-int-mixed-scc` も追加済みです。これは caller 側で stack-relative local 16-bit 値と定数を評価して 2 引数として push し、callee が `SP+4` の古い 16-bit 引数を返し、bundled CP/M runtime と link して `S` を出力できます。
+
+`stmt-extern-two-arg-int-call-scc` も追加済みです。これは caller 側で stack-relative local 16-bit 値と定数を評価して 2 引数として push し、external `pickfirst16` routine を call して、bundled CP/M runtime と link して `U` を出力できます。
