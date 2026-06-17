@@ -10,6 +10,60 @@ export type TsSccCompilerAdapterOptions = {
   fixtureId?: string;
 };
 
+type ProgramSpec = {
+  moduleName: string;
+  exports?: string[];
+  externs?: string[];
+  data?: DataSpec[];
+  functions: FunctionSpec[];
+  includeBss?: boolean;
+};
+
+type ExprSpec =
+  | { kind: "const"; value: number }
+  | { kind: "dataAddress"; label: string }
+  | { kind: "call"; target: string }
+  | { kind: "localChar"; offset: number }
+  | { kind: "localInt"; offset: number }
+  | { kind: "argChar"; offset: number }
+  | { kind: "argInt"; offset: number };
+
+type FunctionSpec = {
+  name: string;
+  statements: StatementSpec[];
+};
+
+type DataSpec = {
+  label: string;
+  directive: ".ascii" | ".asciz" | ".db" | ".dw" | ".ds";
+  value: string;
+};
+
+type StatementSpec =
+  | { kind: "call"; target: string }
+  | { kind: "loadConstHl"; value: number }
+  | { kind: "loadDataAddressHl"; label: string }
+  | { kind: "loadExprHl"; expr: ExprSpec }
+  | { kind: "pushExprArg"; expr: ExprSpec }
+  | { kind: "pushHlArg" }
+  | { kind: "popBc" }
+  | { kind: "ret" }
+  | { kind: "callWithModeA"; target: string; mode: number }
+  | { kind: "truthJumpZero"; target: string }
+  | { kind: "label"; name: string }
+  | { kind: "jump"; target: string }
+  | { kind: "decSp" }
+  | { kind: "incSp" }
+  | { kind: "reserveBytes"; count: number }
+  | { kind: "releaseBytes"; count: number }
+  | { kind: "loadLocalAddrHl"; offset: number }
+  | { kind: "storeImmToLocal"; offset: number; value: number }
+  | { kind: "loadLocalCharToHl"; offset: number }
+  | { kind: "storeImm16ToLocal"; offset: number; value: number }
+  | { kind: "loadLocalIntToHl"; offset: number }
+  | { kind: "decLocalByte"; offset: number }
+  | { kind: "compareExprHelper"; left: ExprSpec; right: ExprSpec; helper: string };
+
 export class TsSccCompilerAdapter implements CompilerAdapter {
   private readonly fixtureId?: string;
 
@@ -89,62 +143,696 @@ function sanitizeStageStem(stem: string): string {
 }
 
 function emitFixtureBackedSccAsm(fixtureId: string): string {
+  const spec = makeFixtureProgramSpec(fixtureId);
+  if (spec) return emitProgram(spec);
+  return readSccFixture(fixtureId);
+}
+
+function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
   switch (fixtureId) {
     case "frag-string-scc":
-      return [
-        "\t.globl\tmain",
-        "\t.module\tfrag_string.i",
-        "\t.area\t_CODE",
-        "main:",
-        "\tld\thl,#.0+0",
-        "\tret",
-        "\t.area\t_DATA",
-        '.0:\t.asciz\t"HELLO"',
-        "\t.area\t_BSS",
-        "",
-      ].join("\n");
+      return {
+        moduleName: "frag_string.i",
+        exports: ["main"],
+        includeBss: true,
+        data: [{ label: ".0", directive: ".asciz", value: '"HELLO"' }],
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "loadDataAddressHl", label: ".0" },
+            { kind: "ret" },
+          ],
+        }],
+      };
     case "frag-helper-call-scc":
-      return [
-        "\t.globl\t.gint",
-        "\t.globl\tmain",
-        "\t.module\tfrag_helper_call.i",
-        "\t.area\t_CODE",
-        "main:",
-        "\tcall\t.gint",
-        "\tret",
-        "\t.area\t_BSS",
-        "",
-      ].join("\n");
+      return {
+        moduleName: "frag_helper_call.i",
+        exports: [".gint", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "call", target: ".gint" },
+            { kind: "ret" },
+          ],
+        }],
+      };
     case "frag-call-scc":
-      return [
-        "\t.globl\toutstr",
-        "\t.globl\tmain",
-        "\t.module\tfrag_call.i",
-        "\t.area\t_CODE",
-        "main:",
-        "\tcall\toutstr",
-        "\tret",
-        "",
-      ].join("\n");
+      return {
+        moduleName: "frag_call.i",
+        exports: ["outstr", "main"],
+        includeBss: false,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "call", target: "outstr" },
+            { kind: "ret" },
+          ],
+        }],
+      };
     case "stmt-outstr-scc":
-      return [
-        "\t.globl\toutstr",
-        "\t.globl\tmain",
-        "\t.module\tstmt_outstr.i",
-        "\t.area\t_CODE",
-        "main:",
-        "\tld\thl,#.0+0",
-        "\tpush\thl",
-        "\tld\ta,#1",
-        "\tcall\toutstr",
-        "\tpop\tbc",
-        "\tret",
-        "\t.area\t_DATA",
-        '.0:\t.ascii\t"TS STMT$"',
-        "\t.area\t_BSS",
-        "",
-      ].join("\n");
+      return {
+        moduleName: "stmt_outstr.i",
+        exports: ["outstr", "main"],
+        includeBss: true,
+        data: [{ label: ".0", directive: ".ascii", value: '"TS STMT$"' }],
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "loadDataAddressHl", label: ".0" },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outstr", mode: 1 },
+            { kind: "popBc" },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-call-result-scc":
+      return {
+        moduleName: "stmt_call_result.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "call", target: "value" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "value",
+            statements: [
+              { kind: "loadConstHl", value: 88 },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-branch-scc":
+      return {
+        moduleName: "stmt_branch.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "call", target: "flag" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 84 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 70 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "flag",
+            statements: [
+              { kind: "loadConstHl", value: 1 },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-local-slot-scc":
+      return {
+        moduleName: "stmt_local_slot.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "decSp" },
+            { kind: "storeImmToLocal", offset: 0, value: 76 },
+            { kind: "loadLocalCharToHl", offset: 0 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "incSp" },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-compare-helper-scc":
+      return {
+        moduleName: "stmt_compare_helper.i",
+        exports: [".gt", "outchar", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "compareExprHelper", left: { kind: "const", value: 66 }, right: { kind: "const", value: 65 }, helper: ".gt" },
+            { kind: "truthJumpZero", target: ".2" },
+            { kind: "loadConstHl", value: 89 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "ret" },
+            { kind: "label", name: ".2" },
+            { kind: "loadConstHl", value: 78 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-local-compare-scc":
+      return {
+        moduleName: "stmt_local_compare.i",
+        exports: [".gt", "outchar", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "decSp" },
+            { kind: "storeImmToLocal", offset: 0, value: 67 },
+            { kind: "compareExprHelper", left: { kind: "localChar", offset: 0 }, right: { kind: "const", value: 66 }, helper: ".gt" },
+            { kind: "truthJumpZero", target: ".2" },
+            { kind: "loadConstHl", value: 87 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "incSp" },
+            { kind: "ret" },
+            { kind: "label", name: ".2" },
+            { kind: "loadConstHl", value: 88 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "incSp" },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-local-int-scc":
+      return {
+        moduleName: "stmt_local_int.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "reserveBytes", count: 2 },
+            { kind: "storeImm16ToLocal", offset: 0, value: 90 },
+            { kind: "loadLocalIntToHl", offset: 0 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "releaseBytes", count: 2 },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-eq-helper-scc":
+      return {
+        moduleName: "stmt_eq_helper.i",
+        exports: [".eq", "outchar", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "compareExprHelper", left: { kind: "const", value: 81 }, right: { kind: "const", value: 81 }, helper: ".eq" },
+            { kind: "truthJumpZero", target: ".2" },
+            { kind: "loadConstHl", value: 69 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "ret" },
+            { kind: "label", name: ".2" },
+            { kind: "loadConstHl", value: 88 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-loop-scc":
+      return {
+        moduleName: "stmt_loop.i",
+        exports: [".gt", "outchar", "main"],
+        includeBss: true,
+        functions: [{
+          name: "main",
+          statements: [
+            { kind: "decSp" },
+            { kind: "storeImmToLocal", offset: 0, value: 51 },
+            { kind: "label", name: ".2" },
+            { kind: "loadLocalCharToHl", offset: 0 },
+            { kind: "pushHlArg" },
+            { kind: "callWithModeA", target: "outchar", mode: 1 },
+            { kind: "popBc" },
+            { kind: "compareExprHelper", left: { kind: "localChar", offset: 0 }, right: { kind: "const", value: 49 }, helper: ".gt" },
+            { kind: "truthJumpZero", target: ".3" },
+            { kind: "decLocalByte", offset: 0 },
+            { kind: "jump", target: ".2" },
+            { kind: "label", name: ".3" },
+            { kind: "incSp" },
+            { kind: "ret" },
+          ],
+        }],
+      };
+    case "stmt-arg-char-scc":
+      return {
+        moduleName: "stmt_arg_char.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 65 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "echo" },
+              { kind: "popBc" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "echo",
+            statements: [
+              { kind: "loadExprHl", expr: { kind: "argChar", offset: 2 } },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-arg-ne-helper-scc":
+      return {
+        moduleName: "stmt_arg_ne_helper.i",
+        exports: [".ne", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 66 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "check" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 78 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "check",
+            statements: [
+              { kind: "compareExprHelper", left: { kind: "argChar", offset: 2 }, right: { kind: "const", value: 65 }, helper: ".ne" },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-arg-int-scc":
+      return {
+        moduleName: "stmt_arg_int.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 90 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "echo16" },
+              { kind: "popBc" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "echo16",
+            statements: [
+              { kind: "loadExprHl", expr: { kind: "argInt", offset: 2 } },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-two-arg-char-scc":
+      return {
+        moduleName: "stmt_two_arg_char.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 65 },
+              { kind: "pushHlArg" },
+              { kind: "loadConstHl", value: 66 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "pickfirst" },
+              { kind: "popBc" },
+              { kind: "popBc" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "pickfirst",
+            statements: [
+              { kind: "loadExprHl", expr: { kind: "argChar", offset: 4 } },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-arg-int-eq-helper-scc":
+      return {
+        moduleName: "stmt_arg_int_eq_helper.i",
+        exports: [".eq", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 90 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "check16" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 73 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "check16",
+            statements: [
+              { kind: "compareExprHelper", left: { kind: "argInt", offset: 2 }, right: { kind: "const", value: 90 }, helper: ".eq" },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-two-arg-ne-helper-scc":
+      return {
+        moduleName: "stmt_two_arg_ne_helper.i",
+        exports: [".ne", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "loadConstHl", value: 65 },
+              { kind: "pushHlArg" },
+              { kind: "loadConstHl", value: 66 },
+              { kind: "pushHlArg" },
+              { kind: "call", target: "checkpair" },
+              { kind: "popBc" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 68 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "checkpair",
+            statements: [
+              { kind: "compareExprHelper", left: { kind: "argChar", offset: 4 }, right: { kind: "argChar", offset: 2 }, helper: ".ne" },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-call-two-arg-mixed-scc":
+      return {
+        moduleName: "stmt_call_two_arg_mixed.i",
+        exports: ["outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "decSp" },
+              { kind: "storeImmToLocal", offset: 0, value: 67 },
+              { kind: "pushExprArg", expr: { kind: "localChar", offset: 0 } },
+              { kind: "pushExprArg", expr: { kind: "const", value: 68 } },
+              { kind: "call", target: "pickfirst" },
+              { kind: "popBc" },
+              { kind: "popBc" },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "incSp" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "pickfirst",
+            statements: [
+              { kind: "loadExprHl", expr: { kind: "argChar", offset: 4 } },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
+    case "stmt-two-arg-local-ne-helper-scc":
+      return {
+        moduleName: "stmt_two_arg_local_ne_helper.i",
+        exports: [".ne", "outchar", "main"],
+        includeBss: true,
+        functions: [
+          {
+            name: "main",
+            statements: [
+              { kind: "decSp" },
+              { kind: "storeImmToLocal", offset: 0, value: 67 },
+              { kind: "pushExprArg", expr: { kind: "localChar", offset: 0 } },
+              { kind: "pushExprArg", expr: { kind: "const", value: 68 } },
+              { kind: "call", target: "checkpair" },
+              { kind: "popBc" },
+              { kind: "popBc" },
+              { kind: "truthJumpZero", target: ".2" },
+              { kind: "loadConstHl", value: 77 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "incSp" },
+              { kind: "ret" },
+              { kind: "label", name: ".2" },
+              { kind: "loadConstHl", value: 88 },
+              { kind: "pushHlArg" },
+              { kind: "callWithModeA", target: "outchar", mode: 1 },
+              { kind: "popBc" },
+              { kind: "incSp" },
+              { kind: "ret" },
+            ],
+          },
+          {
+            name: "checkpair",
+            statements: [
+              { kind: "compareExprHelper", left: { kind: "argChar", offset: 4 }, right: { kind: "argChar", offset: 2 }, helper: ".ne" },
+              { kind: "ret" },
+            ],
+          },
+        ],
+      };
     default:
-      return readSccFixture(fixtureId);
+      return null;
   }
+}
+
+function emitProgram(spec: ProgramSpec): string {
+  const lines: string[] = [];
+  const exports = spec.exports ?? [];
+  for (const exp of exports) {
+    lines.push(`\t.globl\t${exp}`);
+  }
+  for (const ext of spec.externs ?? []) {
+    lines.push(`\t.globl\t${ext}`);
+  }
+  lines.push(`\t.module\t${spec.moduleName}`);
+  lines.push("\t.area\t_CODE");
+  for (const fn of spec.functions) {
+    lines.push(...emitFunction(fn));
+  }
+  if (spec.data && spec.data.length > 0) {
+    lines.push("\t.area\t_DATA");
+    for (const item of spec.data) {
+      lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
+    }
+  }
+  if (spec.includeBss) {
+    lines.push("\t.area\t_BSS");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function emitFunction(fn: FunctionSpec): string[] {
+  const lines = [`${fn.name}:`];
+  for (const statement of fn.statements) {
+    lines.push(...emitStatement(statement));
+  }
+  return lines;
+}
+
+function emitStatement(statement: StatementSpec): string[] {
+  switch (statement.kind) {
+    case "call":
+      return [`\tcall\t${statement.target}`];
+    case "loadConstHl":
+      return emitExprToHl({ kind: "const", value: statement.value });
+    case "loadDataAddressHl":
+      return emitExprToHl({ kind: "dataAddress", label: statement.label });
+    case "loadExprHl":
+      return emitExprToHl(statement.expr);
+    case "pushExprArg":
+      return [
+        ...emitExprToHl(statement.expr),
+        "\tpush\thl",
+      ];
+    case "pushHlArg":
+      return ["\tpush\thl"];
+    case "popBc":
+      return ["\tpop\tbc"];
+    case "ret":
+      return ["\tret"];
+    case "callWithModeA":
+      return [`\tld\ta,#${statement.mode}`, `\tcall\t${statement.target}`];
+    case "truthJumpZero":
+      return ["\tld\ta,h", "\tor\tl", `\tjp\tz,${statement.target}`];
+    case "label":
+      return [`${statement.name}:`];
+    case "jump":
+      return [`\tjp\t${statement.target}`];
+    case "decSp":
+      return ["\tdec\tsp"];
+    case "incSp":
+      return ["\tinc\tsp"];
+    case "reserveBytes":
+      return Array.from({ length: statement.count }, () => "\tdec\tsp");
+    case "releaseBytes":
+      return Array.from({ length: statement.count }, () => "\tinc\tsp");
+    case "loadLocalAddrHl":
+      return [`\tld\thl,#${statement.offset}`, "\tadd\thl,sp"];
+    case "storeImmToLocal":
+      return [
+        ...emitStatement({ kind: "loadLocalAddrHl", offset: statement.offset }),
+        `\tld\t(hl),#${statement.value}`,
+      ];
+    case "loadLocalCharToHl":
+      return emitExprToHl({ kind: "localChar", offset: statement.offset });
+    case "storeImm16ToLocal":
+      return [
+        ...emitStatement({ kind: "loadLocalAddrHl", offset: statement.offset }),
+        `\tld\t(hl),#${statement.value & 0xff}`,
+        "\tinc\thl",
+        `\tld\t(hl),#${(statement.value >> 8) & 0xff}`,
+      ];
+    case "loadLocalIntToHl":
+      return emitExprToHl({ kind: "localInt", offset: statement.offset });
+    case "decLocalByte":
+      return [
+        ...emitStatement({ kind: "loadLocalAddrHl", offset: statement.offset }),
+        "\tdec\t(hl)",
+      ];
+    case "compareExprHelper":
+      return [
+        ...emitExprToHl(statement.left),
+        "\tpush\thl",
+        ...emitExprToHl(statement.right),
+        "\tpop\tde",
+        `\tcall\t${statement.helper}`,
+      ];
+    default:
+      return assertNever(statement);
+  }
+}
+
+function emitExprToHl(expr: ExprSpec): string[] {
+  switch (expr.kind) {
+    case "const":
+      return [`\tld\thl,#${expr.value}`];
+    case "dataAddress":
+      return [`\tld\thl,#${expr.label}+0`];
+    case "call":
+      return [`\tcall\t${expr.target}`];
+    case "localChar":
+      return [
+        `\tld\thl,#${expr.offset}`,
+        "\tadd\thl,sp",
+        "\tld\tl,(hl)",
+        "\tld\th,#0",
+      ];
+    case "localInt":
+      return [
+        `\tld\thl,#${expr.offset}`,
+        "\tadd\thl,sp",
+        "\tld\ta,(hl)",
+        "\tinc\thl",
+        "\tld\th,(hl)",
+        "\tld\tl,a",
+      ];
+    case "argChar":
+      return [
+        `\tld\thl,#${expr.offset}`,
+        "\tadd\thl,sp",
+        "\tld\tl,(hl)",
+        "\tld\th,#0",
+      ];
+    case "argInt":
+      return [
+        `\tld\thl,#${expr.offset}`,
+        "\tadd\thl,sp",
+        "\tld\ta,(hl)",
+        "\tinc\thl",
+        "\tld\th,(hl)",
+        "\tld\tl,a",
+      ];
+    default:
+      return assertNever(expr);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled statement kind: ${JSON.stringify(value)}`);
 }

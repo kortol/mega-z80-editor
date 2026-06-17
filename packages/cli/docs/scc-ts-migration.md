@@ -44,6 +44,38 @@ fixture の入口は `src/scc/fixtures.ts` です。
   - `outstr` のような通常 extern call だけに絞った fragment
 - `stmt-outstr-scc`
   - 文字列アドレスを積み、`outstr` を call する最小 statement fixture
+- `stmt-call-result-scc`
+  - 内部関数 call の戻り値を push し、`outchar` へ渡す statement fixture
+- `stmt-branch-scc`
+  - 内部関数 call の結果を真偽判定して分岐する statement fixture
+- `stmt-local-slot-scc`
+  - `sp` 相対の local slot へ store/load する statement fixture
+- `stmt-compare-helper-scc`
+  - `.gt` helper を使って定数比較し、分岐する statement fixture
+- `stmt-local-compare-scc`
+  - stack-relative local slot を `.gt` helper で比較して分岐する statement fixture
+- `stmt-local-int-scc`
+  - 2 byte の stack-relative local int slot を store/load する statement fixture
+- `stmt-eq-helper-scc`
+  - `.eq` helper を使って等値比較し、分岐する statement fixture
+- `stmt-loop-scc`
+  - stack-relative local slot と helper compare を使って loop/back-edge を作る statement fixture
+- `stmt-arg-char-scc`
+  - stack-relative function argument を読み出して返す statement fixture
+- `stmt-arg-ne-helper-scc`
+  - stack-relative function argument を `.ne` helper で比較して分岐する statement fixture
+- `stmt-arg-int-scc`
+  - stack-relative 2 byte argument を読み出して返す statement fixture
+- `stmt-two-arg-char-scc`
+  - 2 引数 call のうち、古い側の byte argument を大きい stack offset で読み出す statement fixture
+- `stmt-arg-int-eq-helper-scc`
+  - stack-relative 2 byte argument を `.eq` helper で比較して分岐する statement fixture
+- `stmt-two-arg-ne-helper-scc`
+  - 2 引数を異なる stack offset から読み出し、`.ne` helper で比較して分岐する statement fixture
+- `stmt-call-two-arg-mixed-scc`
+  - caller 側で local byte と定数を評価して 2 引数 push し、callee が古い側を返す statement fixture
+- `stmt-two-arg-local-ne-helper-scc`
+  - caller 側で local byte と定数を 2 引数として積み、callee が `.ne` helper で比較して分岐する statement fixture
 - `hello.rel`, `hello.lst`, `hello.sym`
   - translator / assembler / linker の比較用 artifact
 
@@ -133,3 +165,35 @@ TS compiler 差し替え時の責務境界は以下です。
 現時点では `frag-string-scc`, `frag-call-scc`, `frag-helper-call-scc` を TS 側 builtin fragment emitter で `.rel` 化できます。`frag-call-scc` は bundled CP/M runtime と link できるところまで確認済みです。次の実装対象は fragment ではなく、簡単な statement / expression の直接 codegen に進む段階です。
 
 最初の statement slice として `stmt-outstr-scc` も追加済みです。これは文字列アドレスの push、call、stack cleanup を含み、bundled CP/M runtime と link して `TS STMT` を出力できます。
+
+次の slice として `stmt-call-result-scc` も追加済みです。これは内部関数 call、定数ロード、戻り値の push、外部 call を含み、bundled CP/M runtime と link して `X` を出力できます。
+
+さらに `stmt-branch-scc` も追加済みです。これは内部関数 call、`HL` の truth-test、numeric local label への branch、外部 call を含み、bundled CP/M runtime と link して `T` を出力できます。
+
+`stmt-local-slot-scc` も追加済みです。これは `dec sp` で 1 byte の local slot を確保し、`ld hl,#0 / add hl,sp` を使った stack-relative な store/load を含み、bundled CP/M runtime と link して `L` を出力できます。
+
+`stmt-compare-helper-scc` も追加済みです。これは `push/pop de` を使った Small-C 風の 2 項比較 helper call を含み、最小 `.gt` helper module と link して `Y` を出力できます。
+
+`stmt-local-compare-scc` も追加済みです。これは stack-relative local slot の load、`.gt` helper call、branch を組み合わせ、最小 helper module と link して `W` を出力できます。
+
+`stmt-local-int-scc` も追加済みです。これは 2 byte の stack-relative local int slot を対象に、low/high byte の store と `A/H/L` を使った再構成 load を含み、bundled CP/M runtime と link して `Z` を出力できます。
+
+`stmt-eq-helper-scc` も追加済みです。これは `.eq` helper による等値比較と branch を含み、比較 helper module と link して `E` を出力できます。
+
+`stmt-loop-scc` も追加済みです。これは stack-relative local slot の更新、`.gt` helper compare、numeric local label への back-edge branch を含み、helper module と link して `321` を出力できます。
+
+`stmt-arg-char-scc` も追加済みです。これは `SP+2` から 1 byte 引数を読み出して返し、bundled CP/M runtime と link して `A` を出力できます。
+
+`stmt-arg-ne-helper-scc` も追加済みです。これは `SP+2` から引数を読み出し、`.ne` helper で比較して branch し、helper module と link して `N` を出力できます。
+
+`stmt-arg-int-scc` も追加済みです。これは `SP+2` から 2 byte 引数を low/high byte で再構成して返し、bundled CP/M runtime と link して `Z` を出力できます。
+
+`stmt-two-arg-char-scc` も追加済みです。これは 2 引数 call の stack layout を使い、`SP+4` から先頭引数を読み出して返し、bundled CP/M runtime と link して `A` を出力できます。
+
+`stmt-arg-int-eq-helper-scc` も追加済みです。これは `SP+2` から 2 byte 引数を読み出し、`.eq` helper で比較して branch し、helper module と link して `I` を出力できます。
+
+`stmt-two-arg-ne-helper-scc` も追加済みです。これは `SP+4` と `SP+2` から 2 つの byte 引数を読み出し、`.ne` helper で比較して branch し、helper module と link して `D` を出力できます。
+
+`stmt-call-two-arg-mixed-scc` も追加済みです。これは caller 側で stack-relative local byte と定数を評価して 2 引数として push し、callee が `SP+4` の古い引数を返し、bundled CP/M runtime と link して `C` を出力できます。
+
+`stmt-two-arg-local-ne-helper-scc` も追加済みです。これは caller 側で local byte と定数を push し、callee が `SP+4` と `SP+2` から読み出して `.ne` helper で比較し、helper module と link して `M` を出力できます。
