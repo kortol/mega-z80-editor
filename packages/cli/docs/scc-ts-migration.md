@@ -185,6 +185,8 @@ TS compiler 差し替え時の責務境界は以下です。
 - [ ] Phase 8: fixture ではなく source parsing / semantic analysis から `ExprIR` / `StmtIRHigh` を構築する
 - [ ] Phase 9: fixture 依存を減らし、実ソースの `.scc.asm` 生成へ進む
 
+Phase 8 は着手済みです。現時点では full parser ではなく、`int main(){ return 42; }`、`int value(){ return 88; } int main(){ return value(); }`、`char echo(char a){ return a; }`、`int eqpair(int a, int b){ return a == b; }`、`int flag(int a, int b){ if (a == b) return 1; return 0; }`、`int flag(int a, int b){ if (a > b) return 1; else if (a == b) return 2; else return 3; }`、`int flag(int a, int b){ if (a > b) { return 1; } else { return 0; } }`、`int flag(int a, int b){ int x; if (a > b) { x = 1; return x; } else { x = 0; return x; } }`、`int flag(int a, int b){ if (a > b) { int x = 1; return x; } else if (a == b) { int y = 2; return y; } else { int z = 3; return z; } }`、`int main(){ int x = 65; while (x > 90) { x = 66; } return x; }`、`int main(){ int x = 65; while (x > 90) { int y = 66; x = y; } return x; }`、`int main(){ int x = 65; while (x > 90) x = 66; return x; }`、`int localv(){ int x = 90; return x; }`、`char localc(){ char x = 67; return x; }`、`int localv(int a){ int x; x = a; return x; }`、`int main(){ return pair(65, 66); }` のような subset を `TsSccCompilerAdapter` が直接読めます。
+
 ## Lowering Coverage
 
 現時点の high-level lowering が扱える主要パターン:
@@ -209,3 +211,68 @@ TS compiler 差し替え時の責務境界は以下です。
   - `stmt-loop-scc`
 
 すべての fixture-backed program は `TsSccCompilerAdapter` 内で high-level IR から `.scc.asm` を生成し、test では translated `.asm` と `.rel` まで検証しています。
+
+## Phase C Entry Slice
+
+source-driven compile path の最初の slice はかなり限定しています。
+
+- zero-argument function definition
+  - `int name() { ... }`
+  - `char name() { ... }`
+- typed parameter list
+  - `int echo(int a) { ... }`
+  - `int pick(int a, int b) { ... }`
+- single statement body
+  - `return 42;`
+  - `return value();`
+- internal / external call expression
+  - `return value();`
+  - `return echo(66);`
+  - `return pair(65, 66);`
+- parameter reference expression
+  - `return a;`
+- compare expression
+  - `return a == b;`
+  - `return a != b;`
+  - `return a > b;`
+  - `return a < b;`
+  - `return a >= b;`
+  - `return a <= b;`
+- simple conditional return body
+  - `if (a == b) return 1; return 0;`
+  - `if (a > b) return 1; else return 0;`
+  - `if (a > b) { return 1; } else { return 0; }`
+  - `if (a == b) { return 1; } return 0;`
+- simple local declaration / assignment
+  - `int x = 90; return x;`
+  - `int x; x = 91; return x;`
+  - `int x; x = a; return x;`
+  - `int x; x = value(); return x;`
+- branch block with multiple simple statements
+  - `int x; if (a > b) { x = 1; return x; } else { x = 0; return x; }`
+- brace-wrapped while body
+  - `int x = 65; while (x > 90) { x = 66; } return x;`
+- single-statement while body
+  - `int x = 65; while (x > 90) x = 66; return x;`
+- nested single-statement if/else inside a block
+  - `if (a > b) { if (b > c) return 1; else return 2; } return 0;`
+- chained `else if`
+  - `if (a > b) return 1; else if (a == b) return 2; else return 3;`
+- `char` parameter / local handling
+  - `char echo(char a) { return a; }`
+  - `char localc() { char x = 67; return x; }`
+- local declarations inside branch / while blocks
+  - `if (a > b) { int x = 1; return x; } else { int y = 2; return y; }`
+  - `while (x > 90) { int y = 66; x = y; }`
+- brace-wrapped `else if` bodies with local declarations
+  - `if (a > b) { int x = 1; return x; } else if (a == b) { int y = 2; return y; } else { int z = 3; return z; }`
+- duplicate-name rejection
+  - duplicate function names are rejected
+  - duplicate parameter names are rejected
+  - duplicate local names are rejected
+  - locals shadowing parameters are rejected
+
+未対応:
+- full C statement coverage (`while` beyond the current subset, `for`, `break`, `continue`, expression statements)
+
+この slice の目的は、fixture なしで `source -> parseSubsetProgram() -> ExprIR/StmtIRHigh -> lowering -> .scc.asm` の配線を先に確立することです。

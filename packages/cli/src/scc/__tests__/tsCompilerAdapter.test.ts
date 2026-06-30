@@ -89,13 +89,521 @@ function assemblePickFirst16Runtime(tempDir: string): string {
 }
 
 describe("TsSccCompilerAdapter", () => {
-  test("throws a migration-focused error when no fixture-backed implementation is selected", () => {
+  test("source mode materializes a rel for a minimal return-const program", () => {
     const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-return-"));
+    const inputFile = path.join(tempDir, "return-const.c");
+    fs.writeFileSync(inputFile, "int main(){ return 42; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    expect(fs.existsSync(built.sccAsmFile)).toBe(true);
+    expect(fs.readFileSync(built.sccAsmFile, "utf8")).toContain("main:");
+    expect(fs.readFileSync(built.sccAsmFile, "utf8")).toContain("\tld\thl,#42");
+    expect(fs.readFileSync(built.preprocessedFile, "utf8")).toContain("int main(){ return 42; }");
+  });
+
+  test("source mode supports internal zero-arg calls in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-call-"));
+    const inputFile = path.join(tempDir, "return-call.c");
+    fs.writeFileSync(inputFile, "int value(){ return 88; }\nint main(){ return value(); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("value:");
+    expect(sccAsm).toContain("\tld\thl,#88");
+    expect(sccAsm).toContain("main:");
+    expect(sccAsm).toContain("\tcall\tvalue");
+  });
+
+  test("source mode supports internal constant arguments in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-call-arg-"));
+    const inputFile = path.join(tempDir, "return-call-arg.c");
+    fs.writeFileSync(inputFile, "int echo(int a){ return 65; }\nint main(){ return echo(66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("main:");
+    expect(sccAsm).toContain("\tld\thl,#66");
+    expect(sccAsm).toContain("\tpush\thl");
+    expect(sccAsm).toContain("\tcall\techo");
+    expect(sccAsm).toContain("\tpop\tbc");
+  });
+
+  test("source mode supports two constant arguments in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-call-2arg-"));
+    const inputFile = path.join(tempDir, "return-call-2arg.c");
+    fs.writeFileSync(inputFile, "int pair(int a, int b){ return 90; }\nint main(){ return pair(65, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#65");
+    expect(sccAsm).toContain("\tld\thl,#66");
+    expect((sccAsm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tpop\tbc/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode supports returning a single int argument in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-return-arg-"));
+    const inputFile = path.join(tempDir, "return-arg.c");
+    fs.writeFileSync(inputFile, "int echo(int a){ return a; }\nint main(){ return echo(66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("echo:");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+    expect(sccAsm).toContain("\tcall\techo");
+  });
+
+  test("source mode supports returning a single char argument in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-return-char-arg-"));
+    const inputFile = path.join(tempDir, "return-char-arg.c");
+    fs.writeFileSync(inputFile, "char echo(char a){ return a; }\nint main(){ return echo(66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("echo:");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+    expect(sccAsm).toContain("\tld\th,#0");
+  });
+
+  test("source mode supports returning the first of two int arguments in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-return-2arg-"));
+    const inputFile = path.join(tempDir, "return-2arg.c");
+    fs.writeFileSync(inputFile, "int pick(int a, int b){ return a; }\nint main(){ return pick(65, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("pick:");
+    expect(sccAsm).toContain("\tld\thl,#4");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\tpick");
+  });
+
+  test("source mode supports equality compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-eq-"));
+    const inputFile = path.join(tempDir, "compare-eq.c");
+    fs.writeFileSync(inputFile, "int eqpair(int a, int b){ return a == b; }\nint main(){ return eqpair(66, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tcall\teqpair");
+  });
+
+  test("source mode supports greater-than compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-gt-"));
+    const inputFile = path.join(tempDir, "compare-gt.c");
+    fs.writeFileSync(inputFile, "int bigger(int a, int b){ return a > b; }\nint main(){ return bigger(66, 65); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect(sccAsm).toContain("bigger:");
+  });
+
+  test("source mode supports if-return with fallthrough return in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-if-fallthrough-"));
+    const inputFile = path.join(tempDir, "if-fallthrough.c");
+    fs.writeFileSync(inputFile, "int flag(int a, int b){ if (a == b) return 1; return 0; }\nint main(){ return flag(66, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports if-else return in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-if-else-"));
+    const inputFile = path.join(tempDir, "if-else.c");
+    fs.writeFileSync(inputFile, "int flag(int a, int b){ if (a > b) return 1; else return 0; }\nint main(){ return flag(66, 65); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports brace-wrapped if-else return in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-if-brace-else-"));
+    const inputFile = path.join(tempDir, "if-brace-else.c");
+    fs.writeFileSync(inputFile, "int flag(int a, int b){ if (a > b) { return 1; } else { return 0; } }\nint main(){ return flag(66, 65); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports brace-wrapped if-return with fallthrough return in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-if-brace-fallthrough-"));
+    const inputFile = path.join(tempDir, "if-brace-fallthrough.c");
+    fs.writeFileSync(inputFile, "int flag(int a, int b){ if (a == b) { return 1; } return 0; }\nint main(){ return flag(66, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports multi-statement brace branches in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-if-branch-block-"));
+    const inputFile = path.join(tempDir, "if-branch-block.c");
+    fs.writeFileSync(
+      inputFile,
+      "int flag(int a, int b){ int x; if (a > b) { x = 1; return x; } else { x = 0; return x; } }\nint main(){ return flag(66, 65); }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect((sccAsm.match(/\tld\t\(hl\),#1/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((sccAsm.match(/\tld\t\(hl\),#0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("source mode supports initialized local int variables in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-init-"));
+    const inputFile = path.join(tempDir, "local-init.c");
+    fs.writeFileSync(inputFile, "int localv(){ int x = 90; return x; }\nint main(){ return localv(); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("localv:");
+    expect(sccAsm).toContain("\tdec\tsp");
+    expect(sccAsm).toContain("\tld\t(hl),#90");
+    expect(sccAsm).toContain("\tinc\tsp");
+  });
+
+  test("source mode supports initialized local char variables in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-char-init-"));
+    const inputFile = path.join(tempDir, "local-char-init.c");
+    fs.writeFileSync(inputFile, "char localc(){ char x = 67; return x; }\nint main(){ return localc(); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("localc:");
+    expect(sccAsm).toContain("\tdec\tsp");
+    expect(sccAsm).toContain("\tld\t(hl),#67");
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+    expect(sccAsm).toContain("\tld\th,#0");
+  });
+
+  test("source mode supports local assignment before return in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-assign-"));
+    const inputFile = path.join(tempDir, "local-assign.c");
+    fs.writeFileSync(inputFile, "int localv(){ int x; x = 91; return x; }\nint main(){ return localv(); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\t(hl),#91");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
+  test("source mode supports local assignment from an argument in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-from-arg-"));
+    const inputFile = path.join(tempDir, "local-from-arg.c");
+    fs.writeFileSync(inputFile, "int localv(int a){ int x; x = a; return x; }\nint main(){ return localv(92); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tpush\thl");
+    expect(sccAsm).toContain("\tpop\tde");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+  });
+
+  test("source mode supports local assignment from a call result in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-from-call-"));
+    const inputFile = path.join(tempDir, "local-from-call.c");
+    fs.writeFileSync(inputFile, "int value(){ return 93; }\nint localv(){ int x; x = value(); return x; }\nint main(){ return localv(); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\tvalue");
+    expect(sccAsm).toContain("\tpush\thl");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+  });
+
+  test("source mode supports brace-wrapped while loops in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-while-"));
+    const inputFile = path.join(tempDir, "while.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; while (x > 90) { x = 66; } return x; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\t(hl),#66");
+  });
+
+  test("source mode supports single-statement while loops in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-while-single-"));
+    const inputFile = path.join(tempDir, "while-single.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; while (x > 90) x = 66; return x; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\t(hl),#66");
+  });
+
+  test("source mode supports nested single-statement if-else inside branch blocks in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-nested-if-"));
+    const inputFile = path.join(tempDir, "nested-if.c");
+    fs.writeFileSync(
+      inputFile,
+      "int flag(int a, int b, int c){ if (a > b) { if (b > c) return 1; else return 2; } return 0; }\nint main(){ return flag(70, 69, 68); }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports chained else-if conditionals in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-else-if-"));
+    const inputFile = path.join(tempDir, "else-if.c");
+    fs.writeFileSync(
+      inputFile,
+      "int grade(int a, int b){ if (a > b) return 1; else if (a == b) return 2; else return 3; }\nint main(){ return grade(70, 69); }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tld\thl,#3");
+  });
+
+  test("source mode supports local declarations inside branch blocks in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-branch-local-"));
+    const inputFile = path.join(tempDir, "branch-local.c");
+    fs.writeFileSync(
+      inputFile,
+      "int flag(int a, int b){ if (a > b) { int x = 1; return x; } else { int y = 2; return y; } }\nint main(){ return flag(70, 69); }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect((sccAsm.match(/\tdec\tsp/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\t(hl),#1");
+    expect(sccAsm).toContain("\tld\t(hl),#2");
+  });
+
+  test("source mode supports local declarations inside while blocks in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-while-local-"));
+    const inputFile = path.join(tempDir, "while-local.c");
+    fs.writeFileSync(
+      inputFile,
+      "int main(){ int x = 65; while (x > 90) { int y = 66; x = y; } return x; }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tdec\tsp/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\t(hl),#66");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+  });
+
+  test("source mode supports brace-wrapped else-if bodies with local declarations in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-else-if-local-"));
+    const inputFile = path.join(tempDir, "else-if-local.c");
+    fs.writeFileSync(
+      inputFile,
+      "int grade(int a, int b){ if (a > b) { int x = 1; return x; } else if (a == b) { int y = 2; return y; } else { int z = 3; return z; } }\nint main(){ return grade(70, 69); }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.gt");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect((sccAsm.match(/\tdec\tsp/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(sccAsm).toContain("\tld\t(hl),#1");
+    expect(sccAsm).toContain("\tld\t(hl),#2");
+    expect(sccAsm).toContain("\tld\t(hl),#3");
+  });
+
+  test("source mode rejects duplicate function names in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-dup-fn-"));
+    const inputFile = path.join(tempDir, "dup-fn.c");
+    fs.writeFileSync(inputFile, "int same(){ return 1; }\nint same(){ return 2; }\n", "utf8");
 
     expect(() => adapter.compileToRel(createLogger("quiet"), {
-      inputFile: path.join(os.tmpdir(), "hello.c"),
-      tempDir: path.join(os.tmpdir(), "mz80-ts-scc"),
-    })).toThrow(/TsSccCompilerAdapter is not implemented/);
+      inputFile,
+      tempDir,
+    })).toThrow(/does not support duplicate function 'same\(\)'/);
+  });
+
+  test("source mode rejects duplicate parameter names in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-dup-param-"));
+    const inputFile = path.join(tempDir, "dup-param.c");
+    fs.writeFileSync(inputFile, "int same(int a, int a){ return a; }\n", "utf8");
+
+    expect(() => adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    })).toThrow(/does not support duplicate parameter 'a' in same\(\)/);
+  });
+
+  test("source mode rejects duplicate local names in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-dup-local-"));
+    const inputFile = path.join(tempDir, "dup-local.c");
+    fs.writeFileSync(inputFile, "int same(){ int x = 1; int x = 2; return x; }\n", "utf8");
+
+    expect(() => adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    })).toThrow(/does not support duplicate local 'x' in same\(\)/);
+  });
+
+  test("source mode rejects local names that shadow parameters in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-shadow-param-"));
+    const inputFile = path.join(tempDir, "shadow-param.c");
+    fs.writeFileSync(inputFile, "int same(int a){ int a = 2; return a; }\n", "utf8");
+
+    expect(() => adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    })).toThrow(/does not support local 'a' shadowing a parameter in same\(\)/);
+  });
+
+  test("source mode still rejects unsupported statements outside the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-unsupported-"));
+    const inputFile = path.join(tempDir, "unsupported.c");
+    fs.writeFileSync(inputFile, "int main(){ outchar(); return 1; }\n", "utf8");
+
+    expect(() => adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    })).toThrow(/does not support statement 'outchar\(\)'/);
   });
 
   test("fixture-backed fragment mode materializes SCC outputs instead of throwing", () => {
