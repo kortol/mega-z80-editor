@@ -88,6 +88,29 @@ function assemblePickFirst16Runtime(tempDir: string): string {
   return helperRelPath;
 }
 
+function assembleEmitCharRuntime(tempDir: string, helperName: string, charCode: number): string {
+  const helperAsmPath = path.join(tempDir, `${helperName}.asm`);
+  const helperRelPath = path.join(tempDir, `${helperName}.rel`);
+  const helperSource = [
+    `\t.globl\t${helperName}`,
+    "\t.globl\toutchar",
+    `\t.module\t${helperName}`,
+    "\t.area\t_CODE",
+    `${helperName}:`,
+    `\tld\thl,#${charCode}`,
+    "\tpush\thl",
+    "\tld\ta,#1",
+    "\tcall\toutchar",
+    "\tpop\tbc",
+    "\tld\thl,#0",
+    "\tret",
+    "",
+  ].join("\n");
+  fs.writeFileSync(helperAsmPath, translateSccAsm(helperSource, { moduleName: helperName }), "utf8");
+  expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
+  return helperRelPath;
+}
+
 describe("TsSccCompilerAdapter", () => {
   test("source mode materializes a rel for a minimal return-const program", () => {
     const adapter = new TsSccCompilerAdapter();
@@ -592,6 +615,38 @@ describe("TsSccCompilerAdapter", () => {
       inputFile,
       tempDir,
     })).toThrow(/does not support local 'a' shadowing a parameter in same\(\)/);
+  });
+
+  test("source mode can link with CP/M runtime and execute a helper-backed .COM image", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-cpm-run-"));
+    const inputFile = path.join(tempDir, "source-cpm-run.c");
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const outPath = path.join(tempDir, "source-cpm-run.com");
+
+    fs.writeFileSync(inputFile, "int main(){ return emitx(); }\n", "utf8");
+    const programRel = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    }).relFile;
+
+    const helperRel = assembleEmitCharRuntime(tempDir, "emitx", 88);
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, programRel, helperRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("X");
   });
 
   test("source mode still rejects unsupported statements outside the Phase C subset", () => {
