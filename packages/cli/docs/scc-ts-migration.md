@@ -9,7 +9,7 @@
   - `ExternalSccCompilerAdapter`
 - `src/scc/tsCompilerAdapter.ts`
   - `TsSccCompilerAdapter`
-  - まだ skeleton のみで、fixture を手がかりに未実装範囲を示す
+  - fixture 駆動の builtin emitter / lowering 実装を持つ
 - 現行 driver / project / library build は `CompilerAdapter.compileToRel()` だけに依存します
 - 将来の TS compiler は `TsSccCompilerAdapter` の形でここへ差し込む前提です
 
@@ -143,9 +143,10 @@ TS compiler 差し替え時の責務境界は以下です。
   - 実運用中
   - `dcpp -> sccz80 -> translate -> as` を包む
 - `TsSccCompilerAdapter`
-  - fixture 駆動の最小実装あり
+  - fixture 駆動の実装あり
   - `fixtureId` を受けて、指定 fixture から `.scc.asm -> .asm -> .rel` を materialize できる
-  - `frag-string-scc`, `frag-call-scc`, `frag-helper-call-scc` は TS 側の builtin fragment emitter で生成する
+  - fragment / statement fixture は high-level IR から builtin lowering で生成する
+  - `ExprIR`, `StmtIRHigh`, `lowerFunctionIR()` を通して stack-relative local/arg, helper compare, call-with-args, loop/back-edge を扱える
   - parser / semantic analysis / codegen は未実装
 
 ## First TS Slice
@@ -172,48 +173,39 @@ TS compiler 差し替え時の責務境界は以下です。
 
 までを TS compiler 側で独立に検証できます。その後に `hello-scc` や `cpm-hello-scc` へ広げるのが安全です。
 
-現時点では `frag-string-scc`, `frag-call-scc`, `frag-helper-call-scc` を TS 側 builtin fragment emitter で `.rel` 化できます。`frag-call-scc` は bundled CP/M runtime と link できるところまで確認済みです。次の実装対象は fragment ではなく、簡単な statement / expression の直接 codegen に進む段階です。
+## Phase Checklist
 
-最初の statement slice として `stmt-outstr-scc` も追加済みです。これは文字列アドレスの push、call、stack cleanup を含み、bundled CP/M runtime と link して `TS STMT` を出力できます。
+- [x] Phase 1: fragment 3 本を builtin emitter で `.rel` 化する
+- [x] Phase 2: call / push / branch / local slot を含む最初の statement fixture を materialize する
+- [x] Phase 3: helper compare と stack-relative local/int access を追加する
+- [x] Phase 4: stack-relative argument / 2 引数 call / mixed caller expression を追加する
+- [x] Phase 5: callee-local 16-bit slot と 16-bit argument compare を追加する
+- [x] Phase 6: high-level IR (`ExprIR`, `StmtIRHigh`, `FunctionIR`) と lowering を導入する
+- [x] Phase 7: fragment / statement fixture を high-level IR lowering 経由へ統一する
+- [ ] Phase 8: fixture ではなく source parsing / semantic analysis から `ExprIR` / `StmtIRHigh` を構築する
+- [ ] Phase 9: fixture 依存を減らし、実ソースの `.scc.asm` 生成へ進む
 
-次の slice として `stmt-call-result-scc` も追加済みです。これは内部関数 call、定数ロード、戻り値の push、外部 call を含み、bundled CP/M runtime と link して `X` を出力できます。
+## Lowering Coverage
 
-さらに `stmt-branch-scc` も追加済みです。これは内部関数 call、`HL` の truth-test、numeric local label への branch、外部 call を含み、bundled CP/M runtime と link して `T` を出力できます。
+現時点の high-level lowering が扱える主要パターン:
 
-`stmt-local-slot-scc` も追加済みです。これは `dec sp` で 1 byte の local slot を確保し、`ld hl,#0 / add hl,sp` を使った stack-relative な store/load を含み、bundled CP/M runtime と link して `L` を出力できます。
+- data address return
+  - `frag-string-scc`
+- plain call / call with args / returnExpr
+  - `frag-call-scc`, `frag-helper-call-scc`, `stmt-call-result-scc`
+- call result -> mode-A runtime call
+  - `stmt-outstr-scc`, `stmt-arg-char-scc`, `stmt-arg-int-scc`
+- truth-test branch with shared epilogue
+  - `stmt-branch-scc`, `stmt-eq-helper-scc`, `stmt-arg-ne-helper-scc`
+- stack-relative local / arg byte and 16-bit access
+  - `stmt-local-slot-scc`, `stmt-local-int-scc`, `stmt-two-arg-char-scc`
+- helper compare as expression
+  - `stmt-compare-helper-scc`, `stmt-local-compare-scc`, `stmt-two-arg-ne-helper-scc`
+- caller-side local evaluation and call-with-args
+  - `stmt-call-two-arg-mixed-scc`, `stmt-call-two-arg-int-mixed-scc`, `stmt-extern-two-arg-int-call-scc`
+- callee-local 16-bit temporary plus 16-bit compare
+  - `stmt-local-int-arg-int-eq-helper-scc`, `stmt-local-int-arg-int-ne-helper-scc`, `stmt-local-int-arg-int-gt-helper-scc`
+- loop / back-edge
+  - `stmt-loop-scc`
 
-`stmt-compare-helper-scc` も追加済みです。これは `push/pop de` を使った Small-C 風の 2 項比較 helper call を含み、最小 `.gt` helper module と link して `Y` を出力できます。
-
-`stmt-local-compare-scc` も追加済みです。これは stack-relative local slot の load、`.gt` helper call、branch を組み合わせ、最小 helper module と link して `W` を出力できます。
-
-`stmt-local-int-scc` も追加済みです。これは 2 byte の stack-relative local int slot を対象に、low/high byte の store と `A/H/L` を使った再構成 load を含み、bundled CP/M runtime と link して `Z` を出力できます。
-
-`stmt-eq-helper-scc` も追加済みです。これは `.eq` helper による等値比較と branch を含み、比較 helper module と link して `E` を出力できます。
-
-`stmt-loop-scc` も追加済みです。これは stack-relative local slot の更新、`.gt` helper compare、numeric local label への back-edge branch を含み、helper module と link して `321` を出力できます。
-
-`stmt-arg-char-scc` も追加済みです。これは `SP+2` から 1 byte 引数を読み出して返し、bundled CP/M runtime と link して `A` を出力できます。
-
-`stmt-arg-ne-helper-scc` も追加済みです。これは `SP+2` から引数を読み出し、`.ne` helper で比較して branch し、helper module と link して `N` を出力できます。
-
-`stmt-arg-int-scc` も追加済みです。これは `SP+2` から 2 byte 引数を low/high byte で再構成して返し、bundled CP/M runtime と link して `Z` を出力できます。
-
-`stmt-two-arg-char-scc` も追加済みです。これは 2 引数 call の stack layout を使い、`SP+4` から先頭引数を読み出して返し、bundled CP/M runtime と link して `A` を出力できます。
-
-`stmt-arg-int-eq-helper-scc` も追加済みです。これは `SP+2` から 2 byte 引数を読み出し、`.eq` helper で比較して branch し、helper module と link して `I` を出力できます。
-
-`stmt-two-arg-ne-helper-scc` も追加済みです。これは `SP+4` と `SP+2` から 2 つの byte 引数を読み出し、`.ne` helper で比較して branch し、helper module と link して `D` を出力できます。
-
-`stmt-call-two-arg-mixed-scc` も追加済みです。これは caller 側で stack-relative local byte と定数を評価して 2 引数として push し、callee が `SP+4` の古い引数を返し、bundled CP/M runtime と link して `C` を出力できます。
-
-`stmt-two-arg-local-ne-helper-scc` も追加済みです。これは caller 側で local byte と定数を push し、callee が `SP+4` と `SP+2` から読み出して `.ne` helper で比較し、helper module と link して `M` を出力できます。
-
-`stmt-local-int-arg-int-eq-helper-scc` も追加済みです。これは callee 内で 2 byte の local slot を確保して値を書き込み、`SP+4` の 16-bit 引数と `.eq` helper で比較し、helper module と link して `Q` を出力できます。
-
-`stmt-local-int-arg-int-ne-helper-scc` も追加済みです。これは callee 内で 2 byte の local slot を確保して値を書き込み、`SP+4` の 16-bit 引数と `.ne` helper で比較し、helper module と link して `R` を出力できます。
-
-`stmt-local-int-arg-int-gt-helper-scc` も追加済みです。これは callee 内で 2 byte の local slot により大きい値を書き込み、`SP+6` の 16-bit 引数と `.gt` helper で比較し、helper module と link して `T` を出力できます。
-
-`stmt-call-two-arg-int-mixed-scc` も追加済みです。これは caller 側で stack-relative local 16-bit 値と定数を評価して 2 引数として push し、callee が `SP+4` の古い 16-bit 引数を返し、bundled CP/M runtime と link して `S` を出力できます。
-
-`stmt-extern-two-arg-int-call-scc` も追加済みです。これは caller 側で stack-relative local 16-bit 値と定数を評価して 2 引数として push し、external `pickfirst16` routine を call して、bundled CP/M runtime と link して `U` を出力できます。
+すべての fixture-backed program は `TsSccCompilerAdapter` 内で high-level IR から `.scc.asm` を生成し、test では translated `.asm` と `.rel` まで検証しています。

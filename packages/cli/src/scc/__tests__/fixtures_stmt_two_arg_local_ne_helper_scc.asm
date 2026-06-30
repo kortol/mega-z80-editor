@@ -26,14 +26,14 @@ main:
 	ld	a,#1
 	call	outchar
 	pop	bc
-	inc	sp
-	ret
+	jp	.3
 .2:
 	ld	hl,#88
 	push	hl
 	ld	a,#1
 	call	outchar
 	pop	bc
+.3:
 	inc	sp
 	ret
 checkpair:
@@ -42,7 +42,7 @@ checkpair:
 	ld	l,(hl)
 	ld	h,#0
 	push	hl
-	ld	hl,#2
+	ld	hl,#4
 	add	hl,sp
 	ld	l,(hl)
 	ld	h,#0

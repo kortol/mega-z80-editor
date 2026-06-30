@@ -22,7 +22,8 @@ type ProgramSpec = {
 type ExprSpec =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
-  | { kind: "call"; target: string }
+  | { kind: "call"; target: string; args?: ExprSpec[] }
+  | { kind: "compare"; left: ExprSpec; right: ExprSpec; helper: string }
   | { kind: "localChar"; offset: number }
   | { kind: "localInt"; offset: number }
   | { kind: "argChar"; offset: number }
@@ -37,6 +38,51 @@ type DataSpec = {
   label: string;
   directive: ".ascii" | ".asciz" | ".db" | ".dw" | ".ds";
   value: string;
+};
+
+type ValueWidth = 1 | 2;
+
+type RefIR = {
+  kind: "ref";
+  scope: "local" | "arg";
+  width: ValueWidth;
+  slot: number;
+};
+
+type ExprIR =
+  | { kind: "const"; value: number }
+  | { kind: "dataAddress"; label: string }
+  | RefIR
+  | { kind: "compare"; left: ExprIR; right: ExprIR; helper: string }
+  | { kind: "call"; target: string; args?: ExprIR[] };
+
+type FunctionIR = {
+  name: string;
+  params: ValueWidth[];
+  locals: ValueWidth[];
+  body: StmtIRHigh[];
+};
+
+type StmtIRHigh =
+  | { kind: "assignLocalConst"; slot: number; width: ValueWidth; value: number }
+  | { kind: "compareReturn"; left: ExprIR; right: ExprIR; helper: string }
+  | { kind: "returnExpr"; expr: ExprIR }
+  | { kind: "returnVoid" }
+  | { kind: "emitExprChar"; expr: ExprIR }
+  | { kind: "callModeAArg"; target: string; mode: number; expr: ExprIR }
+  | { kind: "decLocalByte"; slot: number }
+  | { kind: "emitChar"; value: number }
+  | { kind: "doWhileExprNonZero"; body: StmtIRHigh[]; expr: ExprIR }
+  | { kind: "ifExprZero"; expr: ExprIR; thenBody: StmtIRHigh[]; elseBody: StmtIRHigh[] };
+
+type FunctionLayout = {
+  localBytes: number;
+  localOffsets: number[];
+  paramOffsets: number[];
+};
+
+type LoweringState = {
+  nextLabelId: number;
 };
 
 type StatementSpec =
@@ -63,6 +109,10 @@ type StatementSpec =
   | { kind: "loadLocalIntToHl"; offset: number }
   | { kind: "decLocalByte"; offset: number }
   | { kind: "compareExprHelper"; left: ExprSpec; right: ExprSpec; helper: string };
+
+type EmitExprContext = {
+  stackDelta: number;
+};
 
 export class TsSccCompilerAdapter implements CompilerAdapter {
   private readonly fixtureId?: string;
@@ -156,39 +206,42 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["main"],
         includeBss: true,
         data: [{ label: ".0", directive: ".asciz", value: '"HELLO"' }],
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "loadDataAddressHl", label: ".0" },
-            { kind: "ret" },
+          params: [],
+          locals: [],
+          body: [
+            { kind: "returnExpr", expr: { kind: "dataAddress", label: ".0" } },
           ],
-        }],
+        })],
       };
     case "frag-helper-call-scc":
       return {
         moduleName: "frag_helper_call.i",
         exports: [".gint", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "call", target: ".gint" },
-            { kind: "ret" },
+          params: [],
+          locals: [],
+          body: [
+            { kind: "returnExpr", expr: { kind: "call", target: ".gint" } },
           ],
-        }],
+        })],
       };
     case "frag-call-scc":
       return {
         moduleName: "frag_call.i",
         exports: ["outstr", "main"],
         includeBss: false,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "call", target: "outstr" },
-            { kind: "ret" },
+          params: [],
+          locals: [],
+          body: [
+            { kind: "returnExpr", expr: { kind: "call", target: "outstr" } },
           ],
-        }],
+        })],
       };
     case "stmt-outstr-scc":
       return {
@@ -196,16 +249,15 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outstr", "main"],
         includeBss: true,
         data: [{ label: ".0", directive: ".ascii", value: '"TS STMT$"' }],
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "loadDataAddressHl", label: ".0" },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outstr", mode: 1 },
-            { kind: "popBc" },
-            { kind: "ret" },
+          params: [],
+          locals: [],
+          body: [
+            { kind: "callModeAArg", target: "outstr", mode: 1, expr: { kind: "dataAddress", label: ".0" } },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-call-result-scc":
       return {
@@ -213,23 +265,23 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "call", target: "value" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              { kind: "emitExprChar", expr: { kind: "call", target: "value" } },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "value",
-            statements: [
-              { kind: "loadConstHl", value: 88 },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "const", value: 88 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-branch-scc":
@@ -238,31 +290,28 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "call", target: "flag" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 84 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 70 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: { kind: "call", target: "flag" },
+                thenBody: [{ kind: "emitChar", value: 84 }],
+                elseBody: [{ kind: "emitChar", value: 70 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "flag",
-            statements: [
-              { kind: "loadConstHl", value: 1 },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "const", value: 1 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-local-slot-scc":
@@ -270,139 +319,126 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         moduleName: "stmt_local_slot.i",
         exports: ["outchar", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "decSp" },
-            { kind: "storeImmToLocal", offset: 0, value: 76 },
-            { kind: "loadLocalCharToHl", offset: 0 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "incSp" },
-            { kind: "ret" },
+          params: [],
+          locals: [1],
+          body: [
+            { kind: "assignLocalConst", slot: 0, width: 1, value: 76 },
+            { kind: "emitExprChar", expr: { kind: "ref", scope: "local", width: 1, slot: 0 } },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-compare-helper-scc":
       return {
         moduleName: "stmt_compare_helper.i",
         exports: [".gt", "outchar", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "compareExprHelper", left: { kind: "const", value: 66 }, right: { kind: "const", value: 65 }, helper: ".gt" },
-            { kind: "truthJumpZero", target: ".2" },
-            { kind: "loadConstHl", value: 89 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "ret" },
-            { kind: "label", name: ".2" },
-            { kind: "loadConstHl", value: 78 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "ret" },
+          params: [],
+          locals: [],
+          body: [
+            {
+              kind: "ifExprZero",
+              expr: { kind: "compare", left: { kind: "const", value: 66 }, right: { kind: "const", value: 65 }, helper: ".gt" },
+              thenBody: [{ kind: "emitChar", value: 89 }],
+              elseBody: [{ kind: "emitChar", value: 78 }],
+            },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-local-compare-scc":
       return {
         moduleName: "stmt_local_compare.i",
         exports: [".gt", "outchar", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "decSp" },
-            { kind: "storeImmToLocal", offset: 0, value: 67 },
-            { kind: "compareExprHelper", left: { kind: "localChar", offset: 0 }, right: { kind: "const", value: 66 }, helper: ".gt" },
-            { kind: "truthJumpZero", target: ".2" },
-            { kind: "loadConstHl", value: 87 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "incSp" },
-            { kind: "ret" },
-            { kind: "label", name: ".2" },
-            { kind: "loadConstHl", value: 88 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "incSp" },
-            { kind: "ret" },
+          params: [],
+          locals: [1],
+          body: [
+            { kind: "assignLocalConst", slot: 0, width: 1, value: 67 },
+            {
+              kind: "ifExprZero",
+              expr: {
+                kind: "compare",
+                left: { kind: "ref", scope: "local", width: 1, slot: 0 },
+                right: { kind: "const", value: 66 },
+                helper: ".gt",
+              },
+              thenBody: [{ kind: "emitChar", value: 87 }],
+              elseBody: [{ kind: "emitChar", value: 88 }],
+            },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-local-int-scc":
       return {
         moduleName: "stmt_local_int.i",
         exports: ["outchar", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "reserveBytes", count: 2 },
-            { kind: "storeImm16ToLocal", offset: 0, value: 90 },
-            { kind: "loadLocalIntToHl", offset: 0 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "releaseBytes", count: 2 },
-            { kind: "ret" },
+          params: [],
+          locals: [2],
+          body: [
+            { kind: "assignLocalConst", slot: 0, width: 2, value: 90 },
+            { kind: "emitExprChar", expr: { kind: "ref", scope: "local", width: 2, slot: 0 } },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-eq-helper-scc":
       return {
         moduleName: "stmt_eq_helper.i",
         exports: [".eq", "outchar", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "compareExprHelper", left: { kind: "const", value: 81 }, right: { kind: "const", value: 81 }, helper: ".eq" },
-            { kind: "truthJumpZero", target: ".2" },
-            { kind: "loadConstHl", value: 69 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "ret" },
-            { kind: "label", name: ".2" },
-            { kind: "loadConstHl", value: 88 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "ret" },
+          params: [],
+          locals: [],
+          body: [
+            {
+              kind: "ifExprZero",
+              expr: { kind: "compare", left: { kind: "const", value: 81 }, right: { kind: "const", value: 81 }, helper: ".eq" },
+              thenBody: [{ kind: "emitChar", value: 69 }],
+              elseBody: [{ kind: "emitChar", value: 88 }],
+            },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-loop-scc":
       return {
         moduleName: "stmt_loop.i",
         exports: [".gt", "outchar", "main"],
         includeBss: true,
-        functions: [{
+        functions: [lowerFunctionIR({
           name: "main",
-          statements: [
-            { kind: "decSp" },
-            { kind: "storeImmToLocal", offset: 0, value: 51 },
-            { kind: "label", name: ".2" },
-            { kind: "loadLocalCharToHl", offset: 0 },
-            { kind: "pushHlArg" },
-            { kind: "callWithModeA", target: "outchar", mode: 1 },
-            { kind: "popBc" },
-            { kind: "compareExprHelper", left: { kind: "localChar", offset: 0 }, right: { kind: "const", value: 49 }, helper: ".gt" },
-            { kind: "truthJumpZero", target: ".3" },
-            { kind: "decLocalByte", offset: 0 },
-            { kind: "jump", target: ".2" },
-            { kind: "label", name: ".3" },
-            { kind: "incSp" },
-            { kind: "ret" },
+          params: [],
+          locals: [1],
+          body: [
+            { kind: "assignLocalConst", slot: 0, width: 1, value: 51 },
+            {
+              kind: "doWhileExprNonZero",
+              body: [
+                { kind: "emitExprChar", expr: { kind: "ref", scope: "local", width: 1, slot: 0 } },
+                { kind: "decLocalByte", slot: 0 },
+              ],
+              expr: {
+                kind: "compare",
+                left: { kind: "ref", scope: "local", width: 1, slot: 0 },
+                right: { kind: "const", value: 48 },
+                helper: ".gt",
+              },
+            },
+            { kind: "returnVoid" },
           ],
-        }],
+        })],
       };
     case "stmt-arg-char-scc":
       return {
@@ -410,26 +446,23 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 65 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "echo" },
-              { kind: "popBc" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              { kind: "emitExprChar", expr: { kind: "call", target: "echo", args: [{ kind: "const", value: 65 }] } },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "echo",
-            statements: [
-              { kind: "loadExprHl", expr: { kind: "argChar", offset: 2 } },
-              { kind: "ret" },
+            params: [1],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 1, slot: 0 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-arg-ne-helper-scc":
@@ -438,34 +471,33 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".ne", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 66 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "check" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 78 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: { kind: "call", target: "check", args: [{ kind: "const", value: 66 }] },
+                thenBody: [{ kind: "emitChar", value: 78 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "check",
-            statements: [
-              { kind: "compareExprHelper", left: { kind: "argChar", offset: 2 }, right: { kind: "const", value: 65 }, helper: ".ne" },
-              { kind: "ret" },
+            params: [1],
+            locals: [],
+            body: [
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "arg", width: 1, slot: 0 },
+                right: { kind: "const", value: 65 },
+                helper: ".ne",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-arg-int-scc":
@@ -474,26 +506,23 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 90 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "echo16" },
-              { kind: "popBc" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              { kind: "emitExprChar", expr: { kind: "call", target: "echo16", args: [{ kind: "const", value: 90 }] } },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "echo16",
-            statements: [
-              { kind: "loadExprHl", expr: { kind: "argInt", offset: 2 } },
-              { kind: "ret" },
+            params: [2],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 2, slot: 0 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-two-arg-char-scc":
@@ -502,29 +531,30 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 65 },
-              { kind: "pushHlArg" },
-              { kind: "loadConstHl", value: 66 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "pickfirst" },
-              { kind: "popBc" },
-              { kind: "popBc" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "emitExprChar",
+                expr: {
+                  kind: "call",
+                  target: "pickfirst",
+                  args: [{ kind: "const", value: 65 }, { kind: "const", value: 66 }],
+                },
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "pickfirst",
-            statements: [
-              { kind: "loadExprHl", expr: { kind: "argChar", offset: 4 } },
-              { kind: "ret" },
+            params: [1, 1],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 1, slot: 0 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-arg-int-eq-helper-scc":
@@ -533,34 +563,33 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".eq", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 90 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "check16" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 73 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: { kind: "call", target: "check16", args: [{ kind: "const", value: 90 }] },
+                thenBody: [{ kind: "emitChar", value: 73 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "check16",
-            statements: [
-              { kind: "compareExprHelper", left: { kind: "argInt", offset: 2 }, right: { kind: "const", value: 90 }, helper: ".eq" },
-              { kind: "ret" },
+            params: [2],
+            locals: [],
+            body: [
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "arg", width: 2, slot: 0 },
+                right: { kind: "const", value: 90 },
+                helper: ".eq",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-two-arg-ne-helper-scc":
@@ -569,37 +598,37 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".ne", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 65 },
-              { kind: "pushHlArg" },
-              { kind: "loadConstHl", value: 66 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "checkpair" },
-              { kind: "popBc" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 68 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: {
+                  kind: "call",
+                  target: "checkpair",
+                  args: [{ kind: "const", value: 65 }, { kind: "const", value: 66 }],
+                },
+                thenBody: [{ kind: "emitChar", value: 68 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "checkpair",
-            statements: [
-              { kind: "compareExprHelper", left: { kind: "argChar", offset: 4 }, right: { kind: "argChar", offset: 2 }, helper: ".ne" },
-              { kind: "ret" },
+            params: [1, 1],
+            locals: [],
+            body: [
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "arg", width: 1, slot: 0 },
+                right: { kind: "ref", scope: "arg", width: 1, slot: 1 },
+                helper: ".ne",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-call-two-arg-mixed-scc":
@@ -608,30 +637,34 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "decSp" },
-              { kind: "storeImmToLocal", offset: 0, value: 67 },
-              { kind: "pushExprArg", expr: { kind: "localChar", offset: 0 } },
-              { kind: "pushExprArg", expr: { kind: "const", value: 68 } },
-              { kind: "call", target: "pickfirst" },
-              { kind: "popBc" },
-              { kind: "popBc" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "incSp" },
-              { kind: "ret" },
+            params: [],
+            locals: [1],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 1, value: 67 },
+              {
+                kind: "emitExprChar",
+                expr: {
+                  kind: "call",
+                  target: "pickfirst",
+                  args: [
+                    { kind: "ref", scope: "local", width: 1, slot: 0 },
+                    { kind: "const", value: 68 },
+                  ],
+                },
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "pickfirst",
-            statements: [
-              { kind: "loadExprHl", expr: { kind: "argChar", offset: 4 } },
-              { kind: "ret" },
+            params: [1, 1],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 1, slot: 0 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-two-arg-local-ne-helper-scc":
@@ -640,39 +673,41 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".ne", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "decSp" },
-              { kind: "storeImmToLocal", offset: 0, value: 67 },
-              { kind: "pushExprArg", expr: { kind: "localChar", offset: 0 } },
-              { kind: "pushExprArg", expr: { kind: "const", value: 68 } },
-              { kind: "call", target: "checkpair" },
-              { kind: "popBc" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 77 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "incSp" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "incSp" },
-              { kind: "ret" },
+            params: [],
+            locals: [1],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 1, value: 67 },
+              {
+                kind: "ifExprZero",
+                expr: {
+                  kind: "call",
+                  target: "checkpair",
+                  args: [
+                    { kind: "ref", scope: "local", width: 1, slot: 0 },
+                    { kind: "const", value: 68 },
+                  ],
+                },
+                thenBody: [{ kind: "emitChar", value: 77 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "checkpair",
-            statements: [
-              { kind: "compareExprHelper", left: { kind: "argChar", offset: 4 }, right: { kind: "argChar", offset: 2 }, helper: ".ne" },
-              { kind: "ret" },
+            params: [1, 1],
+            locals: [],
+            body: [
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "arg", width: 1, slot: 0 },
+                right: { kind: "ref", scope: "arg", width: 1, slot: 1 },
+                helper: ".ne",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-local-int-arg-int-eq-helper-scc":
@@ -681,37 +716,34 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".eq", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 90 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "checkmix" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 81 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: { kind: "call", target: "checkmix", args: [{ kind: "const", value: 90 }] },
+                thenBody: [{ kind: "emitChar", value: 81 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "checkmix",
-            statements: [
-              { kind: "reserveBytes", count: 2 },
-              { kind: "storeImm16ToLocal", offset: 0, value: 90 },
-              { kind: "compareExprHelper", left: { kind: "argInt", offset: 4 }, right: { kind: "localInt", offset: 2 }, helper: ".eq" },
-              { kind: "releaseBytes", count: 2 },
-              { kind: "ret" },
+            params: [2],
+            locals: [2],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 2, value: 90 },
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "local", width: 2, slot: 0 },
+                right: { kind: "ref", scope: "arg", width: 2, slot: 0 },
+                helper: ".eq",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-local-int-arg-int-ne-helper-scc":
@@ -720,37 +752,34 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".ne", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 91 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "checkmixne" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 82 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: { kind: "call", target: "checkmixne", args: [{ kind: "const", value: 91 }] },
+                thenBody: [{ kind: "emitChar", value: 82 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "checkmixne",
-            statements: [
-              { kind: "reserveBytes", count: 2 },
-              { kind: "storeImm16ToLocal", offset: 0, value: 90 },
-              { kind: "compareExprHelper", left: { kind: "argInt", offset: 4 }, right: { kind: "localInt", offset: 2 }, helper: ".ne" },
-              { kind: "releaseBytes", count: 2 },
-              { kind: "ret" },
+            params: [2],
+            locals: [2],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 2, value: 90 },
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "local", width: 2, slot: 0 },
+                right: { kind: "ref", scope: "arg", width: 2, slot: 0 },
+                helper: ".ne",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-local-int-arg-int-gt-helper-scc":
@@ -759,37 +788,34 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: [".gt", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "loadConstHl", value: 90 },
-              { kind: "pushHlArg" },
-              { kind: "call", target: "checkmixgt" },
-              { kind: "popBc" },
-              { kind: "truthJumpZero", target: ".2" },
-              { kind: "loadConstHl", value: 84 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
-              { kind: "label", name: ".2" },
-              { kind: "loadConstHl", value: 88 },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "ret" },
+            params: [],
+            locals: [],
+            body: [
+              {
+                kind: "ifExprZero",
+                expr: { kind: "call", target: "checkmixgt", args: [{ kind: "const", value: 90 }] },
+                thenBody: [{ kind: "emitChar", value: 84 }],
+                elseBody: [{ kind: "emitChar", value: 88 }],
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "checkmixgt",
-            statements: [
-              { kind: "reserveBytes", count: 2 },
-              { kind: "storeImm16ToLocal", offset: 0, value: 91 },
-              { kind: "compareExprHelper", left: { kind: "localInt", offset: 0 }, right: { kind: "argInt", offset: 6 }, helper: ".gt" },
-              { kind: "releaseBytes", count: 2 },
-              { kind: "ret" },
+            params: [2],
+            locals: [2],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 2, value: 91 },
+              {
+                kind: "compareReturn",
+                left: { kind: "ref", scope: "local", width: 2, slot: 0 },
+                right: { kind: "ref", scope: "arg", width: 2, slot: 0 },
+                helper: ".gt",
+              },
             ],
-          },
+          }),
         ],
       };
     case "stmt-call-two-arg-int-mixed-scc":
@@ -798,30 +824,34 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "reserveBytes", count: 2 },
-              { kind: "storeImm16ToLocal", offset: 0, value: 83 },
-              { kind: "pushExprArg", expr: { kind: "localInt", offset: 0 } },
-              { kind: "pushExprArg", expr: { kind: "const", value: 84 } },
-              { kind: "call", target: "pickfirst16" },
-              { kind: "popBc" },
-              { kind: "popBc" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "releaseBytes", count: 2 },
-              { kind: "ret" },
+            params: [],
+            locals: [2],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 2, value: 83 },
+              {
+                kind: "emitExprChar",
+                expr: {
+                  kind: "call",
+                  target: "pickfirst16",
+                  args: [
+                    { kind: "ref", scope: "local", width: 2, slot: 0 },
+                    { kind: "const", value: 84 },
+                  ],
+                },
+              },
+              { kind: "returnVoid" },
             ],
-          },
-          {
+          }),
+          lowerFunctionIR({
             name: "pickfirst16",
-            statements: [
-              { kind: "loadExprHl", expr: { kind: "argInt", offset: 4 } },
-              { kind: "ret" },
+            params: [2, 2],
+            locals: [],
+            body: [
+              { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 2, slot: 0 } },
             ],
-          },
+          }),
         ],
       };
     case "stmt-extern-two-arg-int-call-scc":
@@ -830,23 +860,26 @@ function makeFixtureProgramSpec(fixtureId: string): ProgramSpec | null {
         exports: ["pickfirst16", "outchar", "main"],
         includeBss: true,
         functions: [
-          {
+          lowerFunctionIR({
             name: "main",
-            statements: [
-              { kind: "reserveBytes", count: 2 },
-              { kind: "storeImm16ToLocal", offset: 0, value: 85 },
-              { kind: "pushExprArg", expr: { kind: "localInt", offset: 0 } },
-              { kind: "pushExprArg", expr: { kind: "const", value: 86 } },
-              { kind: "call", target: "pickfirst16" },
-              { kind: "popBc" },
-              { kind: "popBc" },
-              { kind: "pushHlArg" },
-              { kind: "callWithModeA", target: "outchar", mode: 1 },
-              { kind: "popBc" },
-              { kind: "releaseBytes", count: 2 },
-              { kind: "ret" },
+            params: [],
+            locals: [2],
+            body: [
+              { kind: "assignLocalConst", slot: 0, width: 2, value: 85 },
+              {
+                kind: "emitExprChar",
+                expr: {
+                  kind: "call",
+                  target: "pickfirst16",
+                  args: [
+                    { kind: "ref", scope: "local", width: 2, slot: 0 },
+                    { kind: "const", value: 86 },
+                  ],
+                },
+              },
+              { kind: "returnVoid" },
             ],
-          },
+          }),
         ],
       };
     default:
@@ -881,130 +914,421 @@ function emitProgram(spec: ProgramSpec): string {
   return lines.join("\n");
 }
 
+function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
+  const layout = layoutFunction(fn);
+  const state: LoweringState = { nextLabelId: 2 };
+  const statements: StatementSpec[] = [];
+  if (layout.localBytes > 0) {
+    statements.push({ kind: "reserveBytes", count: layout.localBytes });
+  }
+  for (const stmt of fn.body) {
+    statements.push(...lowerStmtIR(stmt, layout, state));
+  }
+  return {
+    name: fn.name,
+    statements,
+  };
+}
+
+function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState): StatementSpec[] {
+  switch (stmt.kind) {
+    case "assignLocalConst": {
+      const offset = getLocalOffset(layout, stmt.slot);
+      return stmt.width === 1
+        ? [{ kind: "storeImmToLocal", offset, value: stmt.value }]
+        : [{ kind: "storeImm16ToLocal", offset, value: stmt.value }];
+    }
+    case "compareReturn": {
+      const statements: StatementSpec[] = [
+        {
+          kind: "compareExprHelper",
+          left: lowerExprIR(stmt.left, layout),
+          right: lowerExprIR(stmt.right, layout),
+          helper: stmt.helper,
+        },
+      ];
+      if (layout.localBytes > 0) {
+        statements.push({ kind: "releaseBytes", count: layout.localBytes });
+      }
+      statements.push({ kind: "ret" });
+      return statements;
+    }
+    case "returnExpr": {
+      const statements: StatementSpec[] = [
+        { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
+      ];
+      if (layout.localBytes > 0) {
+        statements.push({ kind: "releaseBytes", count: layout.localBytes });
+      }
+      statements.push({ kind: "ret" });
+      return statements;
+    }
+    case "returnVoid": {
+      const statements: StatementSpec[] = [];
+      if (layout.localBytes > 0) {
+        statements.push({ kind: "releaseBytes", count: layout.localBytes });
+      }
+      statements.push({ kind: "ret" });
+      return statements;
+    }
+    case "emitExprChar":
+      return [
+        { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
+        { kind: "pushHlArg" },
+        { kind: "callWithModeA", target: "outchar", mode: 1 },
+        { kind: "popBc" },
+      ];
+    case "callModeAArg":
+      return [
+        { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
+        { kind: "pushHlArg" },
+        { kind: "callWithModeA", target: stmt.target, mode: stmt.mode },
+        { kind: "popBc" },
+      ];
+    case "decLocalByte":
+      return [{ kind: "decLocalByte", offset: getLocalOffset(layout, stmt.slot) }];
+    case "emitChar":
+      return [
+        { kind: "loadConstHl", value: stmt.value },
+        { kind: "pushHlArg" },
+        { kind: "callWithModeA", target: "outchar", mode: 1 },
+        { kind: "popBc" },
+      ];
+    case "doWhileExprNonZero": {
+      const loopLabel = allocateNumericLabel(state);
+      const endLabel = allocateNumericLabel(state);
+      return [
+        { kind: "label", name: loopLabel },
+        ...stmt.body.flatMap((entry) => lowerStmtIR(entry, layout, state)),
+        { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
+        { kind: "truthJumpZero", target: endLabel },
+        { kind: "jump", target: loopLabel },
+        { kind: "label", name: endLabel },
+      ];
+    }
+    case "ifExprZero": {
+      const elseLabel = allocateNumericLabel(state);
+      const endLabel = allocateNumericLabel(state);
+      return [
+        { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
+        { kind: "truthJumpZero", target: elseLabel },
+        ...stmt.thenBody.flatMap((entry) => lowerStmtIR(entry, layout, state)),
+        { kind: "jump", target: endLabel },
+        { kind: "label", name: elseLabel },
+        ...stmt.elseBody.flatMap((entry) => lowerStmtIR(entry, layout, state)),
+        { kind: "label", name: endLabel },
+      ];
+    }
+    default:
+      return assertNever(stmt);
+  }
+}
+
+function allocateNumericLabel(state: LoweringState): string {
+  const label = `.${state.nextLabelId}`;
+  state.nextLabelId += 1;
+  return label;
+}
+
+function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
+  switch (expr.kind) {
+    case "const":
+      return { kind: "const", value: expr.value };
+    case "dataAddress":
+      return { kind: "dataAddress", label: expr.label };
+    case "compare":
+      return {
+        kind: "compare",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerExprIR(expr.right, layout),
+        helper: expr.helper,
+      };
+    case "call":
+      return {
+        kind: "call",
+        target: expr.target,
+        args: expr.args?.map((arg) => lowerExprIR(arg, layout)),
+      };
+    case "ref":
+      return lowerRefIR(expr, layout);
+    default:
+      return assertNever(expr);
+  }
+}
+
+function lowerRefIR(ref: RefIR, layout: FunctionLayout): ExprSpec {
+  const offset = ref.scope === "local"
+    ? getLocalOffset(layout, ref.slot)
+    : getParamOffset(layout, ref.slot);
+  if (ref.scope === "local") {
+    return ref.width === 1
+      ? { kind: "localChar", offset }
+      : { kind: "localInt", offset };
+  }
+  return ref.width === 1
+    ? { kind: "argChar", offset }
+    : { kind: "argInt", offset };
+}
+
+function layoutFunction(fn: FunctionIR): FunctionLayout {
+  const localOffsets: number[] = [];
+  let localRunning = 0;
+  for (const width of fn.locals) {
+    localOffsets.push(localRunning);
+    localRunning += width;
+  }
+  const localBytes = localRunning;
+
+  const paramOffsets: number[] = [];
+  for (let index = 0; index < fn.params.length; index += 1) {
+    let trailing = 0;
+    for (let next = index + 1; next < fn.params.length; next += 1) {
+      trailing += getParamStackBytes(fn.params[next]);
+    }
+    paramOffsets.push(localBytes + 2 + trailing);
+  }
+  return { localBytes, localOffsets, paramOffsets };
+}
+
+function getParamStackBytes(_width: ValueWidth): number {
+  return 2;
+}
+
+function getLocalOffset(layout: FunctionLayout, slot: number): number {
+  return layout.localOffsets[slot] ?? 0;
+}
+
+function getParamOffset(layout: FunctionLayout, slot: number): number {
+  return layout.paramOffsets[slot] ?? 0;
+}
+
 function emitFunction(fn: FunctionSpec): string[] {
   const lines = [`${fn.name}:`];
   for (const statement of fn.statements) {
-    lines.push(...emitStatement(statement));
+    lines.push(...emitStatement(statement, { stackDelta: 0 }));
   }
   return lines;
 }
 
-function emitStatement(statement: StatementSpec): string[] {
+function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[] {
   switch (statement.kind) {
     case "call":
-      return [`\tcall\t${statement.target}`];
+      return emitCall(statement.target);
     case "loadConstHl":
-      return emitExprToHl({ kind: "const", value: statement.value });
+      return emitExprToHl({ kind: "const", value: statement.value }, ctx);
     case "loadDataAddressHl":
-      return emitExprToHl({ kind: "dataAddress", label: statement.label });
+      return emitExprToHl({ kind: "dataAddress", label: statement.label }, ctx);
     case "loadExprHl":
-      return emitExprToHl(statement.expr);
+      return emitExprToHl(statement.expr, ctx);
     case "pushExprArg":
-      return [
-        ...emitExprToHl(statement.expr),
-        "\tpush\thl",
-      ];
+      return emitPushArgs([statement.expr], ctx);
     case "pushHlArg":
-      return ["\tpush\thl"];
+      return emitPushHlArg();
     case "popBc":
-      return ["\tpop\tbc"];
+      return emitPopBc();
     case "ret":
-      return ["\tret"];
+      return emitRet();
     case "callWithModeA":
-      return [`\tld\ta,#${statement.mode}`, `\tcall\t${statement.target}`];
+      return emitCallWithModeA(statement.target, statement.mode);
     case "truthJumpZero":
-      return ["\tld\ta,h", "\tor\tl", `\tjp\tz,${statement.target}`];
+      return emitTruthJumpZero(statement.target);
     case "label":
-      return [`${statement.name}:`];
+      return emitLabel(statement.name);
     case "jump":
-      return [`\tjp\t${statement.target}`];
+      return emitJump(statement.target);
     case "decSp":
-      return ["\tdec\tsp"];
+      return emitReserveBytes(1);
     case "incSp":
-      return ["\tinc\tsp"];
+      return emitReleaseBytes(1);
     case "reserveBytes":
-      return Array.from({ length: statement.count }, () => "\tdec\tsp");
+      return emitReserveBytes(statement.count);
     case "releaseBytes":
-      return Array.from({ length: statement.count }, () => "\tinc\tsp");
+      return emitReleaseBytes(statement.count);
     case "loadLocalAddrHl":
-      return [`\tld\thl,#${statement.offset}`, "\tadd\thl,sp"];
+      return emitLoadLocalAddrToHl(statement.offset, ctx);
     case "storeImmToLocal":
-      return [
-        ...emitStatement({ kind: "loadLocalAddrHl", offset: statement.offset }),
-        `\tld\t(hl),#${statement.value}`,
-      ];
+      return emitStoreImm8ToLocal(statement.offset, statement.value, ctx);
     case "loadLocalCharToHl":
-      return emitExprToHl({ kind: "localChar", offset: statement.offset });
+      return emitExprToHl({ kind: "localChar", offset: statement.offset }, ctx);
     case "storeImm16ToLocal":
-      return [
-        ...emitStatement({ kind: "loadLocalAddrHl", offset: statement.offset }),
-        `\tld\t(hl),#${statement.value & 0xff}`,
-        "\tinc\thl",
-        `\tld\t(hl),#${(statement.value >> 8) & 0xff}`,
-      ];
+      return emitStoreImm16ToLocal(statement.offset, statement.value, ctx);
     case "loadLocalIntToHl":
-      return emitExprToHl({ kind: "localInt", offset: statement.offset });
+      return emitExprToHl({ kind: "localInt", offset: statement.offset }, ctx);
     case "decLocalByte":
-      return [
-        ...emitStatement({ kind: "loadLocalAddrHl", offset: statement.offset }),
-        "\tdec\t(hl)",
-      ];
+      return emitDecLocalByte(statement.offset, ctx);
     case "compareExprHelper":
-      return [
-        ...emitExprToHl(statement.left),
-        "\tpush\thl",
-        ...emitExprToHl(statement.right),
-        "\tpop\tde",
-        `\tcall\t${statement.helper}`,
-      ];
+      return emitHelperCompare(statement.left, statement.right, statement.helper, ctx);
     default:
       return assertNever(statement);
   }
 }
 
-function emitExprToHl(expr: ExprSpec): string[] {
+function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
   switch (expr.kind) {
     case "const":
-      return [`\tld\thl,#${expr.value}`];
+      return emitConstToHl(expr.value);
     case "dataAddress":
-      return [`\tld\thl,#${expr.label}+0`];
+      return emitSymbolAddressToHl(expr.label);
     case "call":
-      return [`\tcall\t${expr.target}`];
+      return emitCallExpr(expr.target, expr.args ?? [], ctx);
+    case "compare":
+      return emitHelperCompare(expr.left, expr.right, expr.helper, ctx);
     case "localChar":
-      return [
-        `\tld\thl,#${expr.offset}`,
-        "\tadd\thl,sp",
-        "\tld\tl,(hl)",
-        "\tld\th,#0",
-      ];
+      return emitLoadLocalByteToHl(expr.offset, ctx);
     case "localInt":
-      return [
-        `\tld\thl,#${expr.offset}`,
-        "\tadd\thl,sp",
-        "\tld\ta,(hl)",
-        "\tinc\thl",
-        "\tld\th,(hl)",
-        "\tld\tl,a",
-      ];
+      return emitLoadLocalWordToHl(expr.offset, ctx);
     case "argChar":
-      return [
-        `\tld\thl,#${expr.offset}`,
-        "\tadd\thl,sp",
-        "\tld\tl,(hl)",
-        "\tld\th,#0",
-      ];
+      return emitLoadArgByteToHl(expr.offset, ctx);
     case "argInt":
-      return [
-        `\tld\thl,#${expr.offset}`,
-        "\tadd\thl,sp",
-        "\tld\ta,(hl)",
-        "\tinc\thl",
-        "\tld\th,(hl)",
-        "\tld\tl,a",
-      ];
+      return emitLoadArgWordToHl(expr.offset, ctx);
     default:
       return assertNever(expr);
   }
+}
+
+function emitCall(target: string): string[] {
+  return [`\tcall\t${target}`];
+}
+
+function emitCallExpr(target: string, args: ExprSpec[], ctx: EmitExprContext): string[] {
+  if (args.length === 0) {
+    return emitCall(target);
+  }
+  return [
+    ...emitPushArgs(args, ctx),
+    ...emitCall(target),
+    ...Array.from({ length: args.length }, () => emitPopBc()).flat(),
+  ];
+}
+
+function emitRet(): string[] {
+  return ["\tret"];
+}
+
+function emitLabel(name: string): string[] {
+  return [`${name}:`];
+}
+
+function emitJump(target: string): string[] {
+  return [`\tjp\t${target}`];
+}
+
+function emitCallWithModeA(target: string, mode: number): string[] {
+  return [`\tld\ta,#${mode}`, `\tcall\t${target}`];
+}
+
+function emitTruthJumpZero(target: string): string[] {
+  return ["\tld\ta,h", "\tor\tl", `\tjp\tz,${target}`];
+}
+
+function emitPushHlArg(): string[] {
+  return ["\tpush\thl"];
+}
+
+function emitPopBc(): string[] {
+  return ["\tpop\tbc"];
+}
+
+function emitPushArgs(args: ExprSpec[], ctx: EmitExprContext): string[] {
+  const lines: string[] = [];
+  let stackDelta = ctx.stackDelta;
+  for (const expr of args) {
+    lines.push(...emitExprToHl(expr, { ...ctx, stackDelta }));
+    lines.push(...emitPushHlArg());
+    stackDelta += 2;
+  }
+  return lines;
+}
+
+function emitReserveBytes(count: number): string[] {
+  return Array.from({ length: count }, () => "\tdec\tsp");
+}
+
+function emitReleaseBytes(count: number): string[] {
+  return Array.from({ length: count }, () => "\tinc\tsp");
+}
+
+function emitConstToHl(value: number): string[] {
+  return [`\tld\thl,#${value}`];
+}
+
+function emitSymbolAddressToHl(label: string): string[] {
+  return [`\tld\thl,#${label}+0`];
+}
+
+function emitLoadLocalAddrToHl(offset: number, ctx: EmitExprContext): string[] {
+  return emitLoadStackAddrToHl(offset, ctx);
+}
+
+function emitLoadStackAddrToHl(offset: number, ctx: EmitExprContext): string[] {
+  return [`\tld\thl,#${offset + ctx.stackDelta}`, "\tadd\thl,sp"];
+}
+
+function emitLoadStackByteToHl(offset: number, ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadStackAddrToHl(offset, ctx),
+    "\tld\tl,(hl)",
+    "\tld\th,#0",
+  ];
+}
+
+function emitLoadStackWordToHl(offset: number, ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadStackAddrToHl(offset, ctx),
+    "\tld\ta,(hl)",
+    "\tinc\thl",
+    "\tld\th,(hl)",
+    "\tld\tl,a",
+  ];
+}
+
+function emitLoadLocalByteToHl(offset: number, ctx: EmitExprContext): string[] {
+  return emitLoadStackByteToHl(offset, ctx);
+}
+
+function emitLoadLocalWordToHl(offset: number, ctx: EmitExprContext): string[] {
+  return emitLoadStackWordToHl(offset, ctx);
+}
+
+function emitLoadArgByteToHl(offset: number, ctx: EmitExprContext): string[] {
+  return emitLoadStackByteToHl(offset, ctx);
+}
+
+function emitLoadArgWordToHl(offset: number, ctx: EmitExprContext): string[] {
+  return emitLoadStackWordToHl(offset, ctx);
+}
+
+function emitStoreImm8ToLocal(offset: number, value: number, ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadLocalAddrToHl(offset, ctx),
+    `\tld\t(hl),#${value}`,
+  ];
+}
+
+function emitStoreImm16ToLocal(offset: number, value: number, ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadLocalAddrToHl(offset, ctx),
+    `\tld\t(hl),#${value & 0xff}`,
+    "\tinc\thl",
+    `\tld\t(hl),#${(value >> 8) & 0xff}`,
+  ];
+}
+
+function emitDecLocalByte(offset: number, ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadLocalAddrToHl(offset, ctx),
+    "\tdec\t(hl)",
+  ];
+}
+
+function emitHelperCompare(left: ExprSpec, right: ExprSpec, helper: string, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(left, ctx),
+    ...emitPushHlArg(),
+    ...emitExprToHl(right, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    `\tcall\t${helper}`,
+  ];
 }
 
 function assertNever(value: never): never {

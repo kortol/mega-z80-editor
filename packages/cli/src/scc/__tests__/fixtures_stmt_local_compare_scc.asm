@@ -24,14 +24,14 @@ main:
 	ld	a,#1
 	call	outchar
 	pop	bc
-	inc	sp
-	ret
+	jp	.3
 .2:
 	ld	hl,#88
 	push	hl
 	ld	a,#1
 	call	outchar
 	pop	bc
+.3:
 	inc	sp
 	ret
 	.area	_BSS

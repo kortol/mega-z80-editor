@@ -16,13 +16,14 @@ main:
 	ld	a,#1
 	call	outchar
 	pop	bc
-	ret
+	jp	.3
 .2:
 	ld	hl,#88
 	push	hl
 	ld	a,#1
 	call	outchar
 	pop	bc
+.3:
 	ret
 checkmixne:
 	dec	sp
@@ -32,14 +33,14 @@ checkmixne:
 	ld	(hl),#90
 	inc	hl
 	ld	(hl),#0
-	ld	hl,#4
+	ld	hl,#0
 	add	hl,sp
 	ld	a,(hl)
 	inc	hl
 	ld	h,(hl)
 	ld	l,a
 	push	hl
-	ld	hl,#2
+	ld	hl,#6
 	add	hl,sp
 	ld	a,(hl)
 	inc	hl

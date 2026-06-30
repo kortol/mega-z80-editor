@@ -19,18 +19,18 @@ main:
 	pop	bc
 	ld	hl,#0
 	add	hl,sp
+	dec	(hl)
+	ld	hl,#0
+	add	hl,sp
 	ld	l,(hl)
 	ld	h,#0
 	push	hl
-	ld	hl,#49
+	ld	hl,#48
 	pop	de
 	call	.gt
 	ld	a,h
 	or	l
 	jp	z,.3
-	ld	hl,#0
-	add	hl,sp
-	dec	(hl)
 	jp	.2
 .3:
 	inc	sp

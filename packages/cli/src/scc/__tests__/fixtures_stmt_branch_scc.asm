@@ -12,13 +12,14 @@ main:
 	ld	a,#1
 	call	outchar
 	pop	bc
-	ret
+	jp	.3
 .2:
 	ld	hl,#70
 	push	hl
 	ld	a,#1
 	call	outchar
 	pop	bc
+.3:
 	ret
 flag:
 	ld	hl,#1
