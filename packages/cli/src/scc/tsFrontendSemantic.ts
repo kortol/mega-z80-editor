@@ -61,12 +61,14 @@ export type BoundBlock = {
 
 export type BoundStmt =
   | { kind: "return"; expr: BoundExpr }
+  | { kind: "expr"; expr: BoundExpr }
   | { kind: "if"; condition: BoundExpr; thenBlock: BoundBlock; elseBlock?: BoundBlock }
   | { kind: "while"; condition: BoundExpr; body: BoundBlock }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr };
 
 export type BoundExpr =
   | { kind: "const"; value: number; type: SemanticScalarType }
+  | { kind: "string"; value: string; type: SemanticScalarType }
   | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType }
   | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundExpr[]; type: SemanticScalarType }
   | { kind: "compare"; left: BoundExpr; right: BoundExpr; op: CompareOp; type: SemanticScalarType }
@@ -193,6 +195,8 @@ function analyzeStmt(
   switch (stmt.kind) {
     case "return":
       return { kind: "return", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
+    case "expr":
+      return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
     case "if":
       return {
         kind: "if",
@@ -238,6 +242,8 @@ function analyzeExpr(
   switch (expr.kind) {
     case "const":
       return { kind: "const", value: expr.value, type: toSemanticType("int") };
+    case "string":
+      return { kind: "string", value: expr.value, type: toSemanticType("int") };
     case "ref": {
       const symbol = lookupVisible(scope, expr.name);
       if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {

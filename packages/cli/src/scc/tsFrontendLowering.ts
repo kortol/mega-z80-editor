@@ -7,6 +7,7 @@ import {
   BoundStmt,
 } from "./tsFrontendSemantic";
 import {
+  DataSpec,
   ExprIR,
   FunctionIR,
   ProgramSpec,
@@ -18,24 +19,32 @@ import {
 export function lowerSourceProgram(program: BoundProgram, moduleName: string, sourceText: string, file?: string): ProgramSpec {
   const definedFunctions = new Set(program.functions.map((fn) => fn.name));
   const externs = new Set<string>();
-  const functions = program.functions.map((fn) => lowerFunction(fn, externs, definedFunctions, sourceText, file));
+  const state: LoweringState = { nextStringId: 0, data: [] };
+  const functions = program.functions.map((fn) => lowerFunction(fn, externs, definedFunctions, sourceText, state, file));
   return {
     moduleName,
     exports: definedFunctions.has("main") ? ["main"] : [],
     externs: Array.from(externs),
+    data: state.data.length > 0 ? state.data : undefined,
     functions,
     includeBss: true,
   };
 }
+
+type LoweringState = {
+  nextStringId: number;
+  data: DataSpec[];
+};
 
 function lowerFunction(
   fn: BoundFunction,
   externs: Set<string>,
   definedFunctions: Set<string>,
   sourceText: string,
+  state: LoweringState,
   file?: string,
 ) {
-  const body = lowerBlock(fn.body, externs, definedFunctions, sourceText, file);
+  const body = lowerBlock(fn.body, externs, definedFunctions, sourceText, state, file);
   const functionIr: FunctionIR = {
     name: fn.name,
     params: fn.params.map((param) => param.type.width),
@@ -50,9 +59,10 @@ function lowerBlock(
   externs: Set<string>,
   definedFunctions: Set<string>,
   sourceText: string,
+  state: LoweringState,
   file?: string,
 ): StmtIRHigh[] {
-  return block.statements.map((stmt) => lowerStmt(stmt, externs, definedFunctions, sourceText, file));
+  return block.statements.map((stmt) => lowerStmt(stmt, externs, definedFunctions, sourceText, state, file));
 }
 
 function lowerStmt(
@@ -60,26 +70,29 @@ function lowerStmt(
   externs: Set<string>,
   definedFunctions: Set<string>,
   sourceText: string,
+  state: LoweringState,
   file?: string,
 ): StmtIRHigh {
   switch (stmt.kind) {
     case "return":
-      return { kind: "returnExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, file) };
+      return { kind: "returnExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file) };
+    case "expr":
+      return { kind: "evalExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file) };
     case "if":
       return {
         kind: "ifExprZero",
-        expr: lowerExpr(stmt.condition, externs, definedFunctions, sourceText, file),
-        thenBody: lowerBlock(stmt.thenBlock, externs, definedFunctions, sourceText, file),
-        elseBody: stmt.elseBlock ? lowerBlock(stmt.elseBlock, externs, definedFunctions, sourceText, file) : [],
+        expr: lowerExpr(stmt.condition, externs, definedFunctions, sourceText, state, file),
+        thenBody: lowerBlock(stmt.thenBlock, externs, definedFunctions, sourceText, state, file),
+        elseBody: stmt.elseBlock ? lowerBlock(stmt.elseBlock, externs, definedFunctions, sourceText, state, file) : [],
       };
     case "while": {
-      const loweredCondition = lowerExpr(stmt.condition, externs, definedFunctions, sourceText, file);
+      const loweredCondition = lowerExpr(stmt.condition, externs, definedFunctions, sourceText, state, file);
       return {
         kind: "ifExprZero",
         expr: loweredCondition,
         thenBody: [{
           kind: "doWhileExprNonZero",
-          body: lowerBlock(stmt.body, externs, definedFunctions, sourceText, file),
+          body: lowerBlock(stmt.body, externs, definedFunctions, sourceText, state, file),
           expr: loweredCondition,
         }],
         elseBody: [],
@@ -98,7 +111,7 @@ function lowerStmt(
         kind: "assignLocalExpr",
         slot: stmt.local.slot,
         width: stmt.local.type.width,
-        expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, file),
+        expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
     }
     default:
@@ -111,11 +124,14 @@ function lowerExpr(
   externs: Set<string>,
   definedFunctions: Set<string>,
   sourceText: string,
+  state: LoweringState,
   file?: string,
 ): ExprIR {
   switch (expr.kind) {
     case "const":
       return { kind: "const", value: expr.value };
+    case "string":
+      return { kind: "dataAddress", label: internStringLiteral(state, expr.value) };
     case "ref":
       return {
         kind: "ref",
@@ -128,8 +144,8 @@ function lowerExpr(
       externs.add(helper);
       return {
         kind: "compare",
-        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, file),
-        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, file),
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
         helper,
       };
     }
@@ -140,7 +156,7 @@ function lowerExpr(
       return {
         kind: "call",
         target: expr.target.name,
-        args: expr.args.map((arg) => lowerExpr(arg, externs, definedFunctions, sourceText, file)),
+        args: expr.args.map((arg) => lowerExpr(arg, externs, definedFunctions, sourceText, state, file)),
       };
     case "additive":
       throwDiagnostic(
@@ -151,6 +167,22 @@ function lowerExpr(
     default:
       return assertNever(expr);
   }
+}
+
+function internStringLiteral(state: LoweringState, value: string): string {
+  const label = `.str${state.nextStringId}`;
+  state.nextStringId += 1;
+  state.data.push({
+    label,
+    directive: ".ascii",
+    value: encodeAsciiLiteral(value),
+  });
+  return label;
+}
+
+function encodeAsciiLiteral(value: string): string {
+  return JSON.stringify(value)
+    .replace(/\u0000/g, "\\0");
 }
 
 function compareOpToHelper(op: "==" | "!=" | ">" | "<" | ">=" | "<="): string {

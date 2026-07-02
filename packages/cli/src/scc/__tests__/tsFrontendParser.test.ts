@@ -31,4 +31,15 @@ describe("tsFrontendParser", () => {
     expect(stmt.elseBlock.declarations).toHaveLength(1);
     expect(stmt.elseBlock.declarations[0]?.name).toBe("y");
   });
+
+  test("parses expression statements with string literal arguments", () => {
+    const program = parseProgram("int main(){ outstr(\"HELLO$\"); return 0; }\n", "hello.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("expr");
+    if (stmt.kind !== "expr" || stmt.expr.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.target).toBe("outstr");
+    expect(stmt.expr.args[0]).toEqual({ kind: "string", value: "HELLO$" });
+  });
 });

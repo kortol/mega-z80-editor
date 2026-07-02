@@ -47,6 +47,10 @@ export type SourceStmt =
     expr: SourceExpr;
   }
   | {
+    kind: "expr";
+    expr: SourceExpr;
+  }
+  | {
     kind: "if";
     condition: SourceExpr;
     thenBlock: SourceBlock;
@@ -65,6 +69,7 @@ export type SourceStmt =
 
 export type SourceExpr =
   | { kind: "const"; value: number }
+  | { kind: "string"; value: string }
   | { kind: "ref"; name: string }
   | { kind: "call"; target: string; args: SourceExpr[] }
   | { kind: "binary"; left: SourceExpr; right: SourceExpr; op: BinaryOp };

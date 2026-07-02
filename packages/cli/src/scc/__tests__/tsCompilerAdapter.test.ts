@@ -667,6 +667,43 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tld\t(hl),#3");
   });
 
+  test("source mode emits data literals and call expression statements without fixture backing", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-outstr-"));
+    const inputFile = path.join(tempDir, "source-outstr.c");
+    fs.writeFileSync(inputFile, "int main(){ outstr(\" HELLO, CP/M$\"); return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\toutstr");
+    expect(sccAsm).toContain("\t.area\t_DATA");
+    expect(sccAsm).toContain(".ascii\t\" HELLO, CP/M$\"");
+  });
+
+  test("source mode supports multi-call expression statements for cpm-hello-like source", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-cpmhello-"));
+    const inputFile = path.join(tempDir, "source-cpmhello.c");
+    fs.writeFileSync(
+      inputFile,
+      "int main(){ fputc(35, 1); outstr(\" HELLO, CP/M$\"); return 0; }\n",
+      "utf8",
+    );
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\tfputc");
+    expect(sccAsm).toContain("\tcall\toutstr");
+    expect((sccAsm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(sccAsm).toContain(".ascii\t\" HELLO, CP/M$\"");
+  });
+
   test("source mode rejects duplicate function names in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-dup-fn-"));
@@ -788,12 +825,12 @@ describe("TsSccCompilerAdapter", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-unsupported-"));
     const inputFile = path.join(tempDir, "unsupported.c");
-    fs.writeFileSync(inputFile, "int main(){ outchar(); return 1; }\n", "utf8");
+    fs.writeFileSync(inputFile, "int main(){ for (;;) return 1; }\n", "utf8");
 
     expect(() => adapter.compileToRel(createLogger("quiet"), {
       inputFile,
       tempDir,
-    })).toThrow(/does not support statement 'outchar\(\)'/);
+    })).toThrow(/does not support statement 'for \(\;\;\) return 1'/);
   });
 
   test("fixture-backed fragment mode materializes SCC outputs instead of throwing", () => {

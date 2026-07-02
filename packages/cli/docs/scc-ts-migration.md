@@ -34,8 +34,6 @@ fixture の入口は `src/scc/fixtures.ts` です。
   - helper 実装の実体を多く含む
 - `cpm-runtime-scc`
   - CP/M 向け最小 runtime
-- `cpm-hello-scc`
-  - CP/M 向け最小 program
 - `frag-string-scc`
   - 文字列リテラル配置とアドレスロードだけに絞った fragment
 - `frag-helper-call-scc`
@@ -104,7 +102,7 @@ fixture の入口は `src/scc/fixtures.ts` です。
 - runtime support
   - `.case`, `.sxt`, `brkend`, `etext`, `edata`
 
-最初の TS 移植対象としては、`hello-scc` と `cpm-hello-scc` に出てくる helper 呼び出しを優先するのが妥当です。`0crt-scc` にしか出ない helper は runtime 実装として後段へ回せます。
+最初の TS 移植対象としては、`hello-scc` と CP/M hello source slice に出てくる helper / call pattern を優先するのが妥当です。`0crt-scc` にしか出ない helper は runtime 実装として後段へ回せます。
 
 ## Replacement Points
 
@@ -172,7 +170,7 @@ TS compiler 差し替え時の責務境界は以下です。
 - extern / helper symbol 解決
 - basic call emission
 
-までを TS compiler 側で独立に検証できます。その後に `hello-scc` や `cpm-hello-scc` へ広げるのが安全です。
+までを TS compiler 側で独立に検証できます。その後に `hello-scc` や CP/M hello source slice へ広げるのが安全です。
 
 ## Phase Checklist
 
@@ -194,6 +192,19 @@ CLI からも試験的に TS compiler backend を選べます。
 - `node dist/index.js dbg hello.com --cpm --sym hello.sym`
 
 現時点の CLI 導線は `TsSccCompilerAdapter` の source subset 制約をそのまま引き継ぎます。full Small-C 互換ではなく、Phase C subset を CLI から直接試せる状態です。
+
+## Phase 9 Status
+
+Phase 9 は着手済みです。最初の slice として、source-driven path に以下を追加しました。
+
+- expression statement
+  - `outstr(" HELLO, CP/M$");`
+  - `fputc(35, 1);`
+- string literal data emission
+  - string literal を `.area _DATA` の `.ascii` へ materialize
+  - call argument として `ld hl,#.strN+0` を生成
+
+この追加により、従来 fixture で比較していた CP/M hello 相当の `.scc.asm` 形状を source から直接生成できます。現時点では full stdio library や full declaration grammar までは広げず、`source -> parse/analyze/lower -> string data + call statement + .scc.asm` の経路を先に固定しています。
 
 ## Lowering Coverage
 

@@ -56,6 +56,7 @@ export type StmtIRHigh =
   | { kind: "assignLocalExpr"; slot: number; width: ValueWidth; expr: ExprIR }
   | { kind: "compareReturn"; left: ExprIR; right: ExprIR; helper: string }
   | { kind: "returnExpr"; expr: ExprIR }
+  | { kind: "evalExpr"; expr: ExprIR }
   | { kind: "returnVoid" }
   | { kind: "emitExprChar"; expr: ExprIR }
   | { kind: "callModeAArg"; target: string; mode: number; expr: ExprIR }
@@ -180,6 +181,8 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
       statements.push({ kind: "ret" });
       return statements;
     }
+    case "evalExpr":
+      return [{ kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) }];
     case "returnVoid": {
       const statements: StatementSpec[] = [];
       if (layout.localBytes > 0) {

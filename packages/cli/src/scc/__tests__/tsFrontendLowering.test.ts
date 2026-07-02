@@ -21,4 +21,15 @@ describe("tsFrontendLowering", () => {
 
     expect(bound.functions[0]?.locals.map((local) => local.name)).toEqual(["x", "y"]);
   });
+
+  test("lowers string literals into data records and expression statements into calls", () => {
+    const source = "int main(){ outstr(\"HELLO$\"); return 0; }\n";
+    const parsed = parseProgram(source, "hello.c");
+    const bound = analyzeProgram(parsed, source, "hello.c");
+    const spec = lowerSourceProgram(bound, "hello.i", source, "hello.c");
+
+    expect(spec.externs).toContain("outstr");
+    expect(spec.data?.[0]?.directive).toBe(".ascii");
+    expect(spec.data?.[0]?.value).toBe("\"HELLO$\"");
+  });
 });

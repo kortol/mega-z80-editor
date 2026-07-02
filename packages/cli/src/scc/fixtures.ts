@@ -49,13 +49,6 @@ export const SCC_OUTPUT_FIXTURES: SccFixtureRecord[] = [
     notes: "Minimal CP/M runtime fixture used by translator/link tests.",
   },
   {
-    id: "cpm-hello-scc",
-    kind: "program-scc",
-    file: path.join(FIXTURE_DIR, "fixtures_cpmhello_scc.asm"),
-    features: ["cpm-program", "fputc-call", "outstr-call", "string-data"],
-    notes: "Minimal CP/M-target program fixture.",
-  },
-  {
     id: "cpm-fputs-scc",
     kind: "program-scc",
     file: path.join(FIXTURE_DIR, "fixtures_cpm_fputs_scc.asm"),

@@ -6,6 +6,7 @@ import { link } from "../../cli/mz80-link";
 import { Z80DebugCore } from "../../debugger/core";
 import { createLogger } from "../../logger";
 import { getBundledSccRuntime } from "../runtime";
+import { TsSccCompilerAdapter } from "../tsCompilerAdapter";
 import { translateSccAsm } from "../translateAsm";
 
 describe("translateSccAsm", () => {
@@ -194,15 +195,22 @@ describe("translateSccAsm", () => {
     expect(Array.from(out)).toContain(0xc3);
   });
 
-  test("CP/M SCC fixtures produce a runnable .COM image with BDOS output", () => {
+  test("source-generated CP/M SCC output produces a runnable .COM image with BDOS output", () => {
     const runtimeSrc = getBundledSccRuntime("cpmcrt");
-    const helloSrc = fs.readFileSync(path.join(__dirname, "fixtures_cpmhello_scc.asm"), "utf8");
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-scc-cpm-"));
+    const inputFile = path.join(tempDir, "cpmhello.c");
     const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
     const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helloAsmPath = path.join(tempDir, "cpmhello.asm");
     const helloRelPath = path.join(tempDir, "cpmhello.rel");
     const outPath = path.join(tempDir, "cpmhello.com");
+
+    fs.writeFileSync(inputFile, "int main(){ fputc(35, 1); outstr(\" HELLO, CP/M$\"); return 0; }\n", "utf8");
+    const helloBuilt = new TsSccCompilerAdapter().compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+    const helloSrc = fs.readFileSync(helloBuilt.sccAsmFile, "utf8");
 
     fs.writeFileSync(runtimeAsmPath, translateSccAsm(runtimeSrc, { moduleName: "cpmcrt" }), "utf8");
     fs.writeFileSync(helloAsmPath, translateSccAsm(helloSrc, { moduleName: "cpmhello.i" }), "utf8");

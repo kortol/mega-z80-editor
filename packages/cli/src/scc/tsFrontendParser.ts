@@ -161,6 +161,13 @@ function parseStatement(
       },
     };
   }
+  const exprStmt = parseExpressionStatement(context, statementText, functionName, offset);
+  if (exprStmt) {
+    return {
+      kind: "stmt",
+      statement: exprStmt,
+    };
+  }
   throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support statement '${statementText}' in ${functionName}().`, {
     file: context.file,
     offset,
@@ -302,6 +309,9 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
   }
+  if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+    return { kind: "string", value: decodeStringLiteral(trimmed, context, offset, functionName) };
+  }
   if (/^\d+$/.test(trimmed)) {
     return { kind: "const", value: Number.parseInt(trimmed, 10) };
   }
@@ -368,9 +378,17 @@ function parseDeclaration(statementText: string): { type: ScalarType; name: stri
 function splitTopLevelArgs(argsText: string): Array<{ text: string; offset: number }> {
   const parts: Array<{ text: string; offset: number }> = [];
   let depth = 0;
+  let inString = false;
   let start = 0;
   for (let index = 0; index < argsText.length; index += 1) {
     const ch = argsText[index];
+    if (ch === "\"" && argsText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
     if (ch === "(") {
       depth += 1;
       continue;
@@ -402,9 +420,17 @@ function splitTopLevelStatements(
   const parts: Array<{ text: string; offset: number }> = [];
   let parenDepth = 0;
   let braceDepth = 0;
+  let inString = false;
   let start = 0;
   for (let index = 0; index < bodyText.length; index += 1) {
     const ch = bodyText[index];
+    if (ch === "\"" && bodyText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
     if (ch === "(") {
       parenDepth += 1;
       continue;
@@ -471,8 +497,16 @@ function takeSingleSimpleStatement(
 ): { text: string; offset: number } {
   let parenDepth = 0;
   let braceDepth = 0;
+  let inString = false;
   for (let index = 0; index < bodyText.length; index += 1) {
     const ch = bodyText[index];
+    if (ch === "\"" && bodyText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
     if (ch === "(") {
       parenDepth += 1;
       continue;
@@ -512,8 +546,16 @@ function takeSingleSimpleStatement(
 
 function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { index: number; op: BinaryOp } | null {
   let depth = 0;
+  let inString = false;
   for (let index = exprText.length - 1; index >= 0; index -= 1) {
     const ch = exprText[index];
+    if (ch === "\"" && exprText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
     if (ch === ")") {
       depth += 1;
       continue;
@@ -599,6 +641,67 @@ function findMatchingDelimitedIndex(
 
 function makeScalarType(name: ScalarType): SourceType {
   return { kind: "scalar", name };
+}
+
+function parseExpressionStatement(
+  context: ParseContext,
+  statementText: string,
+  functionName: string,
+  offset: number,
+): SourceStmt | null {
+  const trimmed = statementText.trim();
+  if (!/^([A-Za-z_]\w*)\s*\(.*\)$/.test(trimmed)) {
+    return null;
+  }
+  return {
+    kind: "expr",
+    expr: parseExpression(context, trimmed, functionName, offset + statementText.indexOf(trimmed)),
+  };
+}
+
+function decodeStringLiteral(
+  literalText: string,
+  context: ParseContext,
+  offset: number,
+  functionName: string,
+): string {
+  let result = "";
+  for (let index = 1; index < literalText.length - 1; index += 1) {
+    const ch = literalText[index];
+    if (ch !== "\\") {
+      result += ch;
+      continue;
+    }
+    index += 1;
+    const escaped = literalText[index];
+    switch (escaped) {
+      case "\\":
+        result += "\\";
+        break;
+      case "\"":
+        result += "\"";
+        break;
+      case "n":
+        result += "\n";
+        break;
+      case "r":
+        result += "\r";
+        break;
+      case "t":
+        result += "\t";
+        break;
+      case "0":
+        result += "\0";
+        break;
+      default:
+        throwDiagnostic(
+          context.normalized,
+          `TsSccCompilerAdapter Phase C subset does not support string escape '\\${escaped}' in ${functionName}().`,
+          { file: context.file, offset: offset + index - 1 },
+        );
+    }
+  }
+  return result;
 }
 
 export type { ParseContext };
