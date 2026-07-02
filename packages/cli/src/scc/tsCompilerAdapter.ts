@@ -4,6 +4,10 @@ import { assemble } from "../cli/mz80-as";
 import { Logger } from "../logger";
 import { CompilerAdapter, CompilerAdapterCompileOptions, CompileSccSourceResult } from "./compilerAdapter";
 import { getSccFixture, readSccFixture } from "./fixtures";
+import { lowerSourceProgram as lowerBoundProgram } from "./tsFrontendLowering";
+import { parseProgram } from "./tsFrontendParser";
+import { analyzeProgram } from "./tsFrontendSemantic";
+import { emitProgram as emitLoweredProgram } from "./tsProgram";
 import { translateSccAsm } from "./translateAsm";
 
 export type TsSccCompilerAdapterOptions = {
@@ -245,12 +249,13 @@ function compileFromSource(
   const relFile = opts.outputRelFile ? path.resolve(opts.outputRelFile) : path.join(stageDir, `${stem}.rel`);
 
   const sourceText = fs.readFileSync(resolvedInput, "utf8");
-  const parsed = parseSubsetProgram(sourceText);
-  const spec = lowerSourceProgram(parsed, `${stem}.i`);
+  const parsed = parseProgram(sourceText, resolvedInput);
+  const bound = analyzeProgram(parsed, sourceText, resolvedInput);
+  const spec = lowerBoundProgram(bound, `${stem}.i`, sourceText, resolvedInput);
 
   fs.mkdirSync(stageDir, { recursive: true });
   fs.writeFileSync(preprocessedFile, sourceText, "utf8");
-  fs.writeFileSync(sccAsmFile, emitProgram(spec), "utf8");
+  fs.writeFileSync(sccAsmFile, emitLoweredProgram(spec), "utf8");
   fs.writeFileSync(
     asmFile,
     translateSccAsm(fs.readFileSync(sccAsmFile, "utf8"), { moduleName: path.basename(preprocessedFile) }),

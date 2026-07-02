@@ -17,6 +17,9 @@ function assembleCompareHelperRuntime(tempDir: string): string {
     "\t.globl\t.gt",
     "\t.globl\t.eq",
     "\t.globl\t.ne",
+    "\t.globl\t.lt",
+    "\t.globl\t.ge",
+    "\t.globl\t.le",
     "\t.module\tgt_helper",
     "\t.area\t_CODE",
     ".gt:",
@@ -58,6 +61,41 @@ function assembleCompareHelperRuntime(tempDir: string): string {
     "\tret",
     ".same:",
     "\tld\thl,#0",
+    "\tret",
+    ".lt:",
+    "\tld\ta,d",
+    "\tcp\th",
+    "\tjr\tc,.lt_true",
+    "\tjr\tnz,.lt_false",
+    "\tld\ta,e",
+    "\tcp\tl",
+    "\tjr\tc,.lt_true",
+    "\tjr\tz,.lt_false",
+    ".lt_false:",
+    "\tld\thl,#0",
+    "\tret",
+    ".lt_true:",
+    "\tld\thl,#1",
+    "\tret",
+    ".ge:",
+    "\tcall\t.lt",
+    "\tld\ta,h",
+    "\tor\tl",
+    "\tjr\tz,.ge_true",
+    "\tld\thl,#0",
+    "\tret",
+    ".ge_true:",
+    "\tld\thl,#1",
+    "\tret",
+    ".le:",
+    "\tcall\t.gt",
+    "\tld\ta,h",
+    "\tor\tl",
+    "\tjr\tz,.le_true",
+    "\tld\thl,#0",
+    "\tret",
+    ".le_true:",
+    "\tld\thl,#1",
     "\tret",
     "",
   ].join("\n");
@@ -259,6 +297,66 @@ describe("TsSccCompilerAdapter", () => {
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tcall\t.gt");
     expect(sccAsm).toContain("bigger:");
+  });
+
+  test("source mode supports not-equal compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-ne-"));
+    const inputFile = path.join(tempDir, "compare-ne.c");
+    fs.writeFileSync(inputFile, "int noteq(int a, int b){ return a != b; }\nint main(){ return noteq(66, 65); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.ne");
+    expect(sccAsm).toContain("noteq:");
+  });
+
+  test("source mode supports less-than compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-lt-"));
+    const inputFile = path.join(tempDir, "compare-lt.c");
+    fs.writeFileSync(inputFile, "int smaller(int a, int b){ return a < b; }\nint main(){ return smaller(65, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.lt");
+    expect(sccAsm).toContain("smaller:");
+  });
+
+  test("source mode supports greater-or-equal compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-ge-"));
+    const inputFile = path.join(tempDir, "compare-ge.c");
+    fs.writeFileSync(inputFile, "int atleast(int a, int b){ return a >= b; }\nint main(){ return atleast(66, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.ge");
+    expect(sccAsm).toContain("atleast:");
+  });
+
+  test("source mode supports less-or-equal compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-le-"));
+    const inputFile = path.join(tempDir, "compare-le.c");
+    fs.writeFileSync(inputFile, "int atmost(int a, int b){ return a <= b; }\nint main(){ return atmost(65, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.le");
+    expect(sccAsm).toContain("atmost:");
   });
 
   test("source mode supports if-return with fallthrough return in the Phase C subset", () => {
@@ -647,6 +745,43 @@ describe("TsSccCompilerAdapter", () => {
 
     expect(result.reason).toBe("BDOS 0: terminate");
     expect(core.getOutput()).toBe("X");
+  });
+
+  test("source mode can link with compare helpers and execute a less-than-driven .COM image", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-cpm-compare-run-"));
+    const inputFile = path.join(tempDir, "source-cpm-compare-run.c");
+    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+    const outPath = path.join(tempDir, "source-cpm-compare-run.com");
+
+    fs.writeFileSync(
+      inputFile,
+      "int outchar(int c); int main(){ if (65 < 66) return emitx(); return 0; }\n",
+      "utf8",
+    );
+    const programRel = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    }).relFile;
+
+    const helperRel = assembleEmitCharRuntime(tempDir, "emitx", 76);
+    const compareRel = assembleCompareHelperRuntime(tempDir);
+
+    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+
+    link([runtimeRelPath, programRel, helperRel, compareRel], outPath, { com: true, orgText: "100H" });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outPath), 0x0100);
+    core.setEntry(0x0100);
+    const result = core.run(2000);
+
+    expect(result.reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("L");
   });
 
   test("source mode still rejects unsupported statements outside the Phase C subset", () => {
