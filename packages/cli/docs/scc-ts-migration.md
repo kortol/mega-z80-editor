@@ -187,6 +187,13 @@ TS compiler 差し替え時の責務境界は以下です。
 
 Phase 8 は着手済みです。現時点では full parser ではなく、`int main(){ return 42; }`、`int value(){ return 88; } int main(){ return value(); }`、`char echo(char a){ return a; }`、`int eqpair(int a, int b){ return a == b; }`、`int flag(int a, int b){ if (a == b) return 1; return 0; }`、`int flag(int a, int b){ if (a > b) return 1; else if (a == b) return 2; else return 3; }`、`int flag(int a, int b){ if (a > b) { return 1; } else { return 0; } }`、`int flag(int a, int b){ int x; if (a > b) { x = 1; return x; } else { x = 0; return x; } }`、`int flag(int a, int b){ if (a > b) { int x = 1; return x; } else if (a == b) { int y = 2; return y; } else { int z = 3; return z; } }`、`int main(){ int x = 65; while (x > 90) { x = 66; } return x; }`、`int main(){ int x = 65; while (x > 90) { int y = 66; x = y; } return x; }`、`int main(){ int x = 65; while (x > 90) x = 66; return x; }`、`int localv(){ int x = 90; return x; }`、`char localc(){ char x = 67; return x; }`、`int localv(int a){ int x; x = a; return x; }`、`int main(){ return pair(65, 66); }` のような subset を `TsSccCompilerAdapter` が直接読めます。
 
+CLI からも試験的に TS compiler backend を選べます。
+
+- `node dist/index.js cc hello.c hello.com --compiler ts --runtime cpmcrt --com --sym`
+- `node dist/index.js dbg hello.com --cpm --sym hello.sym`
+
+現時点の CLI 導線は `TsSccCompilerAdapter` の source subset 制約をそのまま引き継ぎます。full Small-C 互換ではなく、Phase C subset を CLI から直接試せる状態です。
+
 ## Lowering Coverage
 
 現時点の high-level lowering が扱える主要パターン:

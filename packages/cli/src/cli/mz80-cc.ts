@@ -1,9 +1,14 @@
 import path from "node:path";
 import { Logger } from "../logger";
 import { compileSccProgram } from "../scc/compileProgram";
+import { ExternalSccCompilerAdapter } from "../scc/compilerAdapter";
 import { SccRuntimeName } from "../scc/runtime";
+import { TsSccCompilerAdapter } from "../scc/tsCompilerAdapter";
+
+export type Mz80CcCompilerKind = "sccz80" | "ts";
 
 export type Mz80CcCliOptions = {
+  compiler?: Mz80CcCompilerKind;
   runtime?: SccRuntimeName;
   library?: string[];
   include?: string[];
@@ -35,6 +40,13 @@ export function compileSccProgramFromCli(
 ): void {
   const resolvedOutput = path.resolve(outputFile);
   const defaultCom = /\.com$/i.test(resolvedOutput);
+  const compilerAdapter = opts.compiler === "ts"
+    ? new TsSccCompilerAdapter()
+    : new ExternalSccCompilerAdapter({
+      dcppPath: opts.dcpp,
+      sccz80Path: opts.sccz80,
+      toolMode: opts.wsl ? "wsl" : "host",
+    });
   compileSccProgram(logger, {
     inputFile: path.resolve(inputFile),
     outputFile: resolvedOutput,
@@ -59,5 +71,7 @@ export function compileSccProgramFromCli(
     smap: opts.smap,
     log: opts.log,
     fullpath: opts.fullpath,
+  }, {
+    compilerAdapter,
   });
 }
