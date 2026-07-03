@@ -7,7 +7,7 @@ import { Z80DebugCore } from "../../debugger/core";
 import { createArchive } from "../../linker/archive";
 import { createLogger } from "../../logger";
 import { getBundledSccRuntime } from "../runtime";
-import { readSccFixture } from "../fixtures";
+import { TsSccCompilerAdapter } from "../tsCompilerAdapter";
 import { translateSccAsm } from "../translateAsm";
 
 const logger = createLogger("quiet");
@@ -28,6 +28,15 @@ function assembleMz80Module(tempDir: string, stem: string, source: string): stri
   const ctx = assemble(logger, asmPath, relPath, { relVersion: 2 });
   expect(ctx.errors).toEqual([]);
   return relPath;
+}
+
+function compileSourceRel(tempDir: string, fileName: string, sourceText: string): string {
+  const inputFile = path.join(tempDir, fileName);
+  fs.writeFileSync(inputFile, sourceText, "utf8");
+  return new TsSccCompilerAdapter().compileToRel(logger, {
+    inputFile,
+    tempDir,
+  }).relFile;
 }
 
 function buildStdioArchive(tempDir: string): string {
@@ -201,7 +210,11 @@ describe("Small-C stdio integration", () => {
     const runtimeRel = assembleTranslatedScc(tempDir, "cpmlibc", getBundledSccRuntime("cpmlibc"));
     const archivePath = buildStdioArchive(tempDir);
 
-    const fputsRel = assembleTranslatedScc(tempDir, "cpm_fputs", readSccFixture("cpm-fputs-scc"));
+    const fputsRel = compileSourceRel(
+      tempDir,
+      "cpm_fputs.c",
+      "int fputs(int fp, int s); int main(){ fputs(1, \"FPUTS OK$\"); return 0; }\n",
+    );
     const fputsOut = path.join(tempDir, "cpm_fputs.com");
     link([runtimeRel, fputsRel, archivePath], fputsOut, { com: true, orgText: "100H" });
 
@@ -215,7 +228,31 @@ describe("Small-C stdio integration", () => {
     expect(fputsResult.reason).toBe("BDOS 0: terminate");
     expect(fputsCore.getOutput()).toBe("FPUTS OK");
 
-    const fgetsRel = assembleTranslatedScc(tempDir, "cpm_fgets", readSccFixture("cpm-fgets-scc"));
+    const fgetsRel = assembleTranslatedScc(
+      tempDir,
+      "cpm_fgets",
+      [
+        "\t.globl\tfgets",
+        "\t.globl\tmain",
+        "\t.module\tcpm_fgets.i",
+        "\t.area\t_CODE",
+        "main:",
+        "\tld\thl,#0",
+        "\tpush\thl",
+        "\tld\thl,#16",
+        "\tpush\thl",
+        "\tld\thl,#.0+0",
+        "\tpush\thl",
+        "\tcall\tfgets",
+        "\tpop\tbc",
+        "\tpop\tbc",
+        "\tpop\tbc",
+        "\tret",
+        "\t.area\t_BSS",
+        ".0:\t.ds\t16",
+        "",
+      ].join("\n"),
+    );
     const fgetsOut = path.join(tempDir, "cpm_fgets.com");
     link([runtimeRel, fgetsRel, archivePath], fgetsOut, { com: true, orgText: "100H", sym: true });
 
@@ -232,7 +269,25 @@ describe("Small-C stdio integration", () => {
     const fgetsBuf = readSymbolAddress(fgetsOut.replace(/\.com$/, ".sym"), "__SCC_LOCAL_0");
     expect(readZeroTerminated(fgetsCore, fgetsBuf, 16)).toBe("FETCH");
 
-    const getsRel = assembleTranslatedScc(tempDir, "cpm_gets", readSccFixture("cpm-gets-scc"));
+    const getsRel = assembleTranslatedScc(
+      tempDir,
+      "cpm_gets",
+      [
+        "\t.globl\tgets",
+        "\t.globl\tmain",
+        "\t.module\tcpm_gets.i",
+        "\t.area\t_CODE",
+        "main:",
+        "\tld\thl,#.0+0",
+        "\tpush\thl",
+        "\tcall\tgets",
+        "\tpop\tbc",
+        "\tret",
+        "\t.area\t_BSS",
+        ".0:\t.ds\t16",
+        "",
+      ].join("\n"),
+    );
     const getsOut = path.join(tempDir, "cpm_gets.com");
     link([runtimeRel, getsRel, archivePath], getsOut, { com: true, orgText: "100H", sym: true });
 
@@ -249,7 +304,11 @@ describe("Small-C stdio integration", () => {
     const getsBuf = readSymbolAddress(getsOut.replace(/\.com$/, ".sym"), "__SCC_LOCAL_0");
     expect(readZeroTerminated(getsCore, getsBuf, 16)).toBe("LINE");
 
-    const getcharRel = assembleTranslatedScc(tempDir, "cpm_getchar", readSccFixture("cpm-getchar-scc"));
+    const getcharRel = compileSourceRel(
+      tempDir,
+      "cpm_getchar.c",
+      "int getchar(); int main(){ getchar(); return 0; }\n",
+    );
     const getcharOut = path.join(tempDir, "cpm_getchar.com");
     link([runtimeRel, getcharRel, archivePath], getcharOut, { com: true, orgText: "100H" });
 

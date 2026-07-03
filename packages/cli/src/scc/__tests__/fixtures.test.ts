@@ -24,9 +24,7 @@ describe("SCC_OUTPUT_FIXTURES", () => {
   });
 
   test("stdio fixtures cover the remaining library entry points", () => {
-    expect(readSccFixture("cpm-fputs-scc")).toContain("\tcall\tfputs");
     expect(readSccFixture("cpm-fgets-scc")).toContain("\tcall\tfgets");
     expect(readSccFixture("cpm-gets-scc")).toContain("\tcall\tgets");
-    expect(readSccFixture("cpm-getchar-scc")).toContain("\tcall\tgetchar");
   });
 });
