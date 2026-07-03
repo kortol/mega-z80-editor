@@ -13,7 +13,12 @@ export type ExprSpec =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
   | { kind: "call"; target: string; args?: ExprSpec[] }
+  | { kind: "logical"; left: ExprSpec; right: ExprSpec; op: "&&" | "||" }
+  | { kind: "bitwise"; left: ExprSpec; right: ExprSpec; op: "&" | "^" | "|" }
+  | { kind: "helperBinary"; left: ExprSpec; right: ExprSpec; helper: ".mul" | ".asl" | ".asr" }
+  | { kind: "divmod"; left: ExprSpec; right: ExprSpec; result: "quotient" | "remainder" }
   | { kind: "compare"; left: ExprSpec; right: ExprSpec; helper: string }
+  | { kind: "additive"; left: ExprSpec; right: ExprSpec; op: "+" | "-" }
   | { kind: "localChar"; offset: number }
   | { kind: "localInt"; offset: number }
   | { kind: "argChar"; offset: number }
@@ -41,7 +46,12 @@ export type ExprIR =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
   | RefIR
+  | { kind: "logical"; left: ExprIR; right: ExprIR; op: "&&" | "||" }
+  | { kind: "bitwise"; left: ExprIR; right: ExprIR; op: "&" | "^" | "|" }
+  | { kind: "helperBinary"; left: ExprIR; right: ExprIR; helper: ".mul" | ".asl" | ".asr" }
+  | { kind: "divmod"; left: ExprIR; right: ExprIR; result: "quotient" | "remainder" }
   | { kind: "compare"; left: ExprIR; right: ExprIR; helper: string }
+  | { kind: "additive"; left: ExprIR; right: ExprIR; op: "+" | "-" }
   | { kind: "call"; target: string; args?: ExprIR[] };
 
 export type FunctionIR = {
@@ -62,7 +72,9 @@ export type StmtIRHigh =
   | { kind: "callModeAArg"; target: string; mode: number; expr: ExprIR }
   | { kind: "decLocalByte"; slot: number }
   | { kind: "emitChar"; value: number }
-  | { kind: "doWhileExprNonZero"; body: StmtIRHigh[]; expr: ExprIR }
+  | { kind: "whileExprNonZero"; expr: ExprIR; body: StmtIRHigh[]; stepBody?: StmtIRHigh[] }
+  | { kind: "break" }
+  | { kind: "continue" }
   | { kind: "ifExprZero"; expr: ExprIR; thenBody: StmtIRHigh[]; elseBody: StmtIRHigh[] };
 
 type FunctionLayout = {
@@ -73,6 +85,11 @@ type FunctionLayout = {
 
 type LoweringState = {
   nextLabelId: number;
+};
+
+type LoopContext = {
+  breakLabel: string;
+  continueLabel: string;
 };
 
 type StatementSpec =
@@ -104,6 +121,9 @@ type StatementSpec =
 
 type EmitExprContext = {
   stackDelta: number;
+  labels: {
+    nextLogicalLabelId: number;
+  };
 };
 
 export function emitProgram(spec: ProgramSpec): string {
@@ -145,7 +165,7 @@ export function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
   return { name: fn.name, statements };
 }
 
-function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState): StatementSpec[] {
+function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState, loop?: LoopContext): StatementSpec[] {
   switch (stmt.kind) {
     case "assignLocalConst": {
       const offset = getLocalOffset(layout, stmt.slot);
@@ -214,28 +234,42 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
         { kind: "callWithModeA", target: "outchar", mode: 1 },
         { kind: "popBc" },
       ];
-    case "doWhileExprNonZero": {
+    case "whileExprNonZero": {
       const loopLabel = allocateNumericLabel(state);
+      const continueLabel = allocateNumericLabel(state);
       const endLabel = allocateNumericLabel(state);
+      const loopContext: LoopContext = { breakLabel: endLabel, continueLabel };
       return [
         { kind: "label", name: loopLabel },
-        ...stmt.body.flatMap((entry) => lowerStmtIR(entry, layout, state)),
         { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
         { kind: "truthJumpZero", target: endLabel },
+        ...stmt.body.flatMap((entry) => lowerStmtIR(entry, layout, state, loopContext)),
+        { kind: "label", name: continueLabel },
+        ...(stmt.stepBody ?? []).flatMap((entry) => lowerStmtIR(entry, layout, state, loopContext)),
         { kind: "jump", target: loopLabel },
         { kind: "label", name: endLabel },
       ];
     }
+    case "break":
+      if (!loop) {
+        throw new Error("Internal lowering error: break used outside loop context.");
+      }
+      return [{ kind: "jump", target: loop.breakLabel }];
+    case "continue":
+      if (!loop) {
+        throw new Error("Internal lowering error: continue used outside loop context.");
+      }
+      return [{ kind: "jump", target: loop.continueLabel }];
     case "ifExprZero": {
       const elseLabel = allocateNumericLabel(state);
       const endLabel = allocateNumericLabel(state);
       return [
         { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
         { kind: "truthJumpZero", target: elseLabel },
-        ...stmt.thenBody.flatMap((entry) => lowerStmtIR(entry, layout, state)),
+        ...stmt.thenBody.flatMap((entry) => lowerStmtIR(entry, layout, state, loop)),
         { kind: "jump", target: endLabel },
         { kind: "label", name: elseLabel },
-        ...stmt.elseBody.flatMap((entry) => lowerStmtIR(entry, layout, state)),
+        ...stmt.elseBody.flatMap((entry) => lowerStmtIR(entry, layout, state, loop)),
         { kind: "label", name: endLabel },
       ];
     }
@@ -262,6 +296,41 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         left: lowerExprIR(expr.left, layout),
         right: lowerExprIR(expr.right, layout),
         helper: expr.helper,
+      };
+    case "logical":
+      return {
+        kind: "logical",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerExprIR(expr.right, layout),
+        op: expr.op,
+      };
+    case "bitwise":
+      return {
+        kind: "bitwise",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerExprIR(expr.right, layout),
+        op: expr.op,
+      };
+    case "helperBinary":
+      return {
+        kind: "helperBinary",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerExprIR(expr.right, layout),
+        helper: expr.helper,
+      };
+    case "divmod":
+      return {
+        kind: "divmod",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerExprIR(expr.right, layout),
+        result: expr.result,
+      };
+    case "additive":
+      return {
+        kind: "additive",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerExprIR(expr.right, layout),
+        op: expr.op,
       };
     case "call":
       return {
@@ -317,8 +386,9 @@ function getParamOffset(layout: FunctionLayout, slot: number): number {
 
 function emitFunction(fn: FunctionSpec): string[] {
   const lines = [`${fn.name}:`];
+  const ctx: EmitExprContext = { stackDelta: 0, labels: { nextLogicalLabelId: 2000 } };
   for (const statement of fn.statements) {
-    lines.push(...emitStatement(statement, { stackDelta: 0 }));
+    lines.push(...emitStatement(statement, ctx));
   }
   return lines;
 }
@@ -388,8 +458,18 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return [`\tld\thl,#${expr.label}+0`];
     case "call":
       return emitCallExpr(expr.target, expr.args ?? [], ctx);
+    case "logical":
+      return emitLogicalExpr(expr.left, expr.right, expr.op, ctx);
+    case "bitwise":
+      return emitBitwiseExpr(expr.left, expr.right, expr.op, ctx);
+    case "helperBinary":
+      return emitHelperBinaryExpr(expr.left, expr.right, expr.helper, ctx);
+    case "divmod":
+      return emitDivmodExpr(expr.left, expr.right, expr.result, ctx);
     case "compare":
       return emitHelperCompare(expr.left, expr.right, expr.helper, ctx);
+    case "additive":
+      return emitAdditiveExpr(expr.left, expr.right, expr.op, ctx);
     case "localChar":
     case "argChar":
       return emitLoadStackByteToHl(expr.offset, ctx);
@@ -478,6 +558,108 @@ function emitHelperCompare(left: ExprSpec, right: ExprSpec, helper: string, ctx:
     "\tpop\tde",
     `\tcall\t${helper}`,
   ];
+}
+
+function emitAdditiveExpr(left: ExprSpec, right: ExprSpec, op: "+" | "-", ctx: EmitExprContext): string[] {
+  const lines = [
+    ...emitExprToHl(left, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(right, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+  ];
+  if (op === "+") {
+    return [...lines, "\tadd\thl,de"];
+  }
+  return [...lines, "\tex\tde,hl", "\tor\ta", "\tsbc\thl,de"];
+}
+
+function emitLogicalExpr(left: ExprSpec, right: ExprSpec, op: "&&" | "||", ctx: EmitExprContext): string[] {
+  const trueLabel = allocateExprLabel(ctx);
+  const falseLabel = allocateExprLabel(ctx);
+  const endLabel = allocateExprLabel(ctx);
+  if (op === "&&") {
+    return [
+      ...emitExprToHl(left, ctx),
+      "\tld\ta,h",
+      "\tor\tl",
+      `\tjp\tz,${falseLabel}`,
+      ...emitExprToHl(right, ctx),
+      "\tld\ta,h",
+      "\tor\tl",
+      `\tjp\tz,${falseLabel}`,
+      `${trueLabel}:`,
+      "\tld\thl,#1",
+      `\tjp\t${endLabel}`,
+      `${falseLabel}:`,
+      "\tld\thl,#0",
+      `${endLabel}:`,
+    ];
+  }
+  return [
+    ...emitExprToHl(left, ctx),
+    "\tld\ta,h",
+    "\tor\tl",
+    `\tjp\tnz,${trueLabel}`,
+    ...emitExprToHl(right, ctx),
+    "\tld\ta,h",
+    "\tor\tl",
+    `\tjp\tnz,${trueLabel}`,
+    `${falseLabel}:`,
+    "\tld\thl,#0",
+    `\tjp\t${endLabel}`,
+    `${trueLabel}:`,
+    "\tld\thl,#1",
+    `${endLabel}:`,
+  ];
+}
+
+function emitBitwiseExpr(left: ExprSpec, right: ExprSpec, op: "&" | "^" | "|", ctx: EmitExprContext): string[] {
+  const lines = [
+    ...emitExprToHl(left, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(right, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+  ];
+  switch (op) {
+    case "&":
+      return [...lines, "\tld\ta,h", "\tand\td", "\tld\th,a", "\tld\ta,l", "\tand\te", "\tld\tl,a"];
+    case "^":
+      return [...lines, "\tld\ta,h", "\txor\td", "\tld\th,a", "\tld\ta,l", "\txor\te", "\tld\tl,a"];
+    case "|":
+      return [...lines, "\tld\ta,h", "\tor\td", "\tld\th,a", "\tld\ta,l", "\tor\te", "\tld\tl,a"];
+    default:
+      return assertNever(op);
+  }
+}
+
+function emitHelperBinaryExpr(left: ExprSpec, right: ExprSpec, helper: ".mul" | ".asl" | ".asr", ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(left, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(right, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    `\tcall\t${helper}`,
+  ];
+}
+
+function emitDivmodExpr(left: ExprSpec, right: ExprSpec, result: "quotient" | "remainder", ctx: EmitExprContext): string[] {
+  const lines = [
+    ...emitExprToHl(left, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(right, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tcall\t.div",
+  ];
+  if (result === "quotient") {
+    return lines;
+  }
+  return [...lines, "\tex\tde,hl"];
+}
+
+function allocateExprLabel(ctx: EmitExprContext): string {
+  const label = `.${ctx.labels.nextLogicalLabelId}`;
+  ctx.labels.nextLogicalLabelId += 1;
+  return label;
 }
 
 function assertNever(value: never): never {

@@ -149,6 +149,217 @@ function assembleEmitCharRuntime(tempDir: string, helperName: string, charCode: 
   return helperRelPath;
 }
 
+function assembleArithmeticHelperRuntime(tempDir: string): string {
+  const helperAsmPath = path.join(tempDir, "arith-helpers.asm");
+  const helperRelPath = path.join(tempDir, "arith-helpers.rel");
+  const helperSource = [
+    "\t.globl\t.asr",
+    "\t.globl\t.asl",
+    "\t.globl\t.mul",
+    "\t.globl\t.div",
+    "\t.module\tarith_helpers",
+    "\t.area\t_CODE",
+    ".asr:",
+    "\tex\tde,hl",
+    "arith_asr1:",
+    "\tdec\te",
+    "\tret\tm",
+    "\tld\ta,h",
+    "\trla",
+    "\tld\ta,h",
+    "\trra",
+    "\tld\th,a",
+    "\tld\ta,l",
+    "\trra",
+    "\tld\tl,a",
+    "\tjr\tarith_asr1",
+    ".asl:",
+    "\tex\tde,hl",
+    "arith_asl1:",
+    "\tdec\te",
+    "\tret\tm",
+    "\tadd\thl,hl",
+    "\tjr\tarith_asl1",
+    ".mul:",
+    "\tld\tb,h",
+    "\tld\tc,l",
+    "\tld\thl,#0",
+    "arith_mul1:",
+    "\tld\ta,c",
+    "\trrca",
+    "\tjr\tnc,arith_mul2",
+    "\tadd\thl,de",
+    "arith_mul2:",
+    "\txor\ta",
+    "\tld\ta,b",
+    "\trra",
+    "\tld\tb,a",
+    "\tld\ta,c",
+    "\trra",
+    "\tld\tc,a",
+    "\tor\tb",
+    "\tret\tz",
+    "\txor\ta",
+    "\tld\ta,e",
+    "\trla",
+    "\tld\te,a",
+    "\tld\ta,d",
+    "\trla",
+    "\tld\td,a",
+    "\tor\te",
+    "\tret\tz",
+    "\tjr\tarith_mul1",
+    ".div:",
+    "\tld\tb,h",
+    "\tld\tc,l",
+    "\tld\ta,d",
+    "\txor\tb",
+    "\tpush\taf",
+    "\tld\ta,d",
+    "\tor\ta",
+    "\tcall\tm,arith_deneg",
+    "\tld\ta,b",
+    "\tor\ta",
+    "\tcall\tm,arith_bcneg",
+    "\tld\ta,#16",
+    "\tpush\taf",
+    "\tex\tde,hl",
+    "\tld\tde,#0",
+    "arith_div1:",
+    "\tadd\thl,hl",
+    "\tcall\tarith_rdel",
+    "\tjr\tz,arith_div2",
+    "\tcall\tarith_cmpbd",
+    "\tjp\tm,arith_div2",
+    "\tld\ta,l",
+    "\tor\t#1",
+    "\tld\tl,a",
+    "\tld\ta,e",
+    "\tsub\tc",
+    "\tld\te,a",
+    "\tld\ta,d",
+    "\tsbc\ta,b",
+    "\tld\td,a",
+    "arith_div2:",
+    "\tpop\taf",
+    "\tdec\ta",
+    "\tjr\tz,arith_div3",
+    "\tpush\taf",
+    "\tjr\tarith_div1",
+    "arith_div3:",
+    "\tpop\taf",
+    "\tret\tp",
+    "\tcall\tarith_deneg",
+    "\tex\tde,hl",
+    "\tcall\tarith_deneg",
+    "\tex\tde,hl",
+    "\tret",
+    "arith_deneg:",
+    "\tld\ta,d",
+    "\tcpl",
+    "\tld\td,a",
+    "\tld\ta,e",
+    "\tcpl",
+    "\tld\te,a",
+    "\tinc\tde",
+    "\tret",
+    "arith_bcneg:",
+    "\tld\ta,b",
+    "\tcpl",
+    "\tld\tb,a",
+    "\tld\ta,c",
+    "\tcpl",
+    "\tld\tc,a",
+    "\tinc\tbc",
+    "\tret",
+    "arith_rdel:",
+    "\tld\ta,e",
+    "\trla",
+    "\tld\te,a",
+    "\tld\ta,d",
+    "\trla",
+    "\tld\td,a",
+    "\tor\te",
+    "\tret",
+    "arith_cmpbd:",
+    "\tld\ta,e",
+    "\tsub\tc",
+    "\tld\ta,d",
+    "\tsbc\ta,b",
+    "\tret",
+    "",
+  ].join("\n");
+  fs.writeFileSync(helperAsmPath, translateSccAsm(helperSource, { moduleName: "arith_helpers" }), "utf8");
+  expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
+  return helperRelPath;
+}
+
+function assembleMulShiftHelperRuntime(tempDir: string): string {
+  const helperAsmPath = path.join(tempDir, "mul-shift-helpers.asm");
+  const helperRelPath = path.join(tempDir, "mul-shift-helpers.rel");
+  const helperSource = [
+    "\t.globl\t.asr",
+    "\t.globl\t.asl",
+    "\t.globl\t.mul",
+    "\t.module\tmul_shift_helpers",
+    "\t.area\t_CODE",
+    ".asr:",
+    "\tex\tde,hl",
+    "mulshift_asr1:",
+    "\tdec\te",
+    "\tret\tm",
+    "\tld\ta,h",
+    "\trla",
+    "\tld\ta,h",
+    "\trra",
+    "\tld\th,a",
+    "\tld\ta,l",
+    "\trra",
+    "\tld\tl,a",
+    "\tjr\tmulshift_asr1",
+    ".asl:",
+    "\tex\tde,hl",
+    "mulshift_asl1:",
+    "\tdec\te",
+    "\tret\tm",
+    "\tadd\thl,hl",
+    "\tjr\tmulshift_asl1",
+    ".mul:",
+    "\tld\tb,h",
+    "\tld\tc,l",
+    "\tld\thl,#0",
+    "mulshift_mul1:",
+    "\tld\ta,c",
+    "\trrca",
+    "\tjr\tnc,mulshift_mul2",
+    "\tadd\thl,de",
+    "mulshift_mul2:",
+    "\txor\ta",
+    "\tld\ta,b",
+    "\trra",
+    "\tld\tb,a",
+    "\tld\ta,c",
+    "\trra",
+    "\tld\tc,a",
+    "\tor\tb",
+    "\tret\tz",
+    "\txor\ta",
+    "\tld\ta,e",
+    "\trla",
+    "\tld\te,a",
+    "\tld\ta,d",
+    "\trla",
+    "\tld\td,a",
+    "\tor\te",
+    "\tret\tz",
+    "\tjr\tmulshift_mul1",
+    "",
+  ].join("\n");
+  fs.writeFileSync(helperAsmPath, translateSccAsm(helperSource, { moduleName: "mul_shift_helpers" }), "utf8");
+  expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
+  return helperRelPath;
+}
+
 function assembleCpmRuntime(tempDir: string): string {
   const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
   const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
@@ -306,6 +517,116 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tld\thl,#4");
     expect(sccAsm).toContain("\tadd\thl,sp");
     expect(sccAsm).toContain("\tcall\tpick");
+  });
+
+  test("source mode supports additive return expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-additive-"));
+    const inputFile = path.join(tempDir, "additive.c");
+    fs.writeFileSync(inputFile, "int sum(int a, int b){ return a + b; }\nint diff(int a, int b){ return a - b; }\nint main(){ return sum(32, 33) + diff(70, 5); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,de");
+    expect(sccAsm).toContain("\tor\ta");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+  });
+
+  test("source mode supports unary minus expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-unary-minus-"));
+    const inputFile = path.join(tempDir, "unary-minus.c");
+    fs.writeFileSync(inputFile, "int neg(int a){ return -a; }\nint main(){ return neg(-1) + 67; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports logical-not expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-logical-not-"));
+    const inputFile = path.join(tempDir, "logical-not.c");
+    fs.writeFileSync(inputFile, "int flip(int a){ return !a; }\nint main(){ return flip(0) + flip(1); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tld\thl,#0");
+  });
+
+  test("source mode supports logical and/or expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-logical-"));
+    const inputFile = path.join(tempDir, "logical.c");
+    fs.writeFileSync(inputFile, "int pair(int a, int b){ return a && b; }\nint any(int a, int b){ return a || b; }\nint main(){ return pair(1, 2) + any(0, 1); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tjp\tz,.200");
+    expect(sccAsm).toContain("\tjp\tnz,.200");
+    expect(sccAsm).toContain("\tld\thl,#1");
+  });
+
+  test("source mode supports bitwise expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-bitwise-"));
+    const inputFile = path.join(tempDir, "bitwise.c");
+    fs.writeFileSync(inputFile, "int mix(int a, int b){ return (a & b) ^ (a | b); }\nint main(){ return mix(65, 3); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tand\td");
+    expect(sccAsm).toContain("\txor\td");
+    expect(sccAsm).toContain("\tor\td");
+  });
+
+  test("source mode supports bitwise-not expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-bitnot-"));
+    const inputFile = path.join(tempDir, "bitnot.c");
+    fs.writeFileSync(inputFile, "int inv(int a){ return ~a; }\nint main(){ return inv(65280); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#65535");
+    expect(sccAsm).toContain("\txor\td");
+  });
+
+  test("source mode supports multiplicative and shift expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-helper-ops-"));
+    const inputFile = path.join(tempDir, "helper-ops.c");
+    fs.writeFileSync(inputFile, "int ops(int a, int b, int c){ return (a * b) + (a / b) + (a % b) + (c << 1) + (c >> 1); }\nint main(){ return ops(6, 3, 8); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.mul");
+    expect((sccAsm.match(/\tcall\t\.div/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tcall\t.asl");
+    expect(sccAsm).toContain("\tcall\t.asr");
   });
 
   test("source mode supports equality compare expressions in the Phase C subset", () => {
@@ -579,7 +900,7 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(sccAsm).toContain("\tld\t(hl),#66");
   });
 
@@ -594,7 +915,7 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(sccAsm).toContain("\tld\t(hl),#66");
   });
 
@@ -613,7 +934,7 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(sccAsm).toContain("\tld\thl,#1");
     expect(sccAsm).toContain("\tld\thl,#2");
     expect(sccAsm).toContain("\tld\thl,#0");
@@ -677,7 +998,7 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tcall\t\.gt/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((sccAsm.match(/\tdec\tsp/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(sccAsm).toContain("\tld\t(hl),#66");
     expect(sccAsm).toContain("\tld\t(hl),e");
@@ -864,12 +1185,12 @@ describe("TsSccCompilerAdapter", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-unsupported-"));
     const inputFile = path.join(tempDir, "unsupported.c");
-    fs.writeFileSync(inputFile, "int main(){ for (;;) return 1; }\n", "utf8");
+    fs.writeFileSync(inputFile, "int main(){ switch (1) return 1; }\n", "utf8");
 
     expect(() => adapter.compileToRel(createLogger("quiet"), {
       inputFile,
       tempDir,
-    })).toThrow(/does not support statement 'for \(\;\;\) return 1'/);
+    })).toThrow(/does not support statement 'switch \(1\) return 1'/);
   });
 
   test("fixture-backed helper fragment mode still materializes SCC outputs", () => {
@@ -953,6 +1274,12 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-call-result", programRel)).toBe("X");
   });
 
+  test("source mode additive expressions link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-additive-link-"));
+    const programRel = compileSourceRel(tempDir, "stmt-additive-source.c", "int sum(int a, int b){ return a + b; }\nint diff(int a, int b){ return a - b; }\nint main(){ outchar(sum(32, 33)); outchar(diff(70, 5)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-additive", programRel)).toBe("AA");
+  });
+
   test("source mode branch on internal call result links and takes the true branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-branch-link-"));
     const programRel = compileSourceRel(tempDir, "stmt-branch-source.c", "int flag(){ return 1; }\nint main(){ if (flag()) outchar(84); else outchar(70); return 0; }\n");
@@ -997,6 +1324,57 @@ describe("TsSccCompilerAdapter", () => {
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
     const programRel = compileSourceRel(tempDir, "stmt-loop-source.c", "int main(){ char x = 51; while (x > 48) { outchar(x); x = x - 1; } return 0; }\n");
     expect(linkAndRunCom(tempDir, "stmt-loop", programRel, [helperRelPath], 4000)).toBe("321");
+  });
+
+  test("source mode for-loops with continue and break link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-for-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(tempDir, "stmt-for-source.c", "int main(){ int x = 65; for (x = 65; x < 69; x = x + 1) { if (x == 66) continue; outchar(x); if (x == 67) break; } return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-for", programRel, [helperRelPath], 4000)).toBe("AC");
+  });
+
+  test("source mode for-loop declaration initializers and unary minus link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-for-decl-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(tempDir, "stmt-for-decl-source.c", "int main(){ for (int x = 1; x < 4; x = x + 1) outchar(-(-64) + x); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-for-decl", programRel, [helperRelPath], 4000)).toBe("ABC");
+  });
+
+  test("source mode logical-not expressions link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-not-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(tempDir, "stmt-not-source.c", "int main(){ outchar(!0 + 64); outchar(!1 + 64); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-not", programRel, [helperRelPath], 4000)).toBe("A@");
+  });
+
+  test("source mode logical and/or expressions short-circuit and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-logical-link-"));
+    const emitxRelPath = assembleEmitCharRuntime(tempDir, "emitx", 88);
+    const programRel = compileSourceRel(tempDir, "stmt-logical-source.c", "int emitx(); int main(){ if (1 || emitx()) outchar(65); if (0 && emitx()) outchar(66); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-logical", programRel, [emitxRelPath], 4000)).toBe("A");
+  });
+
+  test("source mode bitwise expressions link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-bitwise-link-"));
+    const programRel = compileSourceRel(tempDir, "stmt-bitwise-source.c", "int main(){ outchar((65 & 127)); outchar((64 | 2)); outchar((66 ^ 1)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-bitwise", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode bitwise-not expressions link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-bitnot-link-"));
+    const programRel = compileSourceRel(tempDir, "stmt-bitnot-source.c", "int main(){ outchar(~190); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-bitnot", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode multiplicative and shift expressions link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-helper-ops-link-"));
+    const helperRelPath = assembleMulShiftHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-helper-ops-source.c",
+      "int main(){ outchar(5 * 13); outchar(33 << 1); outchar((16 << 2) + 3); outchar(17 << 2); outchar(138 >> 1); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-helper-ops", programRel, [helperRelPath], 4000)).toBe("ABCDE");
   });
 
   test("source mode char argument reads a stack argument and returns it", () => {

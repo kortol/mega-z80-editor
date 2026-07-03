@@ -38,8 +38,12 @@ export type SourceBlock = {
 };
 
 export type CompareOp = "==" | "!=" | ">" | "<" | ">=" | "<=";
+export type ShiftOp = "<<" | ">>";
 export type AdditiveOp = "+" | "-";
-export type BinaryOp = CompareOp | AdditiveOp;
+export type MultiplicativeOp = "*" | "/" | "%";
+export type LogicalOp = "&&" | "||";
+export type BitwiseOp = "&" | "^" | "|";
+export type BinaryOp = LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp;
 
 export type SourceStmt =
   | {
@@ -62,9 +66,42 @@ export type SourceStmt =
     body: SourceBlock;
   }
   | {
+    kind: "for";
+    initializer?: SourceForInit;
+    condition?: SourceExpr;
+    step?: SourceSimpleStmt;
+    body: SourceBlock;
+  }
+  | {
     kind: "assign";
     name: string;
     expr: SourceExpr;
+  }
+  | {
+    kind: "break";
+  }
+  | {
+    kind: "continue";
+  };
+
+export type SourceSimpleStmt =
+  | {
+    kind: "expr";
+    expr: SourceExpr;
+  }
+  | {
+    kind: "assign";
+    name: string;
+    expr: SourceExpr;
+  };
+
+export type SourceForInit =
+  | SourceSimpleStmt
+  | {
+    kind: "localDecl";
+    name: string;
+    type: SourceType;
+    initializer?: SourceExpr;
   };
 
 export type SourceExpr =

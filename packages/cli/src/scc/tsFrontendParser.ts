@@ -1,14 +1,20 @@
 import {
   AdditiveOp,
+  BitwiseOp,
   BinaryOp,
   CompareOp,
+  LogicalOp,
+  MultiplicativeOp,
   ScalarType,
+  ShiftOp,
   SourceBlock,
   SourceExpr,
   SourceFunction,
+  SourceForInit,
   SourceLocalDecl,
   SourceParam,
   SourceProgram,
+  SourceSimpleStmt,
   SourceStmt,
   SourceType,
 } from "./tsFrontendAst";
@@ -22,8 +28,15 @@ type ParseContext = {
 const BINARY_PRECEDENCE: ReadonlyArray<{
   ops: readonly BinaryOp[];
 }> = [
+  { ops: ["||"] },
+  { ops: ["&&"] },
+  { ops: ["|"] },
+  { ops: ["^"] },
+  { ops: ["&"] },
   { ops: ["==", "!=", ">=", "<=", ">", "<"] },
+  { ops: ["<<", ">>"] },
   { ops: ["+", "-"] },
+  { ops: ["*", "/", "%"] },
 ];
 
 export function parseProgram(sourceText: string, file?: string): SourceProgram {
@@ -125,6 +138,15 @@ function parseStatement(
   }
   if (/^while\b/.test(statementText)) {
     return { kind: "stmt", statement: parseWhileStmt(context, statementText, functionName, offset) };
+  }
+  if (/^for\b/.test(statementText)) {
+    return { kind: "stmt", statement: parseForStmt(context, statementText, functionName, offset) };
+  }
+  if (statementText.trim() === "break") {
+    return { kind: "stmt", statement: { kind: "break" } };
+  }
+  if (statementText.trim() === "continue") {
+    return { kind: "stmt", statement: { kind: "continue" } };
   }
   const declaration = parseDeclaration(statementText);
   if (declaration) {
@@ -236,6 +258,29 @@ function parseWhileStmt(context: ParseContext, statementText: string, functionNa
   };
 }
 
+function parseForStmt(context: ParseContext, statementText: string, functionName: string, offset: number): SourceStmt {
+  const trimmed = statementText.trim();
+  const condOpen = trimmed.indexOf("(");
+  if (!trimmed.startsWith("for") || condOpen < 0) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse for statement in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const condClose = findMatchingParenInText(trimmed, condOpen);
+  const headerText = trimmed.slice(condOpen + 1, condClose);
+  const bodyText = trimmed.slice(condClose + 1).trim();
+  const bodyOffset = offset + trimmed.indexOf(bodyText);
+  const { initializer, condition, step } = parseForHeader(context, headerText, functionName, offset + condOpen + 1);
+  return {
+    kind: "for",
+    initializer,
+    condition,
+    step,
+    body: parseStandaloneBranch(context, bodyText, functionName, bodyOffset),
+  };
+}
+
 function parseStandaloneBranch(context: ParseContext, branchText: string, functionName: string, offset: number): SourceBlock {
   const parsed = parseBranch(context, branchText, functionName, offset);
   return parsed.block;
@@ -291,7 +336,7 @@ function parseExpressionByPrecedence(
     return {
       kind: "binary",
       op: match.op,
-      left: parseExpressionByPrecedence(context, exprText.slice(0, match.index).trimEnd(), functionName, offset, level + 1),
+      left: parseExpressionByPrecedence(context, exprText.slice(0, match.index).trimEnd(), functionName, offset, level),
       right: parseExpressionByPrecedence(
         context,
         exprText.slice(match.index + match.op.length).trimStart(),
@@ -308,6 +353,33 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   const trimmed = exprText.trim();
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
+  }
+  if (trimmed.startsWith("!")) {
+    const rhsText = trimmed.slice(1).trimStart();
+    return {
+      kind: "binary",
+      left: parseExpression(context, rhsText, functionName, offset + trimmed.indexOf(rhsText)),
+      op: "==",
+      right: { kind: "const", value: 0 },
+    };
+  }
+  if (trimmed.startsWith("~")) {
+    const rhsText = trimmed.slice(1).trimStart();
+    return {
+      kind: "binary",
+      left: parseExpression(context, rhsText, functionName, offset + trimmed.indexOf(rhsText)),
+      op: "^",
+      right: { kind: "const", value: 65535 },
+    };
+  }
+  if (trimmed.startsWith("-")) {
+    const rhsText = trimmed.slice(1).trimStart();
+    return {
+      kind: "binary",
+      left: { kind: "const", value: 0 },
+      op: "-",
+      right: parseExpression(context, rhsText, functionName, offset + trimmed.indexOf(rhsText)),
+    };
   }
   if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
     return { kind: "string", value: decodeStringLiteral(trimmed, context, offset, functionName) };
@@ -547,6 +619,8 @@ function takeSingleSimpleStatement(
 function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { index: number; op: BinaryOp } | null {
   let depth = 0;
   let inString = false;
+  const orderedOps = [...ops].sort((left, right) => right.length - left.length);
+  const allBinaryOps = [...new Set(BINARY_PRECEDENCE.flatMap((entry) => entry.ops))].sort((left, right) => right.length - left.length);
   for (let index = exprText.length - 1; index >= 0; index -= 1) {
     const ch = exprText[index];
     if (ch === "\"" && exprText[index - 1] !== "\\") {
@@ -567,12 +641,21 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
     if (depth !== 0) {
       continue;
     }
-    for (const op of ops) {
-      if (exprText.slice(index - op.length + 1, index + 1) === op) {
-        const opIndex = index - op.length + 1;
-        return { index: opIndex, op };
-      }
+    const matchedOp = allBinaryOps.find((op) => exprText.slice(index - op.length + 1, index + 1) === op);
+    if (!matchedOp || !orderedOps.includes(matchedOp)) {
+      continue;
     }
+    const opIndex = index - matchedOp.length + 1;
+    const longestStartingOp = allBinaryOps.find((op) => exprText.slice(opIndex, opIndex + op.length) === op);
+    if (longestStartingOp !== matchedOp) {
+      continue;
+    }
+    const leftText = exprText.slice(0, opIndex).trim();
+    const rightText = exprText.slice(opIndex + matchedOp.length).trim();
+    if (leftText.length === 0 || rightText.length === 0) {
+      continue;
+    }
+    return { index: opIndex, op: matchedOp };
   }
   return null;
 }
@@ -649,7 +732,28 @@ function parseExpressionStatement(
   functionName: string,
   offset: number,
 ): SourceStmt | null {
+  const simple = parseSimpleStatement(context, statementText, functionName, offset);
+  if (!simple) {
+    return null;
+  }
+  return simple.kind === "expr" ? { kind: "expr", expr: simple.expr } : { kind: "assign", name: simple.name, expr: simple.expr };
+}
+
+function parseSimpleStatement(
+  context: ParseContext,
+  statementText: string,
+  functionName: string,
+  offset: number,
+): SourceSimpleStmt | null {
   const trimmed = statementText.trim();
+  const assignMatch = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(trimmed);
+  if (assignMatch) {
+    return {
+      kind: "assign",
+      name: assignMatch[1],
+      expr: parseExpression(context, assignMatch[2], functionName, offset + statementText.indexOf(assignMatch[2])),
+    };
+  }
   if (!/^([A-Za-z_]\w*)\s*\(.*\)$/.test(trimmed)) {
     return null;
   }
@@ -704,5 +808,106 @@ function decodeStringLiteral(
   return result;
 }
 
+function parseForHeader(
+  context: ParseContext,
+  headerText: string,
+  functionName: string,
+  offset: number,
+): { initializer?: SourceForInit; condition?: SourceExpr; step?: SourceSimpleStmt } {
+  const parts = splitForHeaderParts(context, headerText, offset, functionName);
+  if (parts.length !== 3) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse for header '${headerText.trim()}' in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const initializer = parts[0].text.length > 0 ? parseForInitializer(context, parts[0].text, functionName, parts[0].offset) : undefined;
+  const condition = parts[1].text.length > 0 ? parseExpression(context, parts[1].text, functionName, parts[1].offset) : undefined;
+  const step = parts[2].text.length > 0 ? parseSimpleStatement(context, parts[2].text, functionName, parts[2].offset) : undefined;
+  if (parts[0].text.length > 0 && !initializer) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports simple assignment/call/local declaration for-loop initializers in ${functionName}().`, {
+      file: context.file,
+      offset: parts[0].offset,
+    });
+  }
+  if (parts[2].text.length > 0 && !step) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports simple assignment/call for-loop steps in ${functionName}().`, {
+      file: context.file,
+      offset: parts[2].offset,
+    });
+  }
+  return {
+    initializer: initializer ?? undefined,
+    condition,
+    step: step ?? undefined,
+  };
+}
+
+function parseForInitializer(
+  context: ParseContext,
+  initText: string,
+  functionName: string,
+  offset: number,
+): SourceForInit | null {
+  const declaration = parseDeclaration(initText);
+  if (declaration) {
+    return {
+      kind: "localDecl",
+      name: declaration.name,
+      type: makeScalarType(declaration.type),
+      initializer: declaration.initializer
+        ? parseExpression(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
+        : undefined,
+    };
+  }
+  return parseSimpleStatement(context, initText, functionName, offset);
+}
+
+function splitForHeaderParts(
+  context: ParseContext,
+  headerText: string,
+  offset: number,
+  functionName: string,
+): Array<{ text: string; offset: number }> {
+  const parts: Array<{ text: string; offset: number }> = [];
+  let depth = 0;
+  let inString = false;
+  let start = 0;
+  for (let index = 0; index < headerText.length; index += 1) {
+    const ch = headerText[index];
+    if (ch === "\"" && headerText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      continue;
+    }
+    if (ch === ";" && depth === 0) {
+      const raw = headerText.slice(start, index);
+      const text = raw.trim();
+      parts.push({ text, offset: offset + start + raw.indexOf(text) });
+      start = index + 1;
+    }
+  }
+  const tailRaw = headerText.slice(start);
+  const tailText = tailRaw.trim();
+  parts.push({ text: tailText, offset: offset + start + tailRaw.indexOf(tailText) });
+  if (parts.length !== 3) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset expected 3 clauses in for header '${headerText.trim()}' in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  return parts;
+}
+
 export type { ParseContext };
-export type { AdditiveOp, CompareOp };
+export type { AdditiveOp, BitwiseOp, CompareOp, LogicalOp, MultiplicativeOp, ShiftOp };

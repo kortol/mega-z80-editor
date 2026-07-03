@@ -1,9 +1,10 @@
-import { throwDiagnostic } from "./tsFrontendDiagnostics";
 import {
   BoundBlock,
   BoundExpr,
+  BoundForInit,
   BoundFunction,
   BoundProgram,
+  BoundSimpleStmt,
   BoundStmt,
 } from "./tsFrontendSemantic";
 import {
@@ -86,18 +87,14 @@ function lowerStmt(
         elseBody: stmt.elseBlock ? lowerBlock(stmt.elseBlock, externs, definedFunctions, sourceText, state, file) : [],
       };
     case "while": {
-      const loweredCondition = lowerExpr(stmt.condition, externs, definedFunctions, sourceText, state, file);
       return {
-        kind: "ifExprZero",
-        expr: loweredCondition,
-        thenBody: [{
-          kind: "doWhileExprNonZero",
-          body: lowerBlock(stmt.body, externs, definedFunctions, sourceText, state, file),
-          expr: loweredCondition,
-        }],
-        elseBody: [],
+        kind: "whileExprNonZero",
+        expr: lowerExpr(stmt.condition, externs, definedFunctions, sourceText, state, file),
+        body: lowerBlock(stmt.body, externs, definedFunctions, sourceText, state, file),
       };
     }
+    case "for":
+      return lowerForStmt(stmt, externs, definedFunctions, sourceText, state, file);
     case "assign": {
       const decLocal = tryLowerDecLocalByte(stmt);
       if (decLocal) {
@@ -118,12 +115,107 @@ function lowerStmt(
         expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
     }
+    case "break":
+      return { kind: "break" };
+    case "continue":
+      return { kind: "continue" };
     default:
       return assertNever(stmt);
   }
 }
 
-function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }>): StmtIRHigh | null {
+function lowerForStmt(
+  stmt: Extract<BoundStmt, { kind: "for" }>,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  file?: string,
+): StmtIRHigh {
+  const loopBody = lowerBlock(stmt.body, externs, definedFunctions, sourceText, state, file);
+  const init = stmt.initializer ? lowerForInit(stmt.initializer, externs, definedFunctions, sourceText, state, file) : undefined;
+  const step = stmt.step ? lowerSimpleStmt(stmt.step, externs, definedFunctions, sourceText, state, file) : undefined;
+  const loopStmt: StmtIRHigh = {
+    kind: "whileExprNonZero",
+    expr: stmt.condition
+      ? lowerExpr(stmt.condition, externs, definedFunctions, sourceText, state, file)
+      : { kind: "const", value: 1 },
+    body: loopBody,
+    stepBody: step ? [step] : [],
+  };
+  if (!init) {
+    return loopStmt;
+  }
+  return {
+    kind: "ifExprZero",
+    expr: { kind: "const", value: 1 },
+    thenBody: [init, loopStmt],
+    elseBody: [],
+  };
+}
+
+function lowerForInit(
+  init: BoundForInit,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  file?: string,
+): StmtIRHigh {
+  if (init.kind !== "localDecl") {
+    return lowerSimpleStmt(init, externs, definedFunctions, sourceText, state, file);
+  }
+  if (!init.initializer) {
+    return { kind: "evalExpr", expr: { kind: "const", value: 0 } };
+  }
+  if (init.initializer.kind === "const") {
+    return {
+      kind: "assignLocalConst",
+      slot: init.local.slot,
+      width: init.local.type.width,
+      value: init.initializer.value,
+    };
+  }
+  return {
+    kind: "assignLocalExpr",
+    slot: init.local.slot,
+    width: init.local.type.width,
+    expr: lowerExpr(init.initializer, externs, definedFunctions, sourceText, state, file),
+  };
+}
+
+function lowerSimpleStmt(
+  stmt: BoundSimpleStmt,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  file?: string,
+): StmtIRHigh {
+  if (stmt.kind === "expr") {
+    return { kind: "evalExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file) };
+  }
+  const decLocal = tryLowerDecLocalByte(stmt);
+  if (decLocal) {
+    return decLocal;
+  }
+  if (stmt.expr.kind === "const") {
+    return {
+      kind: "assignLocalConst",
+      slot: stmt.local.slot,
+      width: stmt.local.type.width,
+      value: stmt.expr.value,
+    };
+  }
+  return {
+    kind: "assignLocalExpr",
+    slot: stmt.local.slot,
+    width: stmt.local.type.width,
+    expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+  };
+}
+
+function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }> | BoundSimpleStmt & { kind: "assign" }): StmtIRHigh | null {
   if (stmt.local.type.width !== 1 || stmt.expr.kind !== "additive" || stmt.expr.op !== "-" || stmt.expr.right.kind !== "const" || stmt.expr.right.value !== 1) {
     return null;
   }
@@ -166,6 +258,30 @@ function lowerExpr(
         helper,
       };
     }
+    case "logical":
+      return {
+        kind: "logical",
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+        op: expr.op,
+      };
+    case "bitwise":
+      return {
+        kind: "bitwise",
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+        op: expr.op,
+      };
+    case "shift": {
+      const helper = expr.op === "<<" ? ".asl" : ".asr";
+      externs.add(helper);
+      return {
+        kind: "helperBinary",
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+        helper,
+      };
+    }
     case "call":
       if (expr.target.kind === "extern" || !definedFunctions.has(expr.target.name)) {
         externs.add(expr.target.name);
@@ -176,11 +292,29 @@ function lowerExpr(
         args: expr.args.map((arg) => lowerExpr(arg, externs, definedFunctions, sourceText, state, file)),
       };
     case "additive":
-      throwDiagnostic(
-        sourceText,
-        `TsSccCompilerAdapter Phase C subset parsed '${expr.op}' but lowering is not implemented yet.`,
-        { file, offset: 0 },
-      );
+      return {
+        kind: "additive",
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+        op: expr.op,
+      };
+    case "multiplicative":
+      if (expr.op === "*") {
+        externs.add(".mul");
+        return {
+          kind: "helperBinary",
+          left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+          right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+          helper: ".mul",
+        };
+      }
+      externs.add(".div");
+      return {
+        kind: "divmod",
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+        result: expr.op === "/" ? "quotient" : "remainder",
+      };
     default:
       return assertNever(expr);
   }

@@ -1,10 +1,16 @@
 import {
   AdditiveOp,
+  BitwiseOp,
   CompareOp,
+  LogicalOp,
+  MultiplicativeOp,
   ScalarType,
+  ShiftOp,
   SourceBlock,
   SourceExpr,
+  SourceForInit,
   SourceFunction,
+  SourceSimpleStmt,
   SourceProgram,
   SourceStmt,
 } from "./tsFrontendAst";
@@ -64,7 +70,18 @@ export type BoundStmt =
   | { kind: "expr"; expr: BoundExpr }
   | { kind: "if"; condition: BoundExpr; thenBlock: BoundBlock; elseBlock?: BoundBlock }
   | { kind: "while"; condition: BoundExpr; body: BoundBlock }
+  | { kind: "for"; initializer?: BoundForInit; condition?: BoundExpr; step?: BoundSimpleStmt; body: BoundBlock }
+  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
+  | { kind: "break" }
+  | { kind: "continue" };
+
+export type BoundSimpleStmt =
+  | { kind: "expr"; expr: BoundExpr }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr };
+
+export type BoundForInit =
+  | BoundSimpleStmt
+  | { kind: "localDecl"; local: BoundLocalSymbol; initializer?: BoundExpr };
 
 export type BoundExpr =
   | { kind: "const"; value: number; type: SemanticScalarType }
@@ -72,6 +89,10 @@ export type BoundExpr =
   | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType }
   | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundExpr[]; type: SemanticScalarType }
   | { kind: "compare"; left: BoundExpr; right: BoundExpr; op: CompareOp; type: SemanticScalarType }
+  | { kind: "logical"; left: BoundExpr; right: BoundExpr; op: LogicalOp; type: SemanticScalarType }
+  | { kind: "bitwise"; left: BoundExpr; right: BoundExpr; op: BitwiseOp; type: SemanticScalarType }
+  | { kind: "shift"; left: BoundExpr; right: BoundExpr; op: ShiftOp; type: SemanticScalarType }
+  | { kind: "multiplicative"; left: BoundExpr; right: BoundExpr; op: MultiplicativeOp; type: SemanticScalarType }
   | { kind: "additive"; left: BoundExpr; right: BoundExpr; op: AdditiveOp; type: SemanticScalarType };
 
 type Scope = {
@@ -129,7 +150,7 @@ function analyzeFunction(
 
   const allLocals = new Map<string, BoundLocalSymbol>();
   const localList: BoundLocalSymbol[] = [];
-  const body = analyzeBlock(fn.body, functionScope, allLocals, localList, functionSymbols, fn.name, sourceText, file);
+  const body = analyzeBlock(fn.body, functionScope, allLocals, localList, functionSymbols, fn.name, sourceText, file, 0);
   return {
     kind: "boundFunction",
     name: fn.name,
@@ -149,6 +170,7 @@ function analyzeBlock(
   functionName: string,
   sourceText: string,
   file?: string,
+  loopDepth = 0,
 ): BoundBlock {
   const scope: Scope = { parent: parentScope, entries: new Map() };
   for (const declaration of block.declarations) {
@@ -178,7 +200,7 @@ function analyzeBlock(
 
   return {
     kind: "boundBlock",
-    statements: block.statements.map((stmt) => analyzeStmt(stmt, scope, allLocals, localList, functionSymbols, functionName, sourceText, file)),
+    statements: block.statements.map((stmt) => analyzeStmt(stmt, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth)),
   };
 }
 
@@ -191,6 +213,7 @@ function analyzeStmt(
   functionName: string,
   sourceText: string,
   file?: string,
+  loopDepth = 0,
 ): BoundStmt {
   switch (stmt.kind) {
     case "return":
@@ -201,17 +224,36 @@ function analyzeStmt(
       return {
         kind: "if",
         condition: analyzeExpr(stmt.condition, scope, functionSymbols, functionName, sourceText, file),
-        thenBlock: analyzeBlock(stmt.thenBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file),
+        thenBlock: analyzeBlock(stmt.thenBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth),
         elseBlock: stmt.elseBlock
-          ? analyzeBlock(stmt.elseBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file)
+          ? analyzeBlock(stmt.elseBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth)
           : undefined,
       };
     case "while":
       return {
         kind: "while",
         condition: analyzeExpr(stmt.condition, scope, functionSymbols, functionName, sourceText, file),
-        body: analyzeBlock(stmt.body, scope, allLocals, localList, functionSymbols, functionName, sourceText, file),
+        body: analyzeBlock(stmt.body, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1),
       };
+    case "for":
+      {
+        const forScope: Scope = { parent: scope, entries: new Map() };
+        let initializer: BoundForInit | undefined;
+        if (stmt.initializer) {
+          initializer = analyzeForInitializer(stmt.initializer, forScope, allLocals, localList, functionSymbols, functionName, sourceText, file);
+        }
+      return {
+        kind: "for",
+        initializer,
+        condition: stmt.condition
+          ? analyzeExpr(stmt.condition, forScope, functionSymbols, functionName, sourceText, file)
+          : undefined,
+        step: stmt.step
+          ? analyzeSimpleStmt(stmt.step, forScope, functionSymbols, functionName, sourceText, file)
+          : undefined,
+        body: analyzeBlock(stmt.body, forScope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1),
+      };
+      }
     case "assign": {
       const symbol = lookupVisible(scope, stmt.name);
       if (!symbol || symbol.kind !== "local") {
@@ -226,9 +268,94 @@ function analyzeStmt(
         expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
       };
     }
+    case "break":
+      if (loopDepth === 0) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports 'break' inside loops in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      return { kind: "break" };
+    case "continue":
+      if (loopDepth === 0) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports 'continue' inside loops in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      return { kind: "continue" };
     default:
       return assertNever(stmt);
   }
+}
+
+function analyzeSimpleStmt(
+  stmt: SourceSimpleStmt,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundSimpleStmt {
+  if (stmt.kind === "expr") {
+    return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
+  }
+  const symbol = lookupVisible(scope, stmt.name);
+  if (!symbol || symbol.kind !== "local") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
+      file,
+      offset: 0,
+    });
+  }
+  return {
+    kind: "assign",
+    local: symbol,
+    expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+  };
+}
+
+function analyzeForInitializer(
+  init: SourceForInit,
+  scope: Scope,
+  allLocals: Map<string, BoundLocalSymbol>,
+  localList: BoundLocalSymbol[],
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundForInit {
+  if (init.kind !== "localDecl") {
+    return analyzeSimpleStmt(init, scope, functionSymbols, functionName, sourceText, file);
+  }
+  if (lookupVisible(scope, init.name) || allLocals.has(init.name)) {
+    const existing = lookupVisible(scope, init.name) ?? allLocals.get(init.name);
+    if (existing?.kind === "param") {
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support local '${init.name}' shadowing a parameter in ${functionName}().`, {
+        file,
+        offset: 0,
+      });
+    }
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support duplicate local '${init.name}' in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  const symbol: BoundLocalSymbol = {
+    kind: "local",
+    name: init.name,
+    type: toSemanticType(init.type.name),
+    slot: localList.length,
+  };
+  scope.entries.set(init.name, symbol);
+  allLocals.set(init.name, symbol);
+  localList.push(symbol);
+  return {
+    kind: "localDecl",
+    local: symbol,
+    initializer: init.initializer
+      ? analyzeExpr(init.initializer, scope, functionSymbols, functionName, sourceText, file)
+      : undefined,
+  };
 }
 
 function analyzeExpr(
@@ -271,9 +398,45 @@ function analyzeExpr(
       };
     }
     case "binary":
+      if (isLogicalOp(expr.op)) {
+        return {
+          kind: "logical",
+          left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+          right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
+          op: expr.op,
+          type: toSemanticType("int"),
+        };
+      }
+      if (isBitwiseOp(expr.op)) {
+        return {
+          kind: "bitwise",
+          left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+          right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
+          op: expr.op,
+          type: toSemanticType("int"),
+        };
+      }
+      if (isShiftOp(expr.op)) {
+        return {
+          kind: "shift",
+          left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+          right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
+          op: expr.op,
+          type: toSemanticType("int"),
+        };
+      }
       if (isCompareOp(expr.op)) {
         return {
           kind: "compare",
+          left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+          right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
+          op: expr.op,
+          type: toSemanticType("int"),
+        };
+      }
+      if (isMultiplicativeOp(expr.op)) {
+        return {
+          kind: "multiplicative",
           left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
           right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
           op: expr.op,
@@ -304,8 +467,24 @@ function lookupVisible(scope: Scope, name: string): BoundSymbol | undefined {
   return undefined;
 }
 
-function isCompareOp(op: CompareOp | AdditiveOp): op is CompareOp {
+function isCompareOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp): op is CompareOp {
   return op === "==" || op === "!=" || op === ">" || op === "<" || op === ">=" || op === "<=";
+}
+
+function isLogicalOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp): op is LogicalOp {
+  return op === "&&" || op === "||";
+}
+
+function isBitwiseOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp): op is BitwiseOp {
+  return op === "&" || op === "^" || op === "|";
+}
+
+function isShiftOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp): op is ShiftOp {
+  return op === "<<" || op === ">>";
+}
+
+function isMultiplicativeOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp): op is MultiplicativeOp {
+  return op === "*" || op === "/" || op === "%";
 }
 
 function toSemanticType(type: ScalarType): SemanticScalarType {
