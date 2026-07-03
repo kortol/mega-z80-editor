@@ -149,6 +149,45 @@ function assembleEmitCharRuntime(tempDir: string, helperName: string, charCode: 
   return helperRelPath;
 }
 
+function assembleCpmRuntime(tempDir: string): string {
+  const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
+  const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
+  fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
+  expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
+  return runtimeRelPath;
+}
+
+function compileSourceRel(tempDir: string, fileName: string, sourceText: string): string {
+  const inputFile = path.join(tempDir, fileName);
+  fs.writeFileSync(inputFile, sourceText, "utf8");
+  return new TsSccCompilerAdapter().compileToRel(createLogger("quiet"), {
+    inputFile,
+    tempDir,
+  }).relFile;
+}
+
+function linkAndRunCom(
+  tempDir: string,
+  stem: string,
+  programRel: string,
+  extraRelPaths: string[] = [],
+  maxCycles = 2000,
+): string {
+  const runtimeRelPath = assembleCpmRuntime(tempDir);
+  const outPath = path.join(tempDir, `${stem}.com`);
+  link([runtimeRelPath, ...extraRelPaths, programRel], outPath, { com: true, orgText: "100H" });
+
+  const core = new Z80DebugCore(false);
+  core.setCpm22Enabled(true);
+  core.setAllowOutOfImage(true);
+  core.loadImage(fs.readFileSync(outPath), 0x0100);
+  core.setEntry(0x0100);
+  const result = core.run(maxCycles);
+
+  expect(result.reason).toBe("BDOS 0: terminate");
+  return core.getOutput();
+}
+
 describe("TsSccCompilerAdapter", () => {
   test("source mode materializes a rel for a minimal return-const program", () => {
     const adapter = new TsSccCompilerAdapter();
@@ -833,31 +872,17 @@ describe("TsSccCompilerAdapter", () => {
     })).toThrow(/does not support statement 'for \(\;\;\) return 1'/);
   });
 
-  test("fixture-backed fragment mode materializes SCC outputs instead of throwing", () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-frag-string-"));
-    const adapter = new TsSccCompilerAdapter({ fixtureId: "frag-string-scc" });
+  test("fixture-backed helper fragment mode still materializes SCC outputs", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-frag-helper-"));
+    const adapter = new TsSccCompilerAdapter({ fixtureId: "frag-helper-call-scc" });
     const built = adapter.compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "frag-string.c"),
+      inputFile: path.join(tempDir, "frag-helper.c"),
       tempDir,
     });
 
     expect(fs.existsSync(built.sccAsmFile)).toBe(true);
-    expect(fs.readFileSync(built.sccAsmFile, "utf8")).toBe(readSccFixture("frag-string-scc"));
+    expect(fs.readFileSync(built.sccAsmFile, "utf8")).toBe(readSccFixture("frag-helper-call-scc"));
     expect(fs.existsSync(built.relFile)).toBe(true);
-  });
-
-  test("can materialize a rel from the frag-call fixture", () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-frag-call-"));
-    const adapter = new TsSccCompilerAdapter({ fixtureId: "frag-call-scc" });
-    const built = adapter.compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "frag-call.c"),
-      tempDir,
-    });
-
-    expect(fs.existsSync(built.sccAsmFile)).toBe(true);
-    expect(fs.existsSync(built.asmFile)).toBe(true);
-    expect(fs.existsSync(built.relFile)).toBe(true);
-    expect(fs.readFileSync(built.sccAsmFile, "utf8")).toBe(readSccFixture("frag-call-scc"));
   });
 
   test("can materialize a rel from the frag-helper-call fixture", () => {
@@ -872,12 +897,14 @@ describe("TsSccCompilerAdapter", () => {
     expect(fs.readFileSync(built.sccAsmFile, "utf8")).toBe(readSccFixture("frag-helper-call-scc"));
   });
 
-  test("frag-call fixture can link against bundled CP/M runtime", () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-frag-link-"));
+  test("source mode can link a direct external call against bundled CP/M runtime", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-frag-link-"));
+    const inputFile = path.join(tempDir, "frag-call-source.c");
     const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
     const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "frag-call-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "frag-call.c"),
+    fs.writeFileSync(inputFile, "int main(){ return outstr(); }\n", "utf8");
+    const programRel = new TsSccCompilerAdapter().compileToRel(createLogger("quiet"), {
+      inputFile,
       tempDir,
     }).relFile;
     const outPath = path.join(tempDir, "frag-call.abs");
@@ -892,17 +919,17 @@ describe("TsSccCompilerAdapter", () => {
     expect(Array.from(image)).toContain(0xcd);
   });
 
-  test("statement-level outstr fixture links and produces CP/M output", () => {
+  test("source mode call statement with string literal links and produces CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-link-"));
+    const inputFile = path.join(tempDir, "stmt-outstr-source.c");
     const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
     const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-outstr-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-outstr.c"),
+    fs.writeFileSync(inputFile, "int main(){ outstr(\"TS STMT$\"); return 0; }\n", "utf8");
+    const programRel = new TsSccCompilerAdapter().compileToRel(createLogger("quiet"), {
+      inputFile,
       tempDir,
     }).relFile;
     const outPath = path.join(tempDir, "stmt-outstr.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_outstr", "stmt_outstr.scc.asm"), "utf8")).toBe(readSccFixture("stmt-outstr-scc"));
 
     fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
     expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
@@ -920,603 +947,141 @@ describe("TsSccCompilerAdapter", () => {
     expect(core.getOutput()).toContain("TS STMT");
   });
 
-  test("statement-level internal call result fixture links and produces CP/M output", () => {
+  test("source mode internal call result links and produces CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-call-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-call-result-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-call-result.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-call-result.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_call_result", "stmt_call_result.scc.asm"), "utf8")).toBe(readSccFixture("stmt-call-result-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("X");
+    const programRel = compileSourceRel(tempDir, "stmt-call-result-source.c", "int value(){ return 88; }\nint main(){ outchar(value()); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-call-result", programRel)).toBe("X");
   });
 
-  test("statement-level branch fixture links and takes the true branch", () => {
+  test("source mode branch on internal call result links and takes the true branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-branch-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-branch-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-branch.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-branch.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_branch", "stmt_branch.scc.asm"), "utf8")).toBe(readSccFixture("stmt-branch-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("T");
+    const programRel = compileSourceRel(tempDir, "stmt-branch-source.c", "int flag(){ return 1; }\nint main(){ if (flag()) outchar(84); else outchar(70); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-branch", programRel)).toBe("T");
   });
 
-  test("statement-level local slot fixture links and round-trips stack-relative storage", () => {
+  test("source mode local char slot links and round-trips stack-relative storage", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-slot-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-local-slot.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-local-slot.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_local_slot", "stmt_local_slot.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-slot-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("L");
+    const programRel = compileSourceRel(tempDir, "stmt-local-slot-source.c", "int main(){ char x = 76; outchar(x); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-local-slot", programRel)).toBe("L");
   });
 
-  test("statement-level compare helper fixture links and takes the true branch", () => {
+  test("source mode constant compare links and takes the true branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-compare-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-compare-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-compare-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-compare-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_compare_helper", "stmt_compare_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-compare-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("Y");
+    const programRel = compileSourceRel(tempDir, "stmt-compare-helper-source.c", "int main(){ if (66 > 65) outchar(89); else outchar(78); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-compare-helper", programRel, [helperRelPath])).toBe("Y");
   });
 
-  test("statement-level local compare fixture links and uses stack-relative value in helper compare", () => {
+  test("source mode local compare links and uses stack-relative value in helper compare", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-compare-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-compare-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-local-compare.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-local-compare.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_local_compare", "stmt_local_compare.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-compare-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("W");
+    const programRel = compileSourceRel(tempDir, "stmt-local-compare-source.c", "int main(){ char x = 67; if (x > 66) outchar(87); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-local-compare", programRel, [helperRelPath])).toBe("W");
   });
 
-  test("statement-level local int fixture links and round-trips 2-byte stack-relative storage", () => {
+  test("source mode local int links and round-trips 2-byte stack-relative storage", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-local-int.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-local-int.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int", "stmt_local_int.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("Z");
+    const programRel = compileSourceRel(tempDir, "stmt-local-int-source.c", "int main(){ int x = 90; outchar(x); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-local-int", programRel)).toBe("Z");
   });
 
-  test("statement-level eq helper fixture links and takes the equal branch", () => {
+  test("source mode eq compare links and takes the equal branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-eq-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-eq-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-eq-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-eq-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_eq_helper", "stmt_eq_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-eq-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("E");
+    const programRel = compileSourceRel(tempDir, "stmt-eq-helper-source.c", "int main(){ if (81 == 81) outchar(69); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-eq-helper", programRel, [helperRelPath])).toBe("E");
   });
 
-  test("statement-level loop fixture links and emits a countdown via back-edge branch", () => {
+  test("source mode loop links and emits a countdown via back-edge branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-loop-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-loop-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-loop.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-loop.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_loop", "stmt_loop.scc.asm"), "utf8")).toBe(readSccFixture("stmt-loop-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(4000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("321");
+    const programRel = compileSourceRel(tempDir, "stmt-loop-source.c", "int main(){ char x = 51; while (x > 48) { outchar(x); x = x - 1; } return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-loop", programRel, [helperRelPath], 4000)).toBe("321");
   });
 
-  test("statement-level arg char fixture reads a stack argument and returns it", () => {
+  test("source mode char argument reads a stack argument and returns it", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-arg-char-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-arg-char-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-arg-char.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-arg-char.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_arg_char", "stmt_arg_char.scc.asm"), "utf8")).toBe(readSccFixture("stmt-arg-char-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("A");
+    const programRel = compileSourceRel(tempDir, "stmt-arg-char-source.c", "char echo(char a){ return a; }\nint main(){ outchar(echo(65)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-arg-char", programRel)).toBe("A");
   });
 
-  test("statement-level arg ne helper fixture reads an argument and takes the non-equal branch", () => {
+  test("source mode arg non-equal compare reads an argument and takes the non-equal branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-arg-ne-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-arg-ne-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-arg-ne-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-arg-ne-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_arg_ne_helper", "stmt_arg_ne_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-arg-ne-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("N");
+    const programRel = compileSourceRel(tempDir, "stmt-arg-ne-helper-source.c", "int check(char a){ return a != 65; }\nint main(){ if (check(66)) outchar(78); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-arg-ne-helper", programRel, [helperRelPath])).toBe("N");
   });
 
-  test("statement-level arg int fixture reads a 2-byte stack argument and returns it", () => {
+  test("source mode int argument reads a 2-byte stack argument and returns it", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-arg-int-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-arg-int-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-arg-int.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-arg-int.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_arg_int", "stmt_arg_int.scc.asm"), "utf8")).toBe(readSccFixture("stmt-arg-int-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("Z");
+    const programRel = compileSourceRel(tempDir, "stmt-arg-int-source.c", "int echo16(int a){ return a; }\nint main(){ outchar(echo16(90)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-arg-int", programRel)).toBe("Z");
   });
 
-  test("statement-level two-arg char fixture reads the older stack argument via a larger offset", () => {
+  test("source mode two-char-arg call reads the older stack argument via a larger offset", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-two-arg-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-two-arg-char-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-two-arg-char.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-two-arg-char.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_two_arg_char", "stmt_two_arg_char.scc.asm"), "utf8")).toBe(readSccFixture("stmt-two-arg-char-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("A");
+    const programRel = compileSourceRel(tempDir, "stmt-two-arg-char-source.c", "char pickfirst(char a, char b){ return a; }\nint main(){ outchar(pickfirst(65, 66)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-two-arg-char", programRel)).toBe("A");
   });
 
-  test("statement-level arg int eq helper fixture compares a 2-byte argument and takes the equal branch", () => {
+  test("source mode int argument eq compare takes the equal branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-arg-int-eq-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-arg-int-eq-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-arg-int-eq-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-arg-int-eq-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_arg_int_eq_helper", "stmt_arg_int_eq_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-arg-int-eq-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("I");
+    const programRel = compileSourceRel(tempDir, "stmt-arg-int-eq-helper-source.c", "int check16(int a){ return a == 90; }\nint main(){ if (check16(90)) outchar(73); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-arg-int-eq-helper", programRel, [helperRelPath])).toBe("I");
   });
 
-  test("statement-level two-arg ne helper fixture compares both stack arguments and takes the non-equal branch", () => {
+  test("source mode two-arg non-equal compare takes the non-equal branch", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-two-arg-ne-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-two-arg-ne-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-two-arg-ne-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-two-arg-ne-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_two_arg_ne_helper", "stmt_two_arg_ne_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-two-arg-ne-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("D");
+    const programRel = compileSourceRel(tempDir, "stmt-two-arg-ne-helper-source.c", "int checkpair(char a, char b){ return a != b; }\nint main(){ if (checkpair(65, 66)) outchar(68); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-two-arg-ne-helper", programRel, [helperRelPath])).toBe("D");
   });
 
-  test("statement-level mixed two-arg call fixture evaluates a local caller expression before pushing arguments", () => {
+  test("source mode mixed two-arg call evaluates a local caller expression before pushing arguments", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-call-two-arg-mixed-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-call-two-arg-mixed-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-call-two-arg-mixed.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-call-two-arg-mixed.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_call_two_arg_mixed", "stmt_call_two_arg_mixed.scc.asm"), "utf8")).toBe(readSccFixture("stmt-call-two-arg-mixed-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("C");
+    const programRel = compileSourceRel(tempDir, "stmt-call-two-arg-mixed-source.c", "char pickfirst(char a, char b){ return a; }\nint main(){ char x = 67; outchar(pickfirst(x, 68)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-call-two-arg-mixed", programRel)).toBe("C");
   });
 
-  test("statement-level local two-arg ne helper fixture compares a caller local against a constant argument", () => {
+  test("source mode local two-arg non-equal compare checks a caller local against a constant argument", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-two-arg-local-ne-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-two-arg-local-ne-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-two-arg-local-ne-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-two-arg-local-ne-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_two_arg_local_ne_helper", "stmt_two_arg_local_ne_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-two-arg-local-ne-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("M");
+    const programRel = compileSourceRel(tempDir, "stmt-two-arg-local-ne-helper-source.c", "int checkpair(char a, char b){ return a != b; }\nint main(){ char x = 67; if (checkpair(x, 68)) outchar(77); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-two-arg-local-ne-helper", programRel, [helperRelPath])).toBe("M");
   });
 
-  test("statement-level local int vs arg int eq helper fixture compares a callee-local 16-bit slot against a 16-bit argument", () => {
+  test("source mode local int vs arg int eq compare checks a callee-local 16-bit slot against a 16-bit argument", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-arg-int-eq-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-arg-int-eq-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-local-int-arg-int-eq-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-local-int-arg-int-eq-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int_arg_int_eq_helper", "stmt_local_int_arg_int_eq_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-arg-int-eq-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("Q");
+    const programRel = compileSourceRel(tempDir, "stmt-local-int-arg-int-eq-helper-source.c", "int checkmix(int a){ int x = 90; return x == a; }\nint main(){ if (checkmix(90)) outchar(81); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-local-int-arg-int-eq-helper", programRel, [helperRelPath])).toBe("Q");
   });
 
-  test("statement-level local int vs arg int ne helper fixture compares a callee-local 16-bit slot against a different 16-bit argument", () => {
+  test("source mode local int vs arg int non-equal compare checks a callee-local 16-bit slot against a different 16-bit argument", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-arg-int-ne-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-arg-int-ne-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-local-int-arg-int-ne-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-local-int-arg-int-ne-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int_arg_int_ne_helper", "stmt_local_int_arg_int_ne_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-arg-int-ne-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("R");
+    const programRel = compileSourceRel(tempDir, "stmt-local-int-arg-int-ne-helper-source.c", "int checkmixne(int a){ int x = 90; return x != a; }\nint main(){ if (checkmixne(91)) outchar(82); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-local-int-arg-int-ne-helper", programRel, [helperRelPath])).toBe("R");
   });
 
-  test("statement-level mixed two-arg int call fixture evaluates a local 16-bit caller expression before pushing arguments", () => {
+  test("source mode mixed two-int-arg call evaluates a local 16-bit caller expression before pushing arguments", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-call-two-arg-int-mixed-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-call-two-arg-int-mixed-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-call-two-arg-int-mixed.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-call-two-arg-int-mixed.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_call_two_arg_int_mixed", "stmt_call_two_arg_int_mixed.scc.asm"), "utf8")).toBe(readSccFixture("stmt-call-two-arg-int-mixed-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("S");
+    const programRel = compileSourceRel(tempDir, "stmt-call-two-arg-int-mixed-source.c", "int pickfirst16(int a, int b){ return a; }\nint main(){ int x = 83; outchar(pickfirst16(x, 84)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-call-two-arg-int-mixed", programRel)).toBe("S");
   });
 
-  test("statement-level local int vs arg int gt helper fixture compares a larger callee-local 16-bit slot against a smaller 16-bit argument", () => {
+  test("source mode local int vs arg int greater-than compare checks a larger callee-local 16-bit slot against a smaller 16-bit argument", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-local-int-arg-int-gt-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-local-int-arg-int-gt-helper-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-local-int-arg-int-gt-helper.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-local-int-arg-int-gt-helper.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_local_int_arg_int_gt_helper", "stmt_local_int_arg_int_gt_helper.scc.asm"), "utf8")).toBe(readSccFixture("stmt-local-int-arg-int-gt-helper-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("T");
+    const programRel = compileSourceRel(tempDir, "stmt-local-int-arg-int-gt-helper-source.c", "int checkmixgt(int a){ int x = 91; return x > a; }\nint main(){ if (checkmixgt(90)) outchar(84); else outchar(88); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-local-int-arg-int-gt-helper", programRel, [helperRelPath])).toBe("T");
   });
 
-  test("statement-level extern two-arg int call fixture pushes a local 16-bit value and calls an external routine", () => {
+  test("source mode extern two-arg int call pushes a local 16-bit value and calls an external routine", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-extern-two-arg-int-link-"));
-    const runtimeAsmPath = path.join(tempDir, "cpmcrt.asm");
-    const runtimeRelPath = path.join(tempDir, "cpmcrt.rel");
     const helperRelPath = assemblePickFirst16Runtime(tempDir);
-    const programRel = new TsSccCompilerAdapter({ fixtureId: "stmt-extern-two-arg-int-call-scc" }).compileToRel(createLogger("quiet"), {
-      inputFile: path.join(tempDir, "stmt-extern-two-arg-int-call.c"),
-      tempDir,
-    }).relFile;
-    const outPath = path.join(tempDir, "stmt-extern-two-arg-int-call.com");
-
-    expect(fs.readFileSync(path.join(tempDir, "stmt_extern_two_arg_int_call", "stmt_extern_two_arg_int_call.scc.asm"), "utf8")).toBe(readSccFixture("stmt-extern-two-arg-int-call-scc"));
-
-    fs.writeFileSync(runtimeAsmPath, translateSccAsm(getBundledSccRuntime("cpmcrt"), { moduleName: "cpmcrt" }), "utf8");
-    expect(assemble(createLogger("quiet"), runtimeAsmPath, runtimeRelPath, { relVersion: 2 }).errors).toEqual([]);
-
-    link([runtimeRelPath, helperRelPath, programRel], outPath, { com: true, orgText: "100H" });
-
-    const core = new Z80DebugCore(false);
-    core.setCpm22Enabled(true);
-    core.setAllowOutOfImage(true);
-    core.loadImage(fs.readFileSync(outPath), 0x0100);
-    core.setEntry(0x0100);
-    const result = core.run(2000);
-
-    expect(result.reason).toBe("BDOS 0: terminate");
-    expect(core.getOutput()).toBe("U");
+    const programRel = compileSourceRel(tempDir, "stmt-extern-two-arg-int-call-source.c", "int pickfirst16(int a, int b); int main(){ int x = 85; outchar(pickfirst16(x, 86)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "stmt-extern-two-arg-int-call", programRel, [helperRelPath])).toBe("U");
   });
-});
+  });

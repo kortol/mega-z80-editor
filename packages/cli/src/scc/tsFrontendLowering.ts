@@ -99,6 +99,10 @@ function lowerStmt(
       };
     }
     case "assign": {
+      const decLocal = tryLowerDecLocalByte(stmt);
+      if (decLocal) {
+        return decLocal;
+      }
       if (stmt.expr.kind === "const") {
         return {
           kind: "assignLocalConst",
@@ -117,6 +121,19 @@ function lowerStmt(
     default:
       return assertNever(stmt);
   }
+}
+
+function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }>): StmtIRHigh | null {
+  if (stmt.local.type.width !== 1 || stmt.expr.kind !== "additive" || stmt.expr.op !== "-" || stmt.expr.right.kind !== "const" || stmt.expr.right.value !== 1) {
+    return null;
+  }
+  if (stmt.expr.left.kind !== "ref" || stmt.expr.left.symbol.kind !== "local" || stmt.expr.left.symbol.slot !== stmt.local.slot) {
+    return null;
+  }
+  return {
+    kind: "decLocalByte",
+    slot: stmt.local.slot,
+  };
 }
 
 function lowerExpr(
