@@ -629,6 +629,86 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tcall\t.asr");
   });
 
+  test("source mode supports local char arrays and constant index expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-"));
+    const inputFile = path.join(tempDir, "array.c");
+    fs.writeFileSync(inputFile, "int main(){ char buf[16]; gets(buf); return buf[2]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tdec\tsp");
+    expect(sccAsm).toContain("\tcall\tgets");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+  });
+
+  test("source mode supports local char array constant index assignments in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-assign-"));
+    const inputFile = path.join(tempDir, "array-assign.c");
+    fs.writeFileSync(inputFile, "int main(){ char buf[4]; buf[2] = 65; return buf[2]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tld\t(hl),#65");
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+  });
+
+  test("source mode supports local char array dynamic index reads and assignments in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-dynamic-"));
+    const inputFile = path.join(tempDir, "array-dynamic.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 1; char buf[4]; buf[i + 1] = 65; return buf[i]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,de");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+  });
+
+  test("source mode supports increment and decrement simple statements in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-inc-dec-"));
+    const inputFile = path.join(tempDir, "inc-dec.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 0; char buf[3]; i++; buf[0] = 66; buf[i]--; return buf[i]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,de");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+  });
+
+  test("source mode supports switch statements in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-switch-"));
+    const inputFile = path.join(tempDir, "switch.c");
+    fs.writeFileSync(inputFile, "int pick(int x){ switch (x) { case 65: return 1; case 66: return 2; default: return 3; } }\nint main(){ return pick(66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tld\thl,#66");
+    expect(sccAsm).toContain("\tld\thl,#2");
+  });
+
   test("source mode supports equality compare expressions in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compare-eq-"));
@@ -1190,7 +1270,19 @@ describe("TsSccCompilerAdapter", () => {
     expect(() => adapter.compileToRel(createLogger("quiet"), {
       inputFile,
       tempDir,
-    })).toThrow(/does not support statement 'switch \(1\) return 1'/);
+    })).toThrow(/only supports brace-wrapped switch bodies/);
+  });
+
+  test("source mode rejects control-flow nesting deeper than the compiler limit", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-nesting-limit-"));
+    const inputFile = path.join(tempDir, "nesting-limit.c");
+    fs.writeFileSync(inputFile, "int main(){ if (1) if (1) if (1) if (1) if (1) if (1) if (1) if (1) if (1) return 1; return 0; }\n", "utf8");
+
+    expect(() => adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    })).toThrow(/nesting up to 8 levels/);
   });
 
   test("fixture-backed helper fragment mode still materializes SCC outputs", () => {
@@ -1375,6 +1467,60 @@ describe("TsSccCompilerAdapter", () => {
       "int main(){ outchar(5 * 13); outchar(33 << 1); outchar((16 << 2) + 3); outchar(17 << 2); outchar(138 >> 1); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-helper-ops", programRel, [helperRelPath], 4000)).toBe("ABCDE");
+  });
+
+  test("source mode switch statements link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-switch-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-switch-source.c",
+      "int emit(int x){ switch (x) { case 65: outchar(65); break; case 66: outchar(66); break; default: outchar(67); } return 0; }\nint main(){ emit(66); emit(77); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-switch", programRel, [helperRelPath], 4000)).toBe("BC");
+  });
+
+  test("source mode do-while loops link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-do-while-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-do-while-source.c",
+      "int main(){ char x = 65; do { outchar(x); x = x + 1; } while (x < 68); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-do-while", programRel, [helperRelPath], 4000)).toBe("ABC");
+  });
+
+  test("source mode local char array constant index assignments link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-array-assign-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-array-assign-source.c",
+      "int main(){ char buf[4]; buf[0] = 65; buf[1] = 66; outchar(buf[0]); outchar(buf[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-array-assign", programRel)).toBe("AB");
+  });
+
+  test("source mode local char array dynamic index reads and assignments link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-array-dynamic-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-array-dynamic-source.c",
+      "int main(){ int i = 0; char buf[3]; do { buf[i] = 65 + i; i = i + 1; } while (i < 3); i = 0; do { outchar(buf[i]); i = i + 1; } while (i < 3); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-array-dynamic", programRel, [helperRelPath], 4000)).toBe("ABC");
+  });
+
+  test("source mode increment and decrement simple statements link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-inc-dec-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-inc-dec-source.c",
+      "int main(){ int i = 0; char buf[3]; do { buf[i] = 65; buf[i]++; outchar(buf[i]); i++; } while (i < 3); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-inc-dec", programRel, [helperRelPath], 4000)).toBe("BBB");
   });
 
   test("source mode char argument reads a stack argument and returns it", () => {

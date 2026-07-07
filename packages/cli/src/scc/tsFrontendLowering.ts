@@ -3,6 +3,7 @@ import {
   BoundExpr,
   BoundForInit,
   BoundFunction,
+  BoundLocalSymbol,
   BoundProgram,
   BoundSimpleStmt,
   BoundStmt,
@@ -49,7 +50,7 @@ function lowerFunction(
   const functionIr: FunctionIR = {
     name: fn.name,
     params: fn.params.map((param) => param.type.width),
-    locals: fn.locals.map((local) => local.type.width),
+    locals: fn.locals.map((local) => local.storageBytes),
     body,
   };
   return lowerFunctionIR(functionIr);
@@ -93,8 +94,25 @@ function lowerStmt(
         body: lowerBlock(stmt.body, externs, definedFunctions, sourceText, state, file),
       };
     }
+    case "doWhile":
+      return {
+        kind: "doWhileExprNonZero",
+        body: lowerBlock(stmt.body, externs, definedFunctions, sourceText, state, file),
+        expr: lowerExpr(stmt.condition, externs, definedFunctions, sourceText, state, file),
+      };
     case "for":
       return lowerForStmt(stmt, externs, definedFunctions, sourceText, state, file);
+    case "switch":
+      externs.add(".eq");
+      return {
+        kind: "switchExpr",
+        expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+        cases: stmt.cases.map((entry) => ({
+          value: entry.value,
+          body: lowerBlock(entry.body, externs, definedFunctions, sourceText, state, file),
+        })),
+        defaultBody: stmt.defaultCase ? lowerBlock(stmt.defaultCase, externs, definedFunctions, sourceText, state, file) : [],
+      };
     case "assign": {
       const decLocal = tryLowerDecLocalByte(stmt);
       if (decLocal) {
@@ -104,17 +122,40 @@ function lowerStmt(
         return {
           kind: "assignLocalConst",
           slot: stmt.local.slot,
-          width: stmt.local.type.width,
+          width: getScalarLocalWidth(stmt.local),
           value: stmt.expr.value,
         };
       }
       return {
         kind: "assignLocalExpr",
         slot: stmt.local.slot,
-        width: stmt.local.type.width,
+        width: getScalarLocalWidth(stmt.local),
         expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
     }
+    case "arrayAssign":
+      if (stmt.index.kind === "const" && stmt.expr.kind === "const") {
+        return {
+          kind: "assignLocalArrayConst",
+          slot: stmt.local.slot,
+          index: stmt.index.value,
+          value: stmt.expr.value,
+        };
+      }
+      if (stmt.index.kind === "const") {
+        return {
+          kind: "assignLocalArrayExpr",
+          slot: stmt.local.slot,
+          index: stmt.index.value,
+          expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+        };
+      }
+      return {
+        kind: "assignLocalArrayDynamic",
+        slot: stmt.local.slot,
+        index: lowerExpr(stmt.index, externs, definedFunctions, sourceText, state, file),
+        expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+      };
     case "break":
       return { kind: "break" };
     case "continue":
@@ -172,14 +213,14 @@ function lowerForInit(
     return {
       kind: "assignLocalConst",
       slot: init.local.slot,
-      width: init.local.type.width,
+      width: getScalarLocalWidth(init.local),
       value: init.initializer.value,
     };
   }
   return {
     kind: "assignLocalExpr",
     slot: init.local.slot,
-    width: init.local.type.width,
+    width: getScalarLocalWidth(init.local),
     expr: lowerExpr(init.initializer, externs, definedFunctions, sourceText, state, file),
   };
 }
@@ -195,6 +236,30 @@ function lowerSimpleStmt(
   if (stmt.kind === "expr") {
     return { kind: "evalExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file) };
   }
+  if (stmt.kind === "arrayAssign") {
+    if (stmt.index.kind === "const" && stmt.expr.kind === "const") {
+      return {
+        kind: "assignLocalArrayConst",
+        slot: stmt.local.slot,
+        index: stmt.index.value,
+        value: stmt.expr.value,
+      };
+    }
+    if (stmt.index.kind === "const") {
+      return {
+        kind: "assignLocalArrayExpr",
+        slot: stmt.local.slot,
+        index: stmt.index.value,
+        expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+      };
+    }
+    return {
+      kind: "assignLocalArrayDynamic",
+      slot: stmt.local.slot,
+      index: lowerExpr(stmt.index, externs, definedFunctions, sourceText, state, file),
+      expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+    };
+  }
   const decLocal = tryLowerDecLocalByte(stmt);
   if (decLocal) {
     return decLocal;
@@ -203,20 +268,20 @@ function lowerSimpleStmt(
     return {
       kind: "assignLocalConst",
       slot: stmt.local.slot,
-      width: stmt.local.type.width,
+      width: getScalarLocalWidth(stmt.local),
       value: stmt.expr.value,
     };
   }
   return {
     kind: "assignLocalExpr",
     slot: stmt.local.slot,
-    width: stmt.local.type.width,
+    width: getScalarLocalWidth(stmt.local),
     expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
   };
 }
 
 function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }> | BoundSimpleStmt & { kind: "assign" }): StmtIRHigh | null {
-  if (stmt.local.type.width !== 1 || stmt.expr.kind !== "additive" || stmt.expr.op !== "-" || stmt.expr.right.kind !== "const" || stmt.expr.right.value !== 1) {
+  if (getScalarLocalWidth(stmt.local) !== 1 || stmt.expr.kind !== "additive" || stmt.expr.op !== "-" || stmt.expr.right.kind !== "const" || stmt.expr.right.value !== 1) {
     return null;
   }
   if (stmt.expr.left.kind !== "ref" || stmt.expr.left.symbol.kind !== "local" || stmt.expr.left.symbol.slot !== stmt.local.slot) {
@@ -226,6 +291,13 @@ function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }> | Bou
     kind: "decLocalByte",
     slot: stmt.local.slot,
   };
+}
+
+function getScalarLocalWidth(local: BoundLocalSymbol): 1 | 2 {
+  if (local.type.kind !== "scalar") {
+    throw new Error(`Internal lowering error: expected scalar local, got ${JSON.stringify(local.type)}`);
+  }
+  return local.type.width;
 }
 
 function lowerExpr(
@@ -245,9 +317,20 @@ function lowerExpr(
       return {
         kind: "ref",
         scope: expr.symbol.kind === "local" ? "local" : "arg",
-        width: expr.symbol.type.width,
+        width: expr.symbol.kind === "local" ? getScalarLocalWidth(expr.symbol) : expr.symbol.type.width,
         slot: expr.symbol.slot,
       } satisfies RefIR;
+    case "localAddress":
+      return {
+        kind: "localAddress",
+        slot: expr.symbol.slot,
+      };
+    case "localArrayElement":
+      return {
+        kind: "localArrayElement",
+        slot: expr.symbol.slot,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
+      };
     case "compare": {
       const helper = compareOpToHelper(expr.op);
       externs.add(helper);

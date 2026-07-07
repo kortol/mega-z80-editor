@@ -132,4 +132,65 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tcall\t.asl");
     expect(asm).toContain("\tcall\t.asr");
   });
+
+  test("lowers local char array addresses and constant index reads from the stack frame", () => {
+    const source = "int main(){ char buf[16]; outchar(buf); return buf[2]; }\n";
+    const parsed = parseProgram(source, "array.c");
+    const bound = analyzeProgram(parsed, source, "array.c");
+    const spec = lowerSourceProgram(bound, "array.i", source, "array.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#0");
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tld\thl,#2");
+    expect(asm).toContain("\tld\tl,(hl)");
+  });
+
+  test("lowers local char array constant index assignments into byte stores", () => {
+    const source = "int main(){ char buf[4]; buf[2] = 65; return buf[2]; }\n";
+    const parsed = parseProgram(source, "array-assign.c");
+    const bound = analyzeProgram(parsed, source, "array-assign.c");
+    const spec = lowerSourceProgram(bound, "array-assign.i", source, "array-assign.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#2");
+    expect(asm).toContain("\tld\t(hl),#65");
+    expect(asm).toContain("\tld\tl,(hl)");
+  });
+
+  test("lowers local char array dynamic index reads and assignments through indexed stack addressing", () => {
+    const source = "int main(){ int i = 1; char buf[4]; buf[i + 1] = 65; return buf[i]; }\n";
+    const parsed = parseProgram(source, "array-dynamic.c");
+    const bound = analyzeProgram(parsed, source, "array-dynamic.c");
+    const spec = lowerSourceProgram(bound, "array-dynamic.i", source, "array-dynamic.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tadd\thl,de");
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\tl,(hl)");
+  });
+
+  test("lowers switch statements into compare dispatch and break labels", () => {
+    const source = "int main(int x){ switch (x) { case 65: outchar(65); break; case 66: outchar(66); default: outchar(67); } return 0; }\n";
+    const parsed = parseProgram(source, "switch.c");
+    const bound = analyzeProgram(parsed, source, "switch.c");
+    const spec = lowerSourceProgram(bound, "switch.i", source, "switch.c");
+    const asm = emitProgram(spec);
+
+    expect(spec.externs).toContain(".eq");
+    expect(asm).toContain("\tcall\t.eq");
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("lowers do-while loops into post-test back-edge control flow", () => {
+    const source = "int main(){ int x = 65; do { outchar(x); x = x + 1; } while (x < 67); return 0; }\n";
+    const parsed = parseProgram(source, "do-while.c");
+    const bound = analyzeProgram(parsed, source, "do-while.c");
+    const spec = lowerSourceProgram(bound, "do-while.i", source, "do-while.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\t.lt");
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tadd\thl,de");
+  });
 });

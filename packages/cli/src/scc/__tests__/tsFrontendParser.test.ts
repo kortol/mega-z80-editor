@@ -155,4 +155,77 @@ describe("tsFrontendParser", () => {
     }
     expect(stmt.expr.left.left.op).toBe("+");
   });
+
+  test("parses local char arrays and constant index expressions", () => {
+    const program = parseProgram("int main(){ char buf[16]; return buf[3]; }\n", "array.c");
+    expect(program.functions[0].body.declarations[0]?.type).toEqual({ kind: "array", elementType: "char", length: 16 });
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return") {
+      return;
+    }
+    expect(stmt.expr).toEqual({ kind: "arrayIndex", name: "buf", index: { kind: "const", value: 3 } });
+  });
+
+  test("parses local char array constant index assignments", () => {
+    const program = parseProgram("int main(){ char buf[4]; buf[2] = 65; return buf[2]; }\n", "array-assign.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt).toEqual({ kind: "arrayAssign", name: "buf", index: { kind: "const", value: 2 }, expr: { kind: "const", value: 65 } });
+  });
+
+  test("parses local char array dynamic index expressions and assignments", () => {
+    const program = parseProgram("int main(){ int i = 1; char buf[4]; buf[i + 1] = 65; return buf[i]; }\n", "array-dynamic.c");
+    const assignStmt = program.functions[0].body.statements[1];
+    expect(assignStmt.kind).toBe("arrayAssign");
+    if (assignStmt.kind !== "arrayAssign" || assignStmt.index.kind !== "binary") {
+      return;
+    }
+    expect(assignStmt.index.op).toBe("+");
+    const returnStmt = program.functions[0].body.statements[2];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "arrayIndex" || returnStmt.expr.index.kind !== "ref") {
+      return;
+    }
+    expect(returnStmt.expr.index.name).toBe("i");
+  });
+
+  test("parses increment and decrement simple statements via assignment lowering", () => {
+    const program = parseProgram("int main(){ int i = 0; char buf[4]; i++; buf[i]--; return i; }\n", "inc-dec.c");
+    const incStmt = program.functions[0].body.statements[1];
+    expect(incStmt.kind).toBe("assign");
+    if (incStmt.kind !== "assign" || incStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(incStmt.expr.op).toBe("+");
+    const decStmt = program.functions[0].body.statements[2];
+    expect(decStmt.kind).toBe("arrayAssign");
+    if (decStmt.kind !== "arrayAssign" || decStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(decStmt.expr.op).toBe("-");
+  });
+
+  test("parses switch statements with case and default blocks", () => {
+    const program = parseProgram("int main(int x){ switch (x) { case 65: outchar(65); break; case 66: outchar(66); default: outchar(67); } return 0; }\n", "switch.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("switch");
+    if (stmt.kind !== "switch") {
+      return;
+    }
+    expect(stmt.cases).toHaveLength(2);
+    expect(stmt.cases[0]?.value).toBe(65);
+    expect(stmt.cases[1]?.value).toBe(66);
+    expect(stmt.defaultCase?.statements[0]?.kind).toBe("expr");
+  });
+
+  test("parses do-while loops with single-statement bodies", () => {
+    const program = parseProgram("int main(){ int x = 65; do x = x + 1; while (x < 68); return x; }\n", "do-while.c");
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("doWhile");
+    if (stmt.kind !== "doWhile") {
+      return;
+    }
+    expect(stmt.body.statements[0]?.kind).toBe("assign");
+    expect(stmt.condition.kind).toBe("binary");
+  });
 });

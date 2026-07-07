@@ -12,6 +12,9 @@ export type ProgramSpec = {
 export type ExprSpec =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
+  | { kind: "localAddress"; offset: number }
+  | { kind: "localArrayElement"; offset: number }
+  | { kind: "localArrayElementExpr"; offset: number; index: ExprSpec }
   | { kind: "call"; target: string; args?: ExprSpec[] }
   | { kind: "logical"; left: ExprSpec; right: ExprSpec; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprSpec; right: ExprSpec; op: "&" | "^" | "|" }
@@ -45,6 +48,8 @@ export type RefIR = {
 export type ExprIR =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
+  | { kind: "localAddress"; slot: number }
+  | { kind: "localArrayElement"; slot: number; index: ExprIR }
   | RefIR
   | { kind: "logical"; left: ExprIR; right: ExprIR; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprIR; right: ExprIR; op: "&" | "^" | "|" }
@@ -57,13 +62,16 @@ export type ExprIR =
 export type FunctionIR = {
   name: string;
   params: ValueWidth[];
-  locals: ValueWidth[];
+  locals: number[];
   body: StmtIRHigh[];
 };
 
 export type StmtIRHigh =
   | { kind: "assignLocalConst"; slot: number; width: ValueWidth; value: number }
   | { kind: "assignLocalExpr"; slot: number; width: ValueWidth; expr: ExprIR }
+  | { kind: "assignLocalArrayConst"; slot: number; index: number; value: number }
+  | { kind: "assignLocalArrayExpr"; slot: number; index: number; expr: ExprIR }
+  | { kind: "assignLocalArrayDynamic"; slot: number; index: ExprIR; expr: ExprIR }
   | { kind: "compareReturn"; left: ExprIR; right: ExprIR; helper: string }
   | { kind: "returnExpr"; expr: ExprIR }
   | { kind: "evalExpr"; expr: ExprIR }
@@ -73,6 +81,8 @@ export type StmtIRHigh =
   | { kind: "decLocalByte"; slot: number }
   | { kind: "emitChar"; value: number }
   | { kind: "whileExprNonZero"; expr: ExprIR; body: StmtIRHigh[]; stepBody?: StmtIRHigh[] }
+  | { kind: "doWhileExprNonZero"; body: StmtIRHigh[]; expr: ExprIR }
+  | { kind: "switchExpr"; expr: ExprIR; cases: Array<{ value: number; body: StmtIRHigh[] }>; defaultBody: StmtIRHigh[] }
   | { kind: "break" }
   | { kind: "continue" }
   | { kind: "ifExprZero"; expr: ExprIR; thenBody: StmtIRHigh[]; elseBody: StmtIRHigh[] };
@@ -89,7 +99,7 @@ type LoweringState = {
 
 type LoopContext = {
   breakLabel: string;
-  continueLabel: string;
+  continueLabel?: string;
 };
 
 type StatementSpec =
@@ -112,6 +122,7 @@ type StatementSpec =
   | { kind: "loadLocalAddrHl"; offset: number }
   | { kind: "storeImmToLocal"; offset: number; value: number }
   | { kind: "storeExprToLocalByte"; offset: number; expr: ExprSpec }
+  | { kind: "storeExprToLocalArrayByte"; offset: number; index: ExprSpec; expr: ExprSpec }
   | { kind: "loadLocalCharToHl"; offset: number }
   | { kind: "storeImm16ToLocal"; offset: number; value: number }
   | { kind: "storeExprToLocalWord"; offset: number; expr: ExprSpec }
@@ -180,6 +191,21 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
         ? [{ kind: "storeExprToLocalByte", offset, expr }]
         : [{ kind: "storeExprToLocalWord", offset, expr }];
     }
+    case "assignLocalArrayConst":
+      return [{ kind: "storeImmToLocal", offset: getLocalOffset(layout, stmt.slot) + stmt.index, value: stmt.value }];
+    case "assignLocalArrayExpr":
+      return [{
+        kind: "storeExprToLocalByte",
+        offset: getLocalOffset(layout, stmt.slot) + stmt.index,
+        expr: lowerExprIR(stmt.expr, layout),
+      }];
+    case "assignLocalArrayDynamic":
+      return [{
+        kind: "storeExprToLocalArrayByte",
+        offset: getLocalOffset(layout, stmt.slot),
+        index: lowerExprIR(stmt.index, layout),
+        expr: lowerExprIR(stmt.expr, layout),
+      }];
     case "compareReturn": {
       const statements: StatementSpec[] = [{
         kind: "compareExprHelper",
@@ -250,13 +276,57 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
         { kind: "label", name: endLabel },
       ];
     }
+    case "doWhileExprNonZero": {
+      const loopLabel = allocateNumericLabel(state);
+      const continueLabel = allocateNumericLabel(state);
+      const endLabel = allocateNumericLabel(state);
+      const loopContext: LoopContext = { breakLabel: endLabel, continueLabel };
+      return [
+        { kind: "label", name: loopLabel },
+        ...stmt.body.flatMap((entry) => lowerStmtIR(entry, layout, state, loopContext)),
+        { kind: "label", name: continueLabel },
+        { kind: "loadExprHl", expr: lowerExprIR(stmt.expr, layout) },
+        { kind: "truthJumpZero", target: endLabel },
+        { kind: "jump", target: loopLabel },
+        { kind: "label", name: endLabel },
+      ];
+    }
+    case "switchExpr": {
+      const endLabel = allocateNumericLabel(state);
+      const defaultLabel = stmt.defaultBody.length > 0 ? allocateNumericLabel(state) : endLabel;
+      const caseLabels = stmt.cases.map(() => allocateNumericLabel(state));
+      const nextCompareLabels = stmt.cases.map((_, index) => index === stmt.cases.length - 1 ? defaultLabel : allocateNumericLabel(state));
+      const switchContext: LoopContext = { breakLabel: endLabel };
+      const dispatch: StatementSpec[] = stmt.cases.flatMap((entry, index) => [
+        {
+          kind: "compareExprHelper",
+          left: lowerExprIR(stmt.expr, layout),
+          right: { kind: "const", value: entry.value },
+          helper: ".eq",
+        } satisfies StatementSpec,
+        { kind: "truthJumpZero", target: nextCompareLabels[index] },
+        { kind: "jump", target: caseLabels[index] },
+        ...(nextCompareLabels[index] === defaultLabel ? [] : [{ kind: "label", name: nextCompareLabels[index] } satisfies StatementSpec]),
+      ]);
+      const bodies: StatementSpec[] = [];
+      for (const [index, entry] of stmt.cases.entries()) {
+        bodies.push({ kind: "label", name: caseLabels[index] });
+        bodies.push(...entry.body.flatMap((bodyStmt) => lowerStmtIR(bodyStmt, layout, state, switchContext)));
+      }
+      if (stmt.defaultBody.length > 0) {
+        bodies.push({ kind: "label", name: defaultLabel });
+        bodies.push(...stmt.defaultBody.flatMap((bodyStmt) => lowerStmtIR(bodyStmt, layout, state, switchContext)));
+      }
+      bodies.push({ kind: "label", name: endLabel });
+      return [...dispatch, ...bodies];
+    }
     case "break":
       if (!loop) {
         throw new Error("Internal lowering error: break used outside loop context.");
       }
       return [{ kind: "jump", target: loop.breakLabel }];
     case "continue":
-      if (!loop) {
+      if (!loop?.continueLabel) {
         throw new Error("Internal lowering error: continue used outside loop context.");
       }
       return [{ kind: "jump", target: loop.continueLabel }];
@@ -290,6 +360,13 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
       return { kind: "const", value: expr.value };
     case "dataAddress":
       return { kind: "dataAddress", label: expr.label };
+    case "localAddress":
+      return { kind: "localAddress", offset: getLocalOffset(layout, expr.slot) };
+    case "localArrayElement":
+      if (expr.index.kind === "const") {
+        return { kind: "localArrayElement", offset: getLocalOffset(layout, expr.slot) + expr.index.value };
+      }
+      return { kind: "localArrayElementExpr", offset: getLocalOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout) };
     case "compare":
       return {
         kind: "compare",
@@ -433,6 +510,8 @@ function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[]
       return [...emitLoadStackAddrToHl(statement.offset, ctx), `\tld\t(hl),#${statement.value}`];
     case "storeExprToLocalByte":
       return emitStoreExprToLocalByte(statement.offset, statement.expr, ctx);
+    case "storeExprToLocalArrayByte":
+      return emitStoreExprToLocalArrayByte(statement.offset, statement.index, statement.expr, ctx);
     case "loadLocalCharToHl":
       return emitExprToHl({ kind: "localChar", offset: statement.offset }, ctx);
     case "storeImm16ToLocal":
@@ -456,6 +535,12 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return [`\tld\thl,#${expr.value}`];
     case "dataAddress":
       return [`\tld\thl,#${expr.label}+0`];
+    case "localAddress":
+      return emitLoadStackAddrToHl(expr.offset, ctx);
+    case "localArrayElement":
+      return emitLoadStackByteToHl(expr.offset, ctx);
+    case "localArrayElementExpr":
+      return emitLoadIndexedLocalByteToHl(expr.offset, expr.index, ctx);
     case "call":
       return emitCallExpr(expr.target, expr.args ?? [], ctx);
     case "logical":
@@ -529,6 +614,20 @@ function emitStoreExprToLocalByte(offset: number, expr: ExprSpec, ctx: EmitExprC
   ];
 }
 
+function emitStoreExprToLocalArrayByte(offset: number, index: ExprSpec, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpush\thl",
+    ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 4 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tpop\tde",
+    "\tld\t(hl),e",
+  ];
+}
+
 function emitStoreImm16ToLocal(offset: number, value: number, ctx: EmitExprContext): string[] {
   return [
     ...emitLoadStackAddrToHl(offset, ctx),
@@ -547,6 +646,18 @@ function emitStoreExprToLocalWord(offset: number, expr: ExprSpec, ctx: EmitExprC
     "\tld\t(hl),e",
     "\tinc\thl",
     "\tld\t(hl),d",
+  ];
+}
+
+function emitLoadIndexedLocalByteToHl(offset: number, index: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(index, ctx),
+    "\tpush\thl",
+    ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tld\tl,(hl)",
+    "\tld\th,#0",
   ];
 }
 

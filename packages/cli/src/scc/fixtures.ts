@@ -48,20 +48,6 @@ export const SCC_OUTPUT_FIXTURES: SccFixtureRecord[] = [
     notes: "Minimal CP/M runtime fixture used by translator/link tests.",
   },
   {
-    id: "cpm-fgets-scc",
-    kind: "program-scc",
-    file: path.join(FIXTURE_DIR, "fixtures_cpm_fgets_scc.asm"),
-    features: ["cpm-program", "fgets-call", "buffer-data", "stdio"],
-    notes: "CP/M stdio fixture for fgets(buf, size, fp).",
-  },
-  {
-    id: "cpm-gets-scc",
-    kind: "program-scc",
-    file: path.join(FIXTURE_DIR, "fixtures_cpm_gets_scc.asm"),
-    features: ["cpm-program", "gets-call", "buffer-data", "stdio"],
-    notes: "CP/M stdio fixture for gets(buf).",
-  },
-  {
     id: "frag-helper-call-scc",
     kind: "fragment-scc",
     file: path.join(FIXTURE_DIR, "fixtures_frag_helper_call_scc.asm"),

@@ -22,9 +22,4 @@ describe("SCC_OUTPUT_FIXTURES", () => {
   test("remaining fragment fixtures isolate the helper-call fallback path", () => {
     expect(readSccFixture("frag-helper-call-scc")).toContain("\tcall\t.gint");
   });
-
-  test("stdio fixtures cover the remaining library entry points", () => {
-    expect(readSccFixture("cpm-fgets-scc")).toContain("\tcall\tfgets");
-    expect(readSccFixture("cpm-gets-scc")).toContain("\tcall\tgets");
-  });
 });

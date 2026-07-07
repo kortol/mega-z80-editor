@@ -1,9 +1,15 @@
 export type ScalarType = "char" | "int";
 
-export type SourceType = {
-  kind: "scalar";
-  name: ScalarType;
-};
+export type SourceType =
+  | {
+    kind: "scalar";
+    name: ScalarType;
+  }
+  | {
+    kind: "array";
+    elementType: "char";
+    length: number;
+  };
 
 export type SourceProgram = {
   kind: "program";
@@ -37,6 +43,12 @@ export type SourceBlock = {
   statements: SourceStmt[];
 };
 
+export type SourceSwitchCase = {
+  kind: "switchCase";
+  value: number;
+  body: SourceBlock;
+};
+
 export type CompareOp = "==" | "!=" | ">" | "<" | ">=" | "<=";
 export type ShiftOp = "<<" | ">>";
 export type AdditiveOp = "+" | "-";
@@ -66,6 +78,11 @@ export type SourceStmt =
     body: SourceBlock;
   }
   | {
+    kind: "doWhile";
+    body: SourceBlock;
+    condition: SourceExpr;
+  }
+  | {
     kind: "for";
     initializer?: SourceForInit;
     condition?: SourceExpr;
@@ -73,8 +90,20 @@ export type SourceStmt =
     body: SourceBlock;
   }
   | {
+    kind: "switch";
+    expr: SourceExpr;
+    cases: SourceSwitchCase[];
+    defaultCase?: SourceBlock;
+  }
+  | {
     kind: "assign";
     name: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "arrayAssign";
+    name: string;
+    index: SourceExpr;
     expr: SourceExpr;
   }
   | {
@@ -93,6 +122,12 @@ export type SourceSimpleStmt =
     kind: "assign";
     name: string;
     expr: SourceExpr;
+  }
+  | {
+    kind: "arrayAssign";
+    name: string;
+    index: SourceExpr;
+    expr: SourceExpr;
   };
 
 export type SourceForInit =
@@ -108,5 +143,6 @@ export type SourceExpr =
   | { kind: "const"; value: number }
   | { kind: "string"; value: string }
   | { kind: "ref"; name: string }
+  | { kind: "arrayIndex"; name: string; index: SourceExpr }
   | { kind: "call"; target: string; args: SourceExpr[] }
   | { kind: "binary"; left: SourceExpr; right: SourceExpr; op: BinaryOp };

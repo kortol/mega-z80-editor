@@ -13,6 +13,7 @@ import {
   SourceSimpleStmt,
   SourceProgram,
   SourceStmt,
+  SourceType,
 } from "./tsFrontendAst";
 import { throwDiagnostic } from "./tsFrontendDiagnostics";
 import { ValueWidth } from "./tsProgram";
@@ -22,6 +23,14 @@ export type SemanticScalarType = {
   name: ScalarType;
   width: ValueWidth;
 };
+
+export type SemanticArrayType = {
+  kind: "array";
+  elementType: "char";
+  length: number;
+};
+
+export type SemanticType = SemanticScalarType | SemanticArrayType;
 
 export type BoundFunctionSymbol = {
   kind: "function";
@@ -40,7 +49,8 @@ export type BoundParamSymbol = {
 export type BoundLocalSymbol = {
   kind: "local";
   name: string;
-  type: SemanticScalarType;
+  type: SemanticType;
+  storageBytes: number;
   slot: number;
 };
 
@@ -65,19 +75,29 @@ export type BoundBlock = {
   statements: BoundStmt[];
 };
 
+export type BoundSwitchCase = {
+  kind: "boundSwitchCase";
+  value: number;
+  body: BoundBlock;
+};
+
 export type BoundStmt =
   | { kind: "return"; expr: BoundExpr }
   | { kind: "expr"; expr: BoundExpr }
   | { kind: "if"; condition: BoundExpr; thenBlock: BoundBlock; elseBlock?: BoundBlock }
   | { kind: "while"; condition: BoundExpr; body: BoundBlock }
+  | { kind: "doWhile"; body: BoundBlock; condition: BoundExpr }
   | { kind: "for"; initializer?: BoundForInit; condition?: BoundExpr; step?: BoundSimpleStmt; body: BoundBlock }
+  | { kind: "switch"; expr: BoundExpr; cases: BoundSwitchCase[]; defaultCase?: BoundBlock }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
+  | { kind: "arrayAssign"; local: BoundLocalSymbol; index: BoundExpr; expr: BoundExpr }
   | { kind: "break" }
   | { kind: "continue" };
 
 export type BoundSimpleStmt =
   | { kind: "expr"; expr: BoundExpr }
-  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr };
+  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
+  | { kind: "arrayAssign"; local: BoundLocalSymbol; index: BoundExpr; expr: BoundExpr };
 
 export type BoundForInit =
   | BoundSimpleStmt
@@ -87,6 +107,8 @@ export type BoundExpr =
   | { kind: "const"; value: number; type: SemanticScalarType }
   | { kind: "string"; value: string; type: SemanticScalarType }
   | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType }
+  | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticScalarType }
+  | { kind: "localArrayElement"; symbol: BoundLocalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundExpr[]; type: SemanticScalarType }
   | { kind: "compare"; left: BoundExpr; right: BoundExpr; op: CompareOp; type: SemanticScalarType }
   | { kind: "logical"; left: BoundExpr; right: BoundExpr; op: LogicalOp; type: SemanticScalarType }
@@ -100,6 +122,8 @@ type Scope = {
   entries: Map<string, BoundSymbol>;
 };
 
+const MAX_CONTROL_NESTING = 8;
+
 export function analyzeProgram(program: SourceProgram, sourceText: string, file?: string): BoundProgram {
   const functionSymbols = new Map<string, BoundFunctionSymbol>();
   for (const fn of program.functions) {
@@ -112,8 +136,8 @@ export function analyzeProgram(program: SourceProgram, sourceText: string, file?
     functionSymbols.set(fn.name, {
       kind: "function",
       name: fn.name,
-      returnType: toSemanticType(fn.returnType.name),
-      params: fn.params.map((param) => toSemanticType(param.type.name)),
+      returnType: toSemanticScalarType(getScalarSourceType(fn.returnType).name),
+      params: fn.params.map((param) => toSemanticScalarType(getScalarSourceType(param.type).name)),
     });
   }
 
@@ -141,7 +165,7 @@ function analyzeFunction(
     const symbol: BoundParamSymbol = {
       kind: "param",
       name: param.name,
-      type: toSemanticType(param.type.name),
+      type: toSemanticScalarType(getScalarSourceType(param.type).name),
       slot: index,
     };
     functionScope.entries.set(param.name, symbol);
@@ -154,7 +178,7 @@ function analyzeFunction(
   return {
     kind: "boundFunction",
     name: fn.name,
-    returnType: toSemanticType(fn.returnType.name),
+    returnType: toSemanticScalarType(getScalarSourceType(fn.returnType).name),
     params,
     locals: localList,
     body,
@@ -171,6 +195,8 @@ function analyzeBlock(
   sourceText: string,
   file?: string,
   loopDepth = 0,
+  breakDepth = 0,
+  controlNesting = 0,
 ): BoundBlock {
   const scope: Scope = { parent: parentScope, entries: new Map() };
   for (const declaration of block.declarations) {
@@ -190,7 +216,8 @@ function analyzeBlock(
     const symbol: BoundLocalSymbol = {
       kind: "local",
       name: declaration.name,
-      type: toSemanticType(declaration.type.name),
+      type: toSemanticType(declaration.type),
+      storageBytes: getTypeStorageBytes(declaration.type),
       slot: localList.length,
     };
     scope.entries.set(declaration.name, symbol);
@@ -200,7 +227,7 @@ function analyzeBlock(
 
   return {
     kind: "boundBlock",
-    statements: block.statements.map((stmt) => analyzeStmt(stmt, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth)),
+    statements: block.statements.map((stmt) => analyzeStmt(stmt, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting)),
   };
 }
 
@@ -214,6 +241,8 @@ function analyzeStmt(
   sourceText: string,
   file?: string,
   loopDepth = 0,
+  breakDepth = 0,
+  controlNesting = 0,
 ): BoundStmt {
   switch (stmt.kind) {
     case "return":
@@ -221,22 +250,32 @@ function analyzeStmt(
     case "expr":
       return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
     case "if":
+      assertControlNesting(controlNesting + 1, functionName, sourceText, file);
       return {
         kind: "if",
         condition: analyzeExpr(stmt.condition, scope, functionSymbols, functionName, sourceText, file),
-        thenBlock: analyzeBlock(stmt.thenBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth),
+        thenBlock: analyzeBlock(stmt.thenBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting + 1),
         elseBlock: stmt.elseBlock
-          ? analyzeBlock(stmt.elseBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth)
+          ? analyzeBlock(stmt.elseBlock, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting + 1)
           : undefined,
       };
     case "while":
+      assertControlNesting(controlNesting + 1, functionName, sourceText, file);
       return {
         kind: "while",
         condition: analyzeExpr(stmt.condition, scope, functionSymbols, functionName, sourceText, file),
-        body: analyzeBlock(stmt.body, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1),
+        body: analyzeBlock(stmt.body, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1, breakDepth + 1, controlNesting + 1),
+      };
+    case "doWhile":
+      assertControlNesting(controlNesting + 1, functionName, sourceText, file);
+      return {
+        kind: "doWhile",
+        body: analyzeBlock(stmt.body, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1, breakDepth + 1, controlNesting + 1),
+        condition: analyzeExpr(stmt.condition, scope, functionSymbols, functionName, sourceText, file),
       };
     case "for":
       {
+        assertControlNesting(controlNesting + 1, functionName, sourceText, file);
         const forScope: Scope = { parent: scope, entries: new Map() };
         let initializer: BoundForInit | undefined;
         if (stmt.initializer) {
@@ -251,12 +290,27 @@ function analyzeStmt(
         step: stmt.step
           ? analyzeSimpleStmt(stmt.step, forScope, functionSymbols, functionName, sourceText, file)
           : undefined,
-        body: analyzeBlock(stmt.body, forScope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1),
+        body: analyzeBlock(stmt.body, forScope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth + 1, breakDepth + 1, controlNesting + 1),
       };
       }
+    case "switch":
+      assertUniqueSwitchCaseValues(stmt.cases, functionName, sourceText, file);
+      assertControlNesting(controlNesting + 1, functionName, sourceText, file);
+      return {
+        kind: "switch",
+        expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+        cases: stmt.cases.map((entry) => ({
+          kind: "boundSwitchCase",
+          value: entry.value,
+          body: analyzeBlock(entry.body, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth + 1, controlNesting + 1),
+        })),
+        defaultCase: stmt.defaultCase
+          ? analyzeBlock(stmt.defaultCase, scope, allLocals, localList, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth + 1, controlNesting + 1)
+          : undefined,
+      };
     case "assign": {
       const symbol = lookupVisible(scope, stmt.name);
-      if (!symbol || symbol.kind !== "local") {
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "scalar") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
           file,
           offset: 0,
@@ -268,9 +322,11 @@ function analyzeStmt(
         expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
       };
     }
+    case "arrayAssign":
+      return analyzeArrayAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
     case "break":
-      if (loopDepth === 0) {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports 'break' inside loops in ${functionName}().`, {
+      if (breakDepth === 0) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports 'break' inside loops or switches in ${functionName}().`, {
           file,
           offset: 0,
         });
@@ -300,8 +356,11 @@ function analyzeSimpleStmt(
   if (stmt.kind === "expr") {
     return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
   }
+  if (stmt.kind === "arrayAssign") {
+    return analyzeArrayAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+  }
   const symbol = lookupVisible(scope, stmt.name);
-  if (!symbol || symbol.kind !== "local") {
+  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "scalar") {
     throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
       file,
       offset: 0,
@@ -311,6 +370,33 @@ function analyzeSimpleStmt(
     kind: "assign",
     local: symbol,
     expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+  };
+}
+
+function analyzeArrayAssignStmt(
+  name: string,
+  index: SourceExpr,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundStmt, { kind: "arrayAssign" }> {
+  const symbol = lookupVisible(scope, name);
+  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "array") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local char arrays, got '${name}[...]'.`, {
+      file,
+      offset: 0,
+    });
+  }
+  const boundIndex = analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file);
+  assertArrayIndexInBounds(boundIndex, name, symbol.type.length, functionName, sourceText, file);
+  return {
+    kind: "arrayAssign",
+    local: symbol,
+    index: boundIndex,
+    expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
   };
 }
 
@@ -343,7 +429,8 @@ function analyzeForInitializer(
   const symbol: BoundLocalSymbol = {
     kind: "local",
     name: init.name,
-    type: toSemanticType(init.type.name),
+    type: toSemanticType(init.type),
+    storageBytes: getTypeStorageBytes(init.type),
     slot: localList.length,
   };
   scope.entries.set(init.name, symbol);
@@ -368,9 +455,9 @@ function analyzeExpr(
 ): BoundExpr {
   switch (expr.kind) {
     case "const":
-      return { kind: "const", value: expr.value, type: toSemanticType("int") };
+      return { kind: "const", value: expr.value, type: toSemanticScalarType("int") };
     case "string":
-      return { kind: "string", value: expr.value, type: toSemanticType("int") };
+      return { kind: "string", value: expr.value, type: toSemanticScalarType("int") };
     case "ref": {
       const symbol = lookupVisible(scope, expr.name);
       if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {
@@ -379,7 +466,30 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      if (symbol.kind === "local" && symbol.type.kind === "array") {
+        return { kind: "localAddress", symbol, type: toSemanticScalarType("int") };
+      }
+      if (symbol.kind === "local") {
+        return { kind: "ref", symbol, type: getScalarSemanticType(symbol.type) };
+      }
       return { kind: "ref", symbol, type: symbol.type };
+    }
+    case "arrayIndex": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "array") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports indexing on local char arrays, got '${expr.name}[...]'.`, {
+          file,
+          offset: 0,
+        });
+      }
+      const index = analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file);
+      assertArrayIndexInBounds(index, expr.name, symbol.type.length, functionName, sourceText, file);
+      return {
+        kind: "localArrayElement",
+        symbol,
+        index,
+        type: toSemanticScalarType("char"),
+      };
     }
     case "call": {
       const target = functionSymbols.get(expr.target);
@@ -394,7 +504,7 @@ function analyzeExpr(
         kind: "call",
         target: target ?? { kind: "extern", name: expr.target },
         args: expr.args.map((arg) => analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file)),
-        type: target?.returnType ?? toSemanticType("int"),
+        type: target?.returnType ?? toSemanticScalarType("int"),
       };
     }
     case "binary":
@@ -404,7 +514,7 @@ function analyzeExpr(
           left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
           right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
           op: expr.op,
-          type: toSemanticType("int"),
+          type: toSemanticScalarType("int"),
         };
       }
       if (isBitwiseOp(expr.op)) {
@@ -413,7 +523,7 @@ function analyzeExpr(
           left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
           right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
           op: expr.op,
-          type: toSemanticType("int"),
+          type: toSemanticScalarType("int"),
         };
       }
       if (isShiftOp(expr.op)) {
@@ -422,7 +532,7 @@ function analyzeExpr(
           left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
           right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
           op: expr.op,
-          type: toSemanticType("int"),
+          type: toSemanticScalarType("int"),
         };
       }
       if (isCompareOp(expr.op)) {
@@ -431,7 +541,7 @@ function analyzeExpr(
           left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
           right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
           op: expr.op,
-          type: toSemanticType("int"),
+          type: toSemanticScalarType("int"),
         };
       }
       if (isMultiplicativeOp(expr.op)) {
@@ -440,7 +550,7 @@ function analyzeExpr(
           left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
           right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
           op: expr.op,
-          type: toSemanticType("int"),
+          type: toSemanticScalarType("int"),
         };
       }
       return {
@@ -448,7 +558,7 @@ function analyzeExpr(
         left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
         right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
         op: expr.op,
-        type: toSemanticType("int"),
+        type: toSemanticScalarType("int"),
       };
     default:
       return assertNever(expr);
@@ -487,12 +597,101 @@ function isMultiplicativeOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | Ad
   return op === "*" || op === "/" || op === "%";
 }
 
-function toSemanticType(type: ScalarType): SemanticScalarType {
+function toSemanticType(type: SourceType | ScalarType): SemanticType {
+  if (typeof type === "string") {
+    return toSemanticScalarType(type);
+  }
+  if (type.kind === "scalar") {
+    return toSemanticScalarType(type.name);
+  }
+  return {
+    kind: "array",
+    elementType: type.elementType,
+    length: type.length,
+  };
+}
+
+function toSemanticScalarType(type: ScalarType): SemanticScalarType {
   return {
     kind: "scalar",
     name: type,
     width: type === "char" ? 1 : 2,
   };
+}
+
+function getTypeStorageBytes(type: SourceType): number {
+  if (type.kind === "scalar") {
+    return type.name === "char" ? 1 : 2;
+  }
+  return type.length;
+}
+
+function getScalarSourceType(type: SourceType): Extract<SourceType, { kind: "scalar" }> {
+  if (type.kind !== "scalar") {
+    throw new Error(`Expected scalar source type, got ${JSON.stringify(type)}`);
+  }
+  return type;
+}
+
+function getScalarSemanticType(type: SemanticType): SemanticScalarType {
+  if (type.kind !== "scalar") {
+    throw new Error(`Expected scalar semantic type, got ${JSON.stringify(type)}`);
+  }
+  return type;
+}
+
+function assertUniqueSwitchCaseValues(
+  cases: Array<{ value: number }>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): void {
+  const seen = new Set<number>();
+  for (const entry of cases) {
+    if (seen.has(entry.value)) {
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support duplicate case value '${entry.value}' in ${functionName}().`, {
+        file,
+        offset: 0,
+      });
+    }
+    seen.add(entry.value);
+  }
+}
+
+function assertArrayIndexInBounds(
+  index: BoundExpr,
+  name: string,
+  length: number,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): void {
+  if (index.kind !== "const") {
+    return;
+  }
+  if (index.value >= 0 && index.value < length) {
+    return;
+  }
+  throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset array index ${index.value} is out of bounds for '${name}[${length}]' in ${functionName}().`, {
+    file,
+    offset: 0,
+  });
+}
+
+function assertControlNesting(
+  depth: number,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): void {
+  if (depth <= MAX_CONTROL_NESTING) {
+    return;
+  }
+  throwDiagnostic(
+    sourceText,
+    `TsSccCompilerAdapter Phase C subset only supports control-flow nesting up to ${MAX_CONTROL_NESTING} levels in ${functionName}().`,
+    { file, offset: 0 },
+  );
 }
 
 function assertNever(value: never): never {

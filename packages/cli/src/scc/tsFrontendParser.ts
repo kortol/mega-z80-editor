@@ -16,6 +16,7 @@ import {
   SourceProgram,
   SourceSimpleStmt,
   SourceStmt,
+  SourceSwitchCase,
   SourceType,
 } from "./tsFrontendAst";
 import { throwDiagnostic } from "./tsFrontendDiagnostics";
@@ -139,8 +140,14 @@ function parseStatement(
   if (/^while\b/.test(statementText)) {
     return { kind: "stmt", statement: parseWhileStmt(context, statementText, functionName, offset) };
   }
+  if (/^do\b/.test(statementText)) {
+    return { kind: "stmt", statement: parseDoWhileStmt(context, statementText, functionName, offset) };
+  }
   if (/^for\b/.test(statementText)) {
     return { kind: "stmt", statement: parseForStmt(context, statementText, functionName, offset) };
+  }
+  if (/^switch\b/.test(statementText)) {
+    return { kind: "stmt", statement: parseSwitchStmt(context, statementText, functionName, offset) };
   }
   if (statementText.trim() === "break") {
     return { kind: "stmt", statement: { kind: "break" } };
@@ -153,23 +160,12 @@ function parseStatement(
     return {
       kind: "decl",
       declaration: {
-        kind: "localDecl",
-        name: declaration.name,
-        type: makeScalarType(declaration.type),
-        initializer: declaration.initializer
-          ? parseExpression(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
-          : undefined,
-      },
-    };
-  }
-  const assignMatch = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(statementText);
-  if (assignMatch) {
-    return {
-      kind: "stmt",
-      statement: {
-        kind: "assign",
-        name: assignMatch[1],
-        expr: parseExpression(context, assignMatch[2], functionName, offset + statementText.indexOf(assignMatch[2])),
+      kind: "localDecl",
+      name: declaration.name,
+      type: declaration.type === "charArray" ? makeCharArrayType(declaration.length) : makeScalarType(declaration.type),
+      initializer: declaration.type !== "charArray" && declaration.initializer
+        ? parseExpression(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
+        : undefined,
       },
     };
   }
@@ -258,6 +254,40 @@ function parseWhileStmt(context: ParseContext, statementText: string, functionNa
   };
 }
 
+function parseDoWhileStmt(context: ParseContext, statementText: string, functionName: string, offset: number): SourceStmt {
+  const trimmed = statementText.trim();
+  if (!trimmed.startsWith("do")) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse do-while statement in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const whileIndex = findDoWhileKeywordIndex(trimmed);
+  if (whileIndex < 0) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse do-while statement in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const bodyText = trimmed.slice(2, whileIndex).trim();
+  const whileText = trimmed.slice(whileIndex).trim();
+  const condOpen = whileText.indexOf("(");
+  if (!whileText.startsWith("while") || condOpen < 0) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse do-while condition in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const condClose = findMatchingParenInText(whileText, condOpen);
+  const conditionText = whileText.slice(condOpen + 1, condClose);
+  const bodyOffset = offset + trimmed.indexOf(bodyText);
+  return {
+    kind: "doWhile",
+    body: parseStandaloneBranch(context, bodyText, functionName, bodyOffset),
+    condition: parseExpression(context, conditionText, functionName, offset + trimmed.indexOf(conditionText)),
+  };
+}
+
 function parseForStmt(context: ParseContext, statementText: string, functionName: string, offset: number): SourceStmt {
   const trimmed = statementText.trim();
   const condOpen = trimmed.indexOf("(");
@@ -281,9 +311,75 @@ function parseForStmt(context: ParseContext, statementText: string, functionName
   };
 }
 
+function parseSwitchStmt(context: ParseContext, statementText: string, functionName: string, offset: number): SourceStmt {
+  const trimmed = statementText.trim();
+  const condOpen = trimmed.indexOf("(");
+  if (!trimmed.startsWith("switch") || condOpen < 0) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse switch statement in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const condClose = findMatchingParenInText(trimmed, condOpen);
+  const switchExprText = trimmed.slice(condOpen + 1, condClose);
+  const bodyText = trimmed.slice(condClose + 1).trim();
+  if (!bodyText.startsWith("{")) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports brace-wrapped switch bodies in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const bodyClose = findMatchingBraceInText(bodyText, 0);
+  const switchBodyText = bodyText.slice(1, bodyClose);
+  const { cases, defaultCase } = parseSwitchCases(context, switchBodyText, functionName, offset + trimmed.indexOf(switchBodyText));
+  return {
+    kind: "switch",
+    expr: parseExpression(context, switchExprText, functionName, offset + condOpen + 1),
+    cases,
+    defaultCase,
+  };
+}
+
 function parseStandaloneBranch(context: ParseContext, branchText: string, functionName: string, offset: number): SourceBlock {
   const parsed = parseBranch(context, branchText, functionName, offset);
   return parsed.block;
+}
+
+function parseSwitchCases(
+  context: ParseContext,
+  bodyText: string,
+  functionName: string,
+  offset: number,
+): { cases: SourceSwitchCase[]; defaultCase?: SourceBlock } {
+  const labels = findSwitchLabels(context, bodyText, functionName, offset);
+  if (labels.length === 0) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset found no case/default labels in switch statement for ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const cases: SourceSwitchCase[] = [];
+  let defaultCase: SourceBlock | undefined;
+  for (let index = 0; index < labels.length; index += 1) {
+    const current = labels[index];
+    const next = labels[index + 1];
+    const segmentText = bodyText.slice(current.bodyStart, next?.index ?? bodyText.length);
+    const block = parseCaseBody(context, segmentText, functionName, offset + current.bodyStart);
+    if (current.kind === "case") {
+      cases.push({ kind: "switchCase", value: current.value, body: block });
+    } else {
+      defaultCase = block;
+    }
+  }
+  return { cases, defaultCase };
+}
+
+function parseCaseBody(context: ParseContext, bodyText: string, functionName: string, offset: number): SourceBlock {
+  const trimmed = bodyText.trim();
+  if (trimmed.length === 0) {
+    return { kind: "block", declarations: [], statements: [] };
+  }
+  return parseStatementSequence(context, trimmed, functionName, offset + bodyText.indexOf(trimmed));
 }
 
 function parseBranch(
@@ -387,6 +483,14 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   if (/^\d+$/.test(trimmed)) {
     return { kind: "const", value: Number.parseInt(trimmed, 10) };
   }
+  const arrayAccess = parseArrayAccess(trimmed);
+  if (arrayAccess) {
+    return {
+      kind: "arrayIndex",
+      name: arrayAccess.name,
+      index: parseExpression(context, arrayAccess.indexText, functionName, offset + trimmed.indexOf(arrayAccess.indexText)),
+    };
+  }
   if (/^[A-Za-z_]\w*$/.test(trimmed)) {
     return { kind: "ref", name: trimmed };
   }
@@ -435,7 +539,15 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
   };
 }
 
-function parseDeclaration(statementText: string): { type: ScalarType; name: string; initializer?: string } | null {
+function parseDeclaration(statementText: string): { type: ScalarType; name: string; initializer?: string } | { type: "charArray"; name: string; length: number } | null {
+  const arrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*(\d+)\s*\]$/.exec(statementText);
+  if (arrayMatch) {
+    return {
+      type: "charArray",
+      name: arrayMatch[1],
+      length: Number.parseInt(arrayMatch[2], 10),
+    };
+  }
   const match = /^(int|char)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
   if (!match) {
     return null;
@@ -522,6 +634,10 @@ function splitTopLevelStatements(
         while (nextIndex < bodyText.length && /\s/.test(bodyText[nextIndex])) {
           nextIndex += 1;
         }
+        const currentText = bodyText.slice(start, index + 1).trimStart();
+        if (/^do\b/.test(currentText) && bodyText.startsWith("while", nextIndex)) {
+          continue;
+        }
         if (nextIndex < bodyText.length && !bodyText.startsWith("else", nextIndex) && bodyText[nextIndex] !== ";") {
           const text = bodyText.slice(start, index + 1).trim();
           if (text.length > 0) {
@@ -537,6 +653,10 @@ function splitTopLevelStatements(
       let nextIndex = index + 1;
       while (nextIndex < bodyText.length && /\s/.test(bodyText[nextIndex])) {
         nextIndex += 1;
+      }
+      const currentText = bodyText.slice(start, index).trimStart();
+      if (/^do\b/.test(currentText) && bodyText.startsWith("while", nextIndex)) {
+        continue;
       }
       if (bodyText.startsWith("else", nextIndex)) {
         continue;
@@ -559,6 +679,133 @@ function splitTopLevelStatements(
     });
   }
   return parts;
+}
+
+function findSwitchLabels(
+  context: ParseContext,
+  bodyText: string,
+  functionName: string,
+  offset: number,
+): Array<
+  | { kind: "case"; index: number; bodyStart: number; value: number }
+  | { kind: "default"; index: number; bodyStart: number }
+> {
+  const labels: Array<
+    | { kind: "case"; index: number; bodyStart: number; value: number }
+    | { kind: "default"; index: number; bodyStart: number }
+  > = [];
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  for (let index = 0; index < bodyText.length; index += 1) {
+    const ch = bodyText[index];
+    if (ch === "\"" && bodyText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (ch === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      parenDepth -= 1;
+      continue;
+    }
+    if (ch === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      braceDepth -= 1;
+      continue;
+    }
+    if (parenDepth !== 0 || braceDepth !== 0) {
+      continue;
+    }
+    if (isWordStart(bodyText, index) && bodyText.startsWith("case", index) && /\s/.test(bodyText[index + 4] ?? "")) {
+      const colonIndex = findTopLevelSwitchColon(context, bodyText, index + 4, functionName, offset);
+      const valueText = bodyText.slice(index + 4, colonIndex).trim();
+      if (!/^-?\d+$/.test(valueText)) {
+        throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports integer literal case labels, got '${valueText}' in ${functionName}().`, {
+          file: context.file,
+          offset: offset + index,
+        });
+      }
+      labels.push({
+        kind: "case",
+        index,
+        bodyStart: colonIndex + 1,
+        value: Number.parseInt(valueText, 10),
+      });
+      index = colonIndex;
+      continue;
+    }
+    if (isWordStart(bodyText, index) && bodyText.startsWith("default", index)) {
+      const colonIndex = findTopLevelSwitchColon(context, bodyText, index + 7, functionName, offset);
+      labels.push({
+        kind: "default",
+        index,
+        bodyStart: colonIndex + 1,
+      });
+      index = colonIndex;
+    }
+  }
+  return labels;
+}
+
+function findTopLevelSwitchColon(
+  context: ParseContext,
+  text: string,
+  startIndex: number,
+  functionName: string,
+  offset: number,
+): number {
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  for (let index = startIndex; index < text.length; index += 1) {
+    const ch = text[index];
+    if (ch === "\"" && text[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (ch === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      parenDepth -= 1;
+      continue;
+    }
+    if (ch === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      braceDepth -= 1;
+      continue;
+    }
+    if (parenDepth === 0 && braceDepth === 0 && ch === ":") {
+      return index;
+    }
+  }
+  throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse switch label in ${functionName}().`, {
+    file: context.file,
+    offset,
+  });
+}
+
+function isWordStart(text: string, index: number): boolean {
+  if (index > 0 && /[A-Za-z0-9_]/.test(text[index - 1])) {
+    return false;
+  }
+  return true;
 }
 
 function takeSingleSimpleStatement(
@@ -614,6 +861,42 @@ function takeSingleSimpleStatement(
     file: context.file,
     offset: startOffset,
   });
+}
+
+function findDoWhileKeywordIndex(text: string): number {
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const ch = text[index];
+    if (ch === "\"" && text[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (ch === "(") {
+      parenDepth -= 1;
+      continue;
+    }
+    if (ch === ")") {
+      parenDepth += 1;
+      continue;
+    }
+    if (ch === "{") {
+      braceDepth -= 1;
+      continue;
+    }
+    if (ch === "}") {
+      braceDepth += 1;
+      continue;
+    }
+    if (parenDepth === 0 && braceDepth === 0 && text.startsWith("while", index) && isWordStart(text, index)) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { index: number; op: BinaryOp } | null {
@@ -726,6 +1009,10 @@ function makeScalarType(name: ScalarType): SourceType {
   return { kind: "scalar", name };
 }
 
+function makeCharArrayType(length: number): SourceType {
+  return { kind: "array", elementType: "char", length };
+}
+
 function parseExpressionStatement(
   context: ParseContext,
   statementText: string,
@@ -736,7 +1023,16 @@ function parseExpressionStatement(
   if (!simple) {
     return null;
   }
-  return simple.kind === "expr" ? { kind: "expr", expr: simple.expr } : { kind: "assign", name: simple.name, expr: simple.expr };
+  switch (simple.kind) {
+    case "expr":
+      return { kind: "expr", expr: simple.expr };
+    case "assign":
+      return { kind: "assign", name: simple.name, expr: simple.expr };
+    case "arrayAssign":
+      return { kind: "arrayAssign", name: simple.name, index: simple.index, expr: simple.expr };
+    default:
+      return assertNever(simple);
+  }
 }
 
 function parseSimpleStatement(
@@ -746,6 +1042,43 @@ function parseSimpleStatement(
   offset: number,
 ): SourceSimpleStmt | null {
   const trimmed = statementText.trim();
+  const arrayIncDecMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
+  if (arrayIncDecMatch) {
+    const index = parseExpression(context, arrayIncDecMatch[2], functionName, offset + statementText.indexOf(arrayIncDecMatch[2]));
+    return {
+      kind: "arrayAssign",
+      name: arrayIncDecMatch[1],
+      index,
+      expr: {
+        kind: "binary",
+        left: { kind: "arrayIndex", name: arrayIncDecMatch[1], index },
+        op: arrayIncDecMatch[3] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const incDecMatch = /^([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (incDecMatch) {
+    return {
+      kind: "assign",
+      name: incDecMatch[1],
+      expr: {
+        kind: "binary",
+        left: { kind: "ref", name: incDecMatch[1] },
+        op: incDecMatch[2] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const arrayAssignMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*=\s*(.+)$/.exec(trimmed);
+  if (arrayAssignMatch) {
+    return {
+      kind: "arrayAssign",
+      name: arrayAssignMatch[1],
+      index: parseExpression(context, arrayAssignMatch[2], functionName, offset + statementText.indexOf(arrayAssignMatch[2])),
+      expr: parseExpression(context, arrayAssignMatch[3], functionName, offset + statementText.indexOf(arrayAssignMatch[3])),
+    };
+  }
   const assignMatch = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(trimmed);
   if (assignMatch) {
     return {
@@ -854,8 +1187,8 @@ function parseForInitializer(
     return {
       kind: "localDecl",
       name: declaration.name,
-      type: makeScalarType(declaration.type),
-      initializer: declaration.initializer
+      type: declaration.type === "charArray" ? makeCharArrayType(declaration.length) : makeScalarType(declaration.type),
+      initializer: declaration.type !== "charArray" && declaration.initializer
         ? parseExpression(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
         : undefined,
     };
@@ -907,6 +1240,21 @@ function splitForHeaderParts(
     });
   }
   return parts;
+}
+
+function parseArrayAccess(text: string): { name: string; indexText: string } | null {
+  const match = /^([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(text);
+  if (!match) {
+    return null;
+  }
+  return {
+    name: match[1],
+    indexText: match[2].trim(),
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected parser value: ${JSON.stringify(value)}`);
 }
 
 export type { ParseContext };

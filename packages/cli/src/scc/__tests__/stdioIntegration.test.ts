@@ -187,23 +187,6 @@ function buildStdioArchive(tempDir: string): string {
   return archivePath;
 }
 
-function readSymbolAddress(symPath: string, symbol: string): number {
-  const text = fs.readFileSync(symPath, "utf8");
-  const exact = text.match(new RegExp(`^${symbol}\\s+([0-9A-F]{4})H(?:\\s|$)`, "m"));
-  if (exact) return Number.parseInt(exact[1], 16);
-  const suffix = symbol.replace(/^__/, "");
-  const qualified = text.match(new RegExp(`^[A-Z0-9_]+___${suffix}\\s+([0-9A-F]{4})H(?:\\s|$)`, "m"));
-  if (qualified) return Number.parseInt(qualified[1], 16);
-  throw new Error(`Missing symbol ${symbol} in ${symPath}`);
-}
-
-function readZeroTerminated(core: Z80DebugCore, addr: number, maxLen: number): string {
-  const bytes = core.readMemory(addr, maxLen);
-  let end = bytes.findIndex((value) => value === 0);
-  if (end < 0) end = bytes.length;
-  return String.fromCharCode(...bytes.slice(0, end));
-}
-
 describe("Small-C stdio integration", () => {
   test("cpmlibc runtime and archive stdio library execute CP/M SCC fixtures", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-scc-stdio-"));
@@ -228,81 +211,65 @@ describe("Small-C stdio integration", () => {
     expect(fputsResult.reason).toBe("BDOS 0: terminate");
     expect(fputsCore.getOutput()).toBe("FPUTS OK");
 
-    const fgetsRel = assembleTranslatedScc(
+    const fgetsRel = compileSourceRel(
       tempDir,
-      "cpm_fgets",
+      "cpm_fgets.c",
       [
-        "\t.globl\tfgets",
-        "\t.globl\tmain",
-        "\t.module\tcpm_fgets.i",
-        "\t.area\t_CODE",
-        "main:",
-        "\tld\thl,#0",
-        "\tpush\thl",
-        "\tld\thl,#16",
-        "\tpush\thl",
-        "\tld\thl,#.0+0",
-        "\tpush\thl",
-        "\tcall\tfgets",
-        "\tpop\tbc",
-        "\tpop\tbc",
-        "\tpop\tbc",
-        "\tret",
-        "\t.area\t_BSS",
-        ".0:\t.ds\t16",
+        "int fgets(int fp, int n, int s);",
+        "int fputs(int fp, int s);",
+        "int main(){",
+        "  char buf[16];",
+        "  fgets(0, 16, buf);",
+        "  fputs(1, buf);",
+        "  return 0;",
+        "}",
         "",
       ].join("\n"),
     );
     const fgetsOut = path.join(tempDir, "cpm_fgets.com");
-    link([runtimeRel, fgetsRel, archivePath], fgetsOut, { com: true, orgText: "100H", sym: true });
+    link([runtimeRel, fgetsRel, archivePath], fgetsOut, { com: true, orgText: "100H" });
 
     const fgetsCore = new Z80DebugCore(false);
     fgetsCore.setCpm22Enabled(true);
     fgetsCore.setAllowOutOfImage(true);
     fgetsCore.setCpmInteractive(true);
-    fgetsCore.queueConsoleInput("FETCH", true);
+    fgetsCore.queueConsoleInput("FETCH$", true);
     fgetsCore.loadImage(fs.readFileSync(fgetsOut), 0x0100);
     fgetsCore.setEntry(0x0100);
     const fgetsResult = fgetsCore.run(4000);
 
     expect(fgetsResult.reason).toBe("BDOS 0: terminate");
-    const fgetsBuf = readSymbolAddress(fgetsOut.replace(/\.com$/, ".sym"), "__SCC_LOCAL_0");
-    expect(readZeroTerminated(fgetsCore, fgetsBuf, 16)).toBe("FETCH");
+    expect(fgetsCore.getOutput()).toBe("FETCH");
 
-    const getsRel = assembleTranslatedScc(
+    const getsRel = compileSourceRel(
       tempDir,
-      "cpm_gets",
+      "cpm_gets.c",
       [
-        "\t.globl\tgets",
-        "\t.globl\tmain",
-        "\t.module\tcpm_gets.i",
-        "\t.area\t_CODE",
-        "main:",
-        "\tld\thl,#.0+0",
-        "\tpush\thl",
-        "\tcall\tgets",
-        "\tpop\tbc",
-        "\tret",
-        "\t.area\t_BSS",
-        ".0:\t.ds\t16",
+        "int gets(int s);",
+        "int fputs(int fp, int s);",
+        "int main(){",
+        "  char buf[16];",
+        "  gets(buf);",
+        "  fputs(1, buf);",
+        "  return 0;",
+        "}",
         "",
       ].join("\n"),
     );
     const getsOut = path.join(tempDir, "cpm_gets.com");
-    link([runtimeRel, getsRel, archivePath], getsOut, { com: true, orgText: "100H", sym: true });
+    link([runtimeRel, getsRel, archivePath], getsOut, { com: true, orgText: "100H" });
 
     const getsCore = new Z80DebugCore(false);
     getsCore.setCpm22Enabled(true);
     getsCore.setAllowOutOfImage(true);
     getsCore.setCpmInteractive(true);
-    getsCore.queueConsoleInput("LINE", true);
+    getsCore.queueConsoleInput("LINE$", true);
     getsCore.loadImage(fs.readFileSync(getsOut), 0x0100);
     getsCore.setEntry(0x0100);
     const getsResult = getsCore.run(4000);
 
     expect(getsResult.reason).toBe("BDOS 0: terminate");
-    const getsBuf = readSymbolAddress(getsOut.replace(/\.com$/, ".sym"), "__SCC_LOCAL_0");
-    expect(readZeroTerminated(getsCore, getsBuf, 16)).toBe("LINE");
+    expect(getsCore.getOutput()).toBe("LINE");
 
     const getcharRel = compileSourceRel(
       tempDir,
