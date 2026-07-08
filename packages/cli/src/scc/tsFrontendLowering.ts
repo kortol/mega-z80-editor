@@ -49,7 +49,7 @@ function lowerFunction(
   const body = lowerBlock(fn.body, externs, definedFunctions, sourceText, state, file);
   const functionIr: FunctionIR = {
     name: fn.name,
-    params: fn.params.map((param) => param.type.width),
+    params: fn.params.map((param) => getParamWidth(param)),
     locals: fn.locals.map((local) => local.storageBytes),
     body,
   };
@@ -134,10 +134,13 @@ function lowerStmt(
       };
     }
     case "arrayAssign":
+      if (stmt.target.kind === "param") {
+        return lowerParamArrayAssign(stmt, externs, definedFunctions, sourceText, state, file);
+      }
       if (stmt.index.kind === "const" && stmt.expr.kind === "const") {
         return {
           kind: "assignLocalArrayConst",
-          slot: stmt.local.slot,
+          slot: stmt.target.slot,
           index: stmt.index.value,
           value: stmt.expr.value,
         };
@@ -145,14 +148,14 @@ function lowerStmt(
       if (stmt.index.kind === "const") {
         return {
           kind: "assignLocalArrayExpr",
-          slot: stmt.local.slot,
+          slot: stmt.target.slot,
           index: stmt.index.value,
           expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
         };
       }
       return {
         kind: "assignLocalArrayDynamic",
-        slot: stmt.local.slot,
+        slot: stmt.target.slot,
         index: lowerExpr(stmt.index, externs, definedFunctions, sourceText, state, file),
         expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
@@ -237,10 +240,13 @@ function lowerSimpleStmt(
     return { kind: "evalExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file) };
   }
   if (stmt.kind === "arrayAssign") {
+    if (stmt.target.kind === "param") {
+      return lowerParamArrayAssign(stmt, externs, definedFunctions, sourceText, state, file);
+    }
     if (stmt.index.kind === "const" && stmt.expr.kind === "const") {
       return {
         kind: "assignLocalArrayConst",
-        slot: stmt.local.slot,
+        slot: stmt.target.slot,
         index: stmt.index.value,
         value: stmt.expr.value,
       };
@@ -248,14 +254,14 @@ function lowerSimpleStmt(
     if (stmt.index.kind === "const") {
       return {
         kind: "assignLocalArrayExpr",
-        slot: stmt.local.slot,
+        slot: stmt.target.slot,
         index: stmt.index.value,
         expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
     }
     return {
       kind: "assignLocalArrayDynamic",
-      slot: stmt.local.slot,
+      slot: stmt.target.slot,
       index: lowerExpr(stmt.index, externs, definedFunctions, sourceText, state, file),
       expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
     };
@@ -300,6 +306,29 @@ function getScalarLocalWidth(local: BoundLocalSymbol): 1 | 2 {
   return local.type.width;
 }
 
+function getParamWidth(param: BoundFunction["params"][number]): 1 | 2 {
+  return param.type.kind === "array" ? 2 : param.type.width;
+}
+
+function lowerParamArrayAssign(
+  stmt: Extract<BoundStmt, { kind: "arrayAssign" }> | Extract<BoundSimpleStmt, { kind: "arrayAssign" }>,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  file?: string,
+): StmtIRHigh {
+  if (stmt.target.kind !== "param") {
+    throw new Error("Internal lowering error: expected parameter array target.");
+  }
+  return {
+    kind: "assignArgArrayDynamic",
+    slot: stmt.target.slot,
+    index: lowerExpr(stmt.index, externs, definedFunctions, sourceText, state, file),
+    expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
+  };
+}
+
 function lowerExpr(
   expr: BoundExpr,
   externs: Set<string>,
@@ -317,7 +346,11 @@ function lowerExpr(
       return {
         kind: "ref",
         scope: expr.symbol.kind === "local" ? "local" : "arg",
-        width: expr.symbol.kind === "local" ? getScalarLocalWidth(expr.symbol) : expr.symbol.type.width,
+        width: expr.symbol.kind === "local"
+          ? getScalarLocalWidth(expr.symbol)
+          : expr.symbol.type.kind === "array"
+            ? 2
+            : expr.symbol.type.width,
         slot: expr.symbol.slot,
       } satisfies RefIR;
     case "localAddress":
@@ -328,6 +361,12 @@ function lowerExpr(
     case "localArrayElement":
       return {
         kind: "localArrayElement",
+        slot: expr.symbol.slot,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
+      };
+    case "paramArrayElement":
+      return {
+        kind: "argArrayElement",
         slot: expr.symbol.slot,
         index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
       };
@@ -373,6 +412,65 @@ function lowerExpr(
         kind: "call",
         target: expr.target.name,
         args: expr.args.map((arg) => lowerExpr(arg, externs, definedFunctions, sourceText, state, file)),
+      };
+    case "preIncDec":
+      return {
+        kind: "incDecLocal",
+        slot: expr.local.slot,
+        width: getScalarLocalWidth(expr.local),
+        op: expr.op,
+        mode: "prefix",
+      };
+    case "postIncDec":
+      return {
+        kind: "incDecLocal",
+        slot: expr.local.slot,
+        width: getScalarLocalWidth(expr.local),
+        op: expr.op,
+        mode: "postfix",
+      };
+    case "preArrayIncDec":
+      return {
+        kind: expr.target.kind === "param" ? "incDecArgArray" : "incDecLocalArray",
+        slot: expr.target.slot,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
+        op: expr.op,
+        mode: "prefix",
+      };
+    case "postArrayIncDec":
+      return {
+        kind: expr.target.kind === "param" ? "incDecArgArray" : "incDecLocalArray",
+        slot: expr.target.slot,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
+        op: expr.op,
+        mode: "postfix",
+      };
+    case "assign":
+      return {
+        kind: "assignLocal",
+        slot: expr.local.slot,
+        width: getScalarLocalWidth(expr.local),
+        expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, file),
+      };
+    case "arrayAssignExpr":
+      return {
+        kind: expr.target.kind === "param" ? "assignArgArray" : "assignLocalArray",
+        slot: expr.target.slot,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
+        expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, file),
+      };
+    case "comma":
+      return {
+        kind: "comma",
+        left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, file),
+        right: lowerExpr(expr.right, externs, definedFunctions, sourceText, state, file),
+      };
+    case "conditional":
+      return {
+        kind: "conditional",
+        condition: lowerExpr(expr.condition, externs, definedFunctions, sourceText, state, file),
+        thenExpr: lowerExpr(expr.thenExpr, externs, definedFunctions, sourceText, state, file),
+        elseExpr: lowerExpr(expr.elseExpr, externs, definedFunctions, sourceText, state, file),
       };
     case "additive":
       return {

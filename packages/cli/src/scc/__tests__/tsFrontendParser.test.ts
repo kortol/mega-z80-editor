@@ -43,6 +43,23 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.args[0]).toEqual({ kind: "string", value: "HELLO$" });
   });
 
+  test("parses unsized char array parameters as address-like params", () => {
+    const program = parseProgram("int emit(char s[]){ outstr(s); return 0; }\n", "param-array.c");
+    expect(program.functions[0].params[0]?.name).toBe("s");
+    expect(program.functions[0].params[0]?.type).toEqual({ kind: "array", elementType: "char" });
+  });
+
+  test("parses indexing on unsized char array parameters", () => {
+    const program = parseProgram("char first(char s[]){ return s[0]; }\n", "param-array-index.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "arrayIndex" || stmt.expr.index.kind !== "const") {
+      return;
+    }
+    expect(stmt.expr.name).toBe("s");
+    expect(stmt.expr.index.value).toBe(0);
+  });
+
   test("parses left-associative additive expressions", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a - b + c; }\n", "additive.c");
     const stmt = program.functions[0].body.statements[0];
@@ -96,6 +113,84 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.right).toEqual({ kind: "const", value: 0 });
   });
 
+  test("parses sizeof type and expr forms with unary precedence", () => {
+    const program = parseProgram("int main(int a){ char buf[4]; return sizeof(char) + sizeof buf + sizeof a; }\n", "sizeof.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.op).toBe("+");
+    expect(stmt.expr.left.kind).toBe("binary");
+    if (stmt.expr.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left).toEqual({ kind: "sizeofType", type: { kind: "scalar", name: "char" } });
+    expect(stmt.expr.left.right.kind).toBe("sizeofExpr");
+    expect(stmt.expr.right.kind).toBe("sizeofExpr");
+  });
+
+  test("parses assignment expressions with right associativity", () => {
+    const program = parseProgram("int main(){ int x; int y; return x = y = 3; }\n", "assign-expr.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "assign") {
+      return;
+    }
+    expect(stmt.expr.name).toBe("x");
+    expect(stmt.expr.expr.kind).toBe("assign");
+  });
+
+  test("parses array assignment expressions", () => {
+    const program = parseProgram("int main(){ int i = 1; char buf[4]; return buf[i] = 65; }\n", "array-assign-expr.c");
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "arrayAssign") {
+      return;
+    }
+    expect(stmt.expr.name).toBe("buf");
+    expect(stmt.expr.index.kind).toBe("ref");
+  });
+
+  test("parses prefix and postfix increment/decrement expressions", () => {
+    const program = parseProgram("int main(){ int i = 1; char buf[4]; return ++i + buf[i]--; }\n", "incdec-expr.c");
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("preIncDec");
+    expect(stmt.expr.right.kind).toBe("postArrayIncDec");
+  });
+
+  test("parses compound assignment expressions", () => {
+    const program = parseProgram("int main(){ int x = 1; char buf[4]; return x += 2 + (buf[0] |= 3); }\n", "compound-assign-expr.c");
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "assign" || stmt.expr.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.name).toBe("x");
+    expect(stmt.expr.expr.op).toBe("+");
+    expect(stmt.expr.expr.right.kind).toBe("binary");
+    if (stmt.expr.expr.right.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.expr.right.left.kind).toBe("const");
+    expect(stmt.expr.expr.right.right.kind).toBe("arrayAssign");
+  });
+
+  test("parses comma expressions with the lowest precedence", () => {
+    const program = parseProgram("int main(){ int x = 0; return x = 1, x += 2, x; }\n", "comma.c");
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("assign");
+    expect(stmt.expr.right.kind).toBe("comma");
+  });
+
   test("parses logical and/or with lower precedence than compare", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a == b || b == c && c; }\n", "logical.c");
     const stmt = program.functions[0].body.statements[0];
@@ -109,6 +204,18 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(stmt.expr.right.op).toBe("&&");
+  });
+
+  test("parses ternary conditional expressions as right-associative low-precedence expressions", () => {
+    const program = parseProgram("int main(int a, int b, int c, int d){ return a || b ? c : d ? a : b; }\n", "conditional.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.expr.condition.kind).toBe("binary");
+    expect(stmt.expr.thenExpr).toEqual({ kind: "ref", name: "c" });
+    expect(stmt.expr.elseExpr.kind).toBe("conditional");
   });
 
   test("parses bitwise operators between logical and compare precedence levels", () => {
@@ -203,6 +310,60 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(decStmt.expr.op).toBe("-");
+  });
+
+  test("parses prefix increment and decrement simple statements via assignment lowering", () => {
+    const program = parseProgram("int main(){ int i = 0; char buf[4]; ++i; --buf[i]; return i; }\n", "prefix-inc-dec.c");
+    const incStmt = program.functions[0].body.statements[1];
+    expect(incStmt.kind).toBe("assign");
+    if (incStmt.kind !== "assign" || incStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(incStmt.expr.op).toBe("+");
+    const decStmt = program.functions[0].body.statements[2];
+    expect(decStmt.kind).toBe("arrayAssign");
+    if (decStmt.kind !== "arrayAssign" || decStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(decStmt.expr.op).toBe("-");
+  });
+
+  test("parses compound assignment simple statements via assignment lowering", () => {
+    const program = parseProgram("int main(){ int i = 1; char buf[4]; i += 2; buf[i] -= 3; return i; }\n", "compound-assign.c");
+    const addStmt = program.functions[0].body.statements[1];
+    expect(addStmt.kind).toBe("assign");
+    if (addStmt.kind !== "assign" || addStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(addStmt.expr.op).toBe("+");
+    const subStmt = program.functions[0].body.statements[2];
+    expect(subStmt.kind).toBe("arrayAssign");
+    if (subStmt.kind !== "arrayAssign" || subStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(subStmt.expr.op).toBe("-");
+  });
+
+  test("parses wider compound assignment operators via assignment lowering", () => {
+    const program = parseProgram("int main(){ int x = 3; char buf[4]; x <<= 1; buf[0] |= 2; x *= 4; return x; }\n", "compound-ops.c");
+    const shiftStmt = program.functions[0].body.statements[1];
+    expect(shiftStmt.kind).toBe("assign");
+    if (shiftStmt.kind !== "assign" || shiftStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(shiftStmt.expr.op).toBe("<<");
+    const orStmt = program.functions[0].body.statements[2];
+    expect(orStmt.kind).toBe("arrayAssign");
+    if (orStmt.kind !== "arrayAssign" || orStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(orStmt.expr.op).toBe("|");
+    const mulStmt = program.functions[0].body.statements[3];
+    expect(mulStmt.kind).toBe("assign");
+    if (mulStmt.kind !== "assign" || mulStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(mulStmt.expr.op).toBe("*");
   });
 
   test("parses switch statements with case and default blocks", () => {

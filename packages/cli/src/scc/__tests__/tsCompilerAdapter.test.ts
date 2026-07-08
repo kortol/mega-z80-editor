@@ -581,6 +581,112 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tld\thl,#1");
   });
 
+  test("source mode supports ternary conditional expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-conditional-"));
+    const inputFile = path.join(tempDir, "conditional.c");
+    fs.writeFileSync(inputFile, "int pick(int a, int b, int c){ return a ? b : c; }\nint main(){ return pick(0, 65, 66); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\t\.\d+/);
+  });
+
+  test("source mode supports sizeof expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-sizeof-"));
+    const inputFile = path.join(tempDir, "sizeof.c");
+    fs.writeFileSync(inputFile, "int main(int a){ char buf[4]; return sizeof(char) + sizeof buf + sizeof a + 58; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#1");
+    expect(sccAsm).toContain("\tld\thl,#4");
+    expect(sccAsm).toContain("\tld\thl,#2");
+  });
+
+  test("source mode supports local assignment expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-assign-expr-"));
+    const inputFile = path.join(tempDir, "assign-expr.c");
+    fs.writeFileSync(inputFile, "int main(){ int x; return x = 66; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tex\tde,hl");
+    expect(sccAsm).toContain("\tld\t(hl),d");
+  });
+
+  test("source mode supports char array assignment expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-assign-expr-"));
+    const inputFile = path.join(tempDir, "array-assign-expr.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 1; char buf[4]; return buf[i] = 65; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+    expect(sccAsm).toContain("\tld\tl,e");
+  });
+
+  test("source mode supports prefix and postfix increment/decrement expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-incdec-expr-"));
+    const inputFile = path.join(tempDir, "incdec-expr.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 1; char buf[4]; buf[1] = 65; return ++i + buf[i]--; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tinc\tde");
+    expect(sccAsm).toContain("\tdec\te");
+  });
+
+  test("source mode supports compound assignment expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compound-assign-expr-"));
+    const inputFile = path.join(tempDir, "compound-assign-expr.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 1; char buf[4]; return x += 2 + (buf[0] |= 3); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tor\td");
+    expect(sccAsm).toContain("\tld\t(hl),d");
+  });
+
+  test("source mode supports comma expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-comma-"));
+    const inputFile = path.join(tempDir, "comma.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 0; return x = 1, x += 2, x + 62; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tadd\thl,de");
+  });
+
   test("source mode supports bitwise expressions in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-bitwise-"));
@@ -646,6 +752,50 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tld\tl,(hl)");
   });
 
+  test("source mode supports unsized char array parameters in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-param-array-"));
+    const inputFile = path.join(tempDir, "param-array.c");
+    fs.writeFileSync(inputFile, "int emit(char s[]){ outstr(s); return 0; }\nint main(){ char buf[4]; buf[0] = 65; buf[1] = 36; emit(buf); return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\toutstr");
+  });
+
+  test("source mode supports reading from unsized char array parameters in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-param-array-read-"));
+    const inputFile = path.join(tempDir, "param-array-read.c");
+    fs.writeFileSync(inputFile, "char first(char s[]){ return s[0]; }\nint main(){ char buf[3]; buf[0] = 65; buf[1] = 36; return first(buf); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+    expect(sccAsm).toContain("\tadd\thl,de");
+  });
+
+  test("source mode supports writing to unsized char array parameters in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-param-array-write-"));
+    const inputFile = path.join(tempDir, "param-array-write.c");
+    fs.writeFileSync(inputFile, "int setfirst(char s[]){ s[0] = 66; return 0; }\nint main(){ char buf[3]; buf[0] = 65; buf[1] = 36; setfirst(buf); return buf[0]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
   test("source mode supports local char array constant index assignments in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-assign-"));
@@ -691,6 +841,52 @@ describe("TsSccCompilerAdapter", () => {
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tadd\thl,de");
     expect(sccAsm).toContain("\tsbc\thl,de");
+  });
+
+  test("source mode supports prefix increment and decrement simple statements in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-prefix-inc-dec-"));
+    const inputFile = path.join(tempDir, "prefix-inc-dec.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 0; char buf[3]; ++i; buf[0] = 66; --buf[i]; return buf[i]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,de");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+  });
+
+  test("source mode supports compound assignment simple statements in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compound-assign-"));
+    const inputFile = path.join(tempDir, "compound-assign.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 1; char buf[3]; i += 2; buf[0] = 68; buf[i - 2] -= 3; return buf[0]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,de");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+  });
+
+  test("source mode supports wider compound assignment operators in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-compound-ops-"));
+    const inputFile = path.join(tempDir, "compound-ops.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 3; char buf[2]; x <<= 1; buf[0] |= 2; x *= 4; return x; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.asl");
+    expect(sccAsm).toContain("\tor\td");
+    expect(sccAsm).toContain("\tcall\t.mul");
   });
 
   test("source mode supports switch statements in the Phase C subset", () => {
@@ -1501,6 +1697,36 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-array-assign", programRel)).toBe("AB");
   });
 
+  test("source mode unsized char array parameters link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-param-array-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-param-array-source.c",
+      "int emit(char s[]){ outstr(s); return 0; }\nint main(){ char buf[4]; buf[0] = 65; buf[1] = 66; buf[2] = 36; buf[3] = 0; emit(buf); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-param-array", programRel)).toBe("AB");
+  });
+
+  test("source mode unsized char array parameter reads link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-param-array-read-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-param-array-read-source.c",
+      "char first(char s[]){ return s[0]; }\nint main(){ char buf[3]; buf[0] = 65; buf[1] = 36; outchar(first(buf)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-param-array-read", programRel)).toBe("A");
+  });
+
+  test("source mode unsized char array parameter writes link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-param-array-write-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-param-array-write-source.c",
+      "int setfirst(char s[]){ s[0] = 66; return 0; }\nint main(){ char buf[3]; buf[0] = 65; buf[1] = 36; setfirst(buf); outchar(buf[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-param-array-write", programRel)).toBe("B");
+  });
+
   test("source mode local char array dynamic index reads and assignments link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-array-dynamic-link-"));
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
@@ -1521,6 +1747,28 @@ describe("TsSccCompilerAdapter", () => {
       "int main(){ int i = 0; char buf[3]; do { buf[i] = 65; buf[i]++; outchar(buf[i]); i++; } while (i < 3); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-inc-dec", programRel, [helperRelPath], 4000)).toBe("BBB");
+  });
+
+  test("source mode prefix increment and decrement simple statements link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-prefix-inc-dec-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-prefix-inc-dec-source.c",
+      "int main(){ int i = -1; char buf[3]; do { ++i; buf[i] = 66; --buf[i]; outchar(buf[i]); } while (i < 2); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-prefix-inc-dec", programRel, [helperRelPath], 4000)).toBe("AAA");
+  });
+
+  test("source mode compound assignment simple statements link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-compound-assign-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-compound-assign-source.c",
+      "int main(){ int i = 0; char buf[3]; do { buf[i] = 65; buf[i] += i; outchar(buf[i]); i += 1; } while (i < 3); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-compound-assign", programRel, [helperRelPath], 4000)).toBe("ABC");
   });
 
   test("source mode char argument reads a stack argument and returns it", () => {

@@ -93,6 +93,88 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\thl,#1");
   });
 
+  test("lowers ternary conditional expressions with branch labels", () => {
+    const source = "int main(int a, int b, int c){ return a ? b : c; }\n";
+    const parsed = parseProgram(source, "conditional.c");
+    const bound = analyzeProgram(parsed, source, "conditional.c");
+    const spec = lowerSourceProgram(bound, "conditional.i", source, "conditional.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\t\.\d+/);
+  });
+
+  test("lowers sizeof expressions as integer constants after semantic folding", () => {
+    const source = "int main(int a){ char buf[4]; return sizeof(char) + sizeof buf + sizeof a; }\n";
+    const parsed = parseProgram(source, "sizeof.c");
+    const bound = analyzeProgram(parsed, source, "sizeof.c");
+    const spec = lowerSourceProgram(bound, "sizeof.i", source, "sizeof.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#1");
+    expect(asm).toContain("\tld\thl,#4");
+    expect(asm).toContain("\tld\thl,#2");
+  });
+
+  test("lowers assignment expressions into store-and-return sequences", () => {
+    const source = "int main(){ int x; return x = 66; }\n";
+    const parsed = parseProgram(source, "assign-expr.c");
+    const bound = analyzeProgram(parsed, source, "assign-expr.c");
+    const spec = lowerSourceProgram(bound, "assign-expr.i", source, "assign-expr.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\t(hl),d");
+    expect(asm).toContain("\tex\tde,hl");
+  });
+
+  test("lowers array assignment expressions into byte stores that keep the assigned value", () => {
+    const source = "int main(){ int i = 1; char buf[4]; return buf[i] = 65; }\n";
+    const parsed = parseProgram(source, "array-assign-expr.c");
+    const bound = analyzeProgram(parsed, source, "array-assign-expr.c");
+    const spec = lowerSourceProgram(bound, "array-assign-expr.i", source, "array-assign-expr.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\tl,e");
+    expect(asm).toContain("\tld\th,#0");
+  });
+
+  test("lowers prefix and postfix increment/decrement expressions with distinct return values", () => {
+    const source = "int main(){ int i = 1; char buf[4]; return ++i + buf[i]--; }\n";
+    const parsed = parseProgram(source, "incdec-expr.c");
+    const bound = analyzeProgram(parsed, source, "incdec-expr.c");
+    const spec = lowerSourceProgram(bound, "incdec-expr.i", source, "incdec-expr.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tinc\tde");
+    expect(asm).toContain("\tdec\te");
+    expect(asm).toContain("\tpush\thl");
+  });
+
+  test("lowers compound assignment expressions through store-and-return paths", () => {
+    const source = "int main(){ int x = 1; char buf[4]; return x += 2 + (buf[0] |= 3); }\n";
+    const parsed = parseProgram(source, "compound-assign-expr.c");
+    const bound = analyzeProgram(parsed, source, "compound-assign-expr.c");
+    const spec = lowerSourceProgram(bound, "compound-assign-expr.i", source, "compound-assign-expr.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tor\td");
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\t(hl),d");
+  });
+
+  test("lowers comma expressions by evaluating left then returning right", () => {
+    const source = "int main(){ int x = 0; return x = 1, x += 2, x; }\n";
+    const parsed = parseProgram(source, "comma.c");
+    const bound = analyzeProgram(parsed, source, "comma.c");
+    const spec = lowerSourceProgram(bound, "comma.i", source, "comma.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tadd\thl,de");
+  });
+
   test("lowers bitwise expressions into inline bytewise ops", () => {
     const source = "int main(int a, int b){ return (a & b) ^ (a | b); }\n";
     const parsed = parseProgram(source, "bitwise.c");

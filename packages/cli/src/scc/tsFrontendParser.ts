@@ -414,7 +414,145 @@ function parseBranch(
 export function parseExpression(context: ParseContext, exprText: string, functionName: string, offset: number): SourceExpr {
   const trimmed = exprText.trim();
   const trimmedOffset = offset + exprText.indexOf(trimmed);
+  const comma = findTopLevelComma(trimmed);
+  if (comma) {
+    return {
+      kind: "comma",
+      left: parseExpression(context, comma.leftText, functionName, trimmedOffset),
+      right: parseExpression(context, comma.rightText, functionName, trimmedOffset + comma.index + 1),
+    };
+  }
+  const compoundAssignment = findTopLevelCompoundAssignment(trimmed);
+  if (compoundAssignment) {
+    const lhs = compoundAssignment.leftText.trim();
+    const rhsOffset = trimmedOffset + compoundAssignment.index + compoundAssignment.op.length;
+    const rhs = parseExpression(context, compoundAssignment.rightText, functionName, rhsOffset);
+    const arrayAccess = parseArrayAccess(lhs);
+    if (arrayAccess) {
+      const indexExpr = parseExpression(context, arrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(arrayAccess.indexText));
+      return {
+        kind: "arrayAssign",
+        name: arrayAccess.name,
+        index: indexExpr,
+        expr: {
+          kind: "binary",
+          left: { kind: "arrayIndex", name: arrayAccess.name, index: indexExpr },
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
+    if (/^[A-Za-z_]\w*$/.test(lhs)) {
+      return {
+        kind: "assign",
+        name: lhs,
+        expr: {
+          kind: "binary",
+          left: { kind: "ref", name: lhs },
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports compound assignment to local symbols or char array elements, got '${lhs}' in ${functionName}().`, {
+      file: context.file,
+      offset: trimmedOffset,
+    });
+  }
+  const assignment = findTopLevelAssignment(trimmed);
+  if (assignment) {
+    const lhs = assignment.leftText.trim();
+    const rhsOffset = trimmedOffset + assignment.index + 1;
+    const arrayAccess = parseArrayAccess(lhs);
+    if (arrayAccess) {
+      return {
+        kind: "arrayAssign",
+        name: arrayAccess.name,
+        index: parseExpression(context, arrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(arrayAccess.indexText)),
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
+    if (/^[A-Za-z_]\w*$/.test(lhs)) {
+      return {
+        kind: "assign",
+        name: lhs,
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols or char array elements, got '${lhs}' in ${functionName}().`, {
+      file: context.file,
+      offset: trimmedOffset,
+    });
+  }
+  const conditional = findTopLevelConditional(trimmed);
+  if (conditional) {
+    return {
+      kind: "conditional",
+      condition: parseExpression(context, conditional.conditionText, functionName, trimmedOffset),
+      thenExpr: parseExpression(
+        context,
+        conditional.thenText,
+        functionName,
+        trimmedOffset + conditional.questionIndex + 1,
+      ),
+      elseExpr: parseExpression(
+        context,
+        conditional.elseText,
+        functionName,
+        trimmedOffset + conditional.colonIndex + 1,
+      ),
+    };
+  }
   return parseExpressionByPrecedence(context, trimmed, functionName, trimmedOffset, 0);
+}
+
+function findTopLevelComma(exprText: string): { index: number; leftText: string; rightText: string } | null {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  for (let index = 0; index < exprText.length; index += 1) {
+    const ch = exprText[index];
+    if (ch === "\"" && exprText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    switch (ch) {
+      case "(":
+        parenDepth += 1;
+        continue;
+      case ")":
+        parenDepth -= 1;
+        continue;
+      case "[":
+        bracketDepth += 1;
+        continue;
+      case "]":
+        bracketDepth -= 1;
+        continue;
+      case "{":
+        braceDepth += 1;
+        continue;
+      case "}":
+        braceDepth -= 1;
+        continue;
+      default:
+        break;
+    }
+    if (parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0 || ch !== ",") {
+      continue;
+    }
+    const leftText = exprText.slice(0, index).trimEnd();
+    const rightText = exprText.slice(index + 1).trimStart();
+    if (leftText.length === 0 || rightText.length === 0) {
+      continue;
+    }
+    return { index, leftText, rightText };
+  }
+  return null;
 }
 
 function parseExpressionByPrecedence(
@@ -449,6 +587,43 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   const trimmed = exprText.trim();
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
+  }
+  const prefixArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
+  if (prefixArrayIncDecMatch) {
+    return {
+      kind: "preArrayIncDec",
+      name: prefixArrayIncDecMatch[2],
+      index: parseExpression(context, prefixArrayIncDecMatch[3], functionName, offset + trimmed.indexOf(prefixArrayIncDecMatch[3])),
+      op: prefixArrayIncDecMatch[1] as "++" | "--",
+    };
+  }
+  const prefixIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixIncDecMatch) {
+    return {
+      kind: "preIncDec",
+      name: prefixIncDecMatch[2],
+      op: prefixIncDecMatch[1] as "++" | "--",
+    };
+  }
+  const postfixArrayIncDecMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixArrayIncDecMatch) {
+    return {
+      kind: "postArrayIncDec",
+      name: postfixArrayIncDecMatch[1],
+      index: parseExpression(context, postfixArrayIncDecMatch[2], functionName, offset + trimmed.indexOf(postfixArrayIncDecMatch[2])),
+      op: postfixArrayIncDecMatch[3] as "++" | "--",
+    };
+  }
+  const postfixIncDecMatch = /^([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixIncDecMatch) {
+    return {
+      kind: "postIncDec",
+      name: postfixIncDecMatch[1],
+      op: postfixIncDecMatch[2] as "++" | "--",
+    };
+  }
+  if (trimmed.startsWith("sizeof")) {
+    return parseSizeofExpr(context, trimmed, functionName, offset);
   }
   if (trimmed.startsWith("!")) {
     const rhsText = trimmed.slice(1).trimStart();
@@ -508,6 +683,41 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   });
 }
 
+function parseSizeofExpr(context: ParseContext, exprText: string, functionName: string, offset: number): SourceExpr {
+  const match = /^sizeof\b/.exec(exprText);
+  if (!match) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset could not parse sizeof expression '${exprText}' in ${functionName}().`, {
+      file: context.file,
+      offset,
+    });
+  }
+  const operandText = exprText.slice(match[0].length).trimStart();
+  const operandOffset = offset + exprText.indexOf(operandText);
+  const typeMatch = /^\(\s*(int|char)\s*\)$/.exec(operandText);
+  if (typeMatch) {
+    return {
+      kind: "sizeofType",
+      type: makeScalarType(typeMatch[1] as ScalarType),
+    };
+  }
+  if (/^(int|char)$/.test(operandText)) {
+    return {
+      kind: "sizeofType",
+      type: makeScalarType(operandText as ScalarType),
+    };
+  }
+  if (operandText.startsWith("(") && findMatchingParenInText(operandText, 0) === operandText.length - 1) {
+    return {
+      kind: "sizeofExpr",
+      expr: parseExpression(context, operandText.slice(1, -1), functionName, operandOffset + 1),
+    };
+  }
+  return {
+    kind: "sizeofExpr",
+    expr: parsePrimaryExpr(context, operandText, functionName, operandOffset),
+  };
+}
+
 function parseCallArgs(context: ParseContext, argsText: string, functionName: string, offset: number): SourceExpr[] {
   const trimmed = argsText.trim();
   if (trimmed.length === 0) {
@@ -525,7 +735,16 @@ function parseParams(context: ParseContext, paramsText: string, functionName: st
 }
 
 function parseParam(context: ParseContext, paramText: string, functionName: string, offset: number): SourceParam {
-  const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(paramText.trim());
+  const trimmed = paramText.trim();
+  const charArrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*\]$/.exec(trimmed);
+  if (charArrayMatch) {
+    return {
+      kind: "param",
+      type: { kind: "array", elementType: "char" },
+      name: charArrayMatch[1],
+    };
+  }
+  const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(trimmed);
   if (!match) {
     throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support parameter '${paramText.trim()}' in ${functionName}().`, {
       file: context.file,
@@ -594,6 +813,182 @@ function splitTopLevelArgs(argsText: string): Array<{ text: string; offset: numb
     parts.push({ text: tail, offset: start + argsText.slice(start).indexOf(tail) });
   }
   return parts;
+}
+
+function findTopLevelConditional(exprText: string):
+  | { conditionText: string; thenText: string; elseText: string; questionIndex: number; colonIndex: number }
+  | null {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  let questionIndex = -1;
+  let conditionalDepth = 0;
+  for (let index = 0; index < exprText.length; index += 1) {
+    const ch = exprText[index];
+    if (ch === "\"" && exprText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    switch (ch) {
+      case "(":
+        parenDepth += 1;
+        continue;
+      case ")":
+        parenDepth -= 1;
+        continue;
+      case "[":
+        bracketDepth += 1;
+        continue;
+      case "]":
+        bracketDepth -= 1;
+        continue;
+      case "{":
+        braceDepth += 1;
+        continue;
+      case "}":
+        braceDepth -= 1;
+        continue;
+      default:
+        break;
+    }
+    if (parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0) {
+      continue;
+    }
+    if (ch === "?") {
+      if (questionIndex < 0) {
+        questionIndex = index;
+      }
+      conditionalDepth += 1;
+      continue;
+    }
+    if (ch === ":" && conditionalDepth > 0) {
+      conditionalDepth -= 1;
+      if (conditionalDepth === 0 && questionIndex >= 0) {
+        return {
+          conditionText: exprText.slice(0, questionIndex).trimEnd(),
+          thenText: exprText.slice(questionIndex + 1, index).trim(),
+          elseText: exprText.slice(index + 1).trimStart(),
+          questionIndex,
+          colonIndex: index,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function findTopLevelAssignment(exprText: string): { index: number; leftText: string; rightText: string } | null {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  for (let index = 0; index < exprText.length; index += 1) {
+    const ch = exprText[index];
+    if (ch === "\"" && exprText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    switch (ch) {
+      case "(":
+        parenDepth += 1;
+        continue;
+      case ")":
+        parenDepth -= 1;
+        continue;
+      case "[":
+        bracketDepth += 1;
+        continue;
+      case "]":
+        bracketDepth -= 1;
+        continue;
+      case "{":
+        braceDepth += 1;
+        continue;
+      case "}":
+        braceDepth -= 1;
+        continue;
+      default:
+        break;
+    }
+    if (parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0 || ch !== "=") {
+      continue;
+    }
+    const prev = exprText[index - 1] ?? "";
+    const next = exprText[index + 1] ?? "";
+    if (prev === "=" || prev === "!" || prev === "<" || prev === ">" || next === "=") {
+      continue;
+    }
+    const leftText = exprText.slice(0, index).trimEnd();
+    const rightText = exprText.slice(index + 1).trimStart();
+    if (leftText.length === 0 || rightText.length === 0) {
+      continue;
+    }
+    return { index, leftText, rightText };
+  }
+  return null;
+}
+
+function findTopLevelCompoundAssignment(exprText: string):
+  | { index: number; op: "<<=" | ">>=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "^=" | "|="; leftText: string; rightText: string }
+  | null {
+  const ops = ["<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|="] as const;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let inString = false;
+  for (let index = 0; index < exprText.length; index += 1) {
+    const ch = exprText[index];
+    if (ch === "\"" && exprText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    switch (ch) {
+      case "(":
+        parenDepth += 1;
+        continue;
+      case ")":
+        parenDepth -= 1;
+        continue;
+      case "[":
+        bracketDepth += 1;
+        continue;
+      case "]":
+        bracketDepth -= 1;
+        continue;
+      case "{":
+        braceDepth += 1;
+        continue;
+      case "}":
+        braceDepth -= 1;
+        continue;
+      default:
+        break;
+    }
+    if (parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0) {
+      continue;
+    }
+    const op = ops.find((candidate) => exprText.slice(index, index + candidate.length) === candidate);
+    if (!op) {
+      continue;
+    }
+    const leftText = exprText.slice(0, index).trimEnd();
+    const rightText = exprText.slice(index + op.length).trimStart();
+    if (leftText.length === 0 || rightText.length === 0) {
+      continue;
+    }
+    return { index, op, leftText, rightText };
+  }
+  return null;
 }
 
 function splitTopLevelStatements(
@@ -929,6 +1324,10 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
       continue;
     }
     const opIndex = index - matchedOp.length + 1;
+    if ((matchedOp === "+" || matchedOp === "-")
+      && (exprText[opIndex - 1] === matchedOp || exprText[opIndex + matchedOp.length] === matchedOp)) {
+      continue;
+    }
     const longestStartingOp = allBinaryOps.find((op) => exprText.slice(opIndex, opIndex + op.length) === op);
     if (longestStartingOp !== matchedOp) {
       continue;
@@ -1042,6 +1441,64 @@ function parseSimpleStatement(
   offset: number,
 ): SourceSimpleStmt | null {
   const trimmed = statementText.trim();
+  const prefixArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
+  if (prefixArrayIncDecMatch) {
+    const index = parseExpression(context, prefixArrayIncDecMatch[3], functionName, offset + statementText.indexOf(prefixArrayIncDecMatch[3]));
+    return {
+      kind: "arrayAssign",
+      name: prefixArrayIncDecMatch[2],
+      index,
+      expr: {
+        kind: "binary",
+        left: { kind: "arrayIndex", name: prefixArrayIncDecMatch[2], index },
+        op: prefixArrayIncDecMatch[1] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const prefixIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixIncDecMatch) {
+    return {
+      kind: "assign",
+      name: prefixIncDecMatch[2],
+      expr: {
+        kind: "binary",
+        left: { kind: "ref", name: prefixIncDecMatch[2] },
+        op: prefixIncDecMatch[1] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const arrayCompoundAssignMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+  if (arrayCompoundAssignMatch) {
+    const index = parseExpression(context, arrayCompoundAssignMatch[2], functionName, offset + statementText.indexOf(arrayCompoundAssignMatch[2]));
+    const rhs = parseExpression(context, arrayCompoundAssignMatch[4], functionName, offset + statementText.indexOf(arrayCompoundAssignMatch[4]));
+    return {
+      kind: "arrayAssign",
+      name: arrayCompoundAssignMatch[1],
+      index,
+      expr: {
+        kind: "binary",
+        left: { kind: "arrayIndex", name: arrayCompoundAssignMatch[1], index },
+        op: compoundAssignOpToBinaryOp(arrayCompoundAssignMatch[3]),
+        right: rhs,
+      },
+    };
+  }
+  const compoundAssignMatch = /^([A-Za-z_]\w*)\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+  if (compoundAssignMatch) {
+    const rhs = parseExpression(context, compoundAssignMatch[3], functionName, offset + statementText.indexOf(compoundAssignMatch[3]));
+    return {
+      kind: "assign",
+      name: compoundAssignMatch[1],
+      expr: {
+        kind: "binary",
+        left: { kind: "ref", name: compoundAssignMatch[1] },
+        op: compoundAssignOpToBinaryOp(compoundAssignMatch[2]),
+        right: rhs,
+      },
+    };
+  }
   const arrayIncDecMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
   if (arrayIncDecMatch) {
     const index = parseExpression(context, arrayIncDecMatch[2], functionName, offset + statementText.indexOf(arrayIncDecMatch[2]));
@@ -1251,6 +1708,33 @@ function parseArrayAccess(text: string): { name: string; indexText: string } | n
     name: match[1],
     indexText: match[2].trim(),
   };
+}
+
+function compoundAssignOpToBinaryOp(op: string): BinaryOp {
+  switch (op) {
+    case "+=":
+      return "+";
+    case "-=":
+      return "-";
+    case "*=":
+      return "*";
+    case "/=":
+      return "/";
+    case "%=":
+      return "%";
+    case "&=":
+      return "&";
+    case "^=":
+      return "^";
+    case "|=":
+      return "|";
+    case "<<=":
+      return "<<";
+    case ">>=":
+      return ">>";
+    default:
+      throw new Error(`Unexpected compound assignment operator: ${op}`);
+  }
 }
 
 function assertNever(value: never): never {

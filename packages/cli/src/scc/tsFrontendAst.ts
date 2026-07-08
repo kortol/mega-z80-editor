@@ -8,7 +8,7 @@ export type SourceType =
   | {
     kind: "array";
     elementType: "char";
-    length: number;
+    length?: number;
   };
 
 export type SourceProgram = {
@@ -145,4 +145,14 @@ export type SourceExpr =
   | { kind: "ref"; name: string }
   | { kind: "arrayIndex"; name: string; index: SourceExpr }
   | { kind: "call"; target: string; args: SourceExpr[] }
+  | { kind: "preIncDec"; name: string; op: "++" | "--" }
+  | { kind: "postIncDec"; name: string; op: "++" | "--" }
+  | { kind: "preArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }
+  | { kind: "postArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }
+  | { kind: "assign"; name: string; expr: SourceExpr }
+  | { kind: "arrayAssign"; name: string; index: SourceExpr; expr: SourceExpr }
+  | { kind: "sizeofType"; type: SourceType }
+  | { kind: "sizeofExpr"; expr: SourceExpr }
+  | { kind: "comma"; left: SourceExpr; right: SourceExpr }
+  | { kind: "conditional"; condition: SourceExpr; thenExpr: SourceExpr; elseExpr: SourceExpr }
   | { kind: "binary"; left: SourceExpr; right: SourceExpr; op: BinaryOp };

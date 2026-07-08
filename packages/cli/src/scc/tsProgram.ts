@@ -15,7 +15,16 @@ export type ExprSpec =
   | { kind: "localAddress"; offset: number }
   | { kind: "localArrayElement"; offset: number }
   | { kind: "localArrayElementExpr"; offset: number; index: ExprSpec }
+  | { kind: "argArrayElement"; offset: number; index: ExprSpec }
   | { kind: "call"; target: string; args?: ExprSpec[] }
+  | { kind: "incDecLocal"; offset: number; width: ValueWidth; op: "++" | "--"; mode: "prefix" | "postfix" }
+  | { kind: "incDecLocalArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
+  | { kind: "incDecArgArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
+  | { kind: "assignLocal"; offset: number; width: ValueWidth; expr: ExprSpec }
+  | { kind: "assignLocalArray"; offset: number; index: ExprSpec; expr: ExprSpec }
+  | { kind: "assignArgArray"; offset: number; index: ExprSpec; expr: ExprSpec }
+  | { kind: "comma"; left: ExprSpec; right: ExprSpec }
+  | { kind: "conditional"; condition: ExprSpec; thenExpr: ExprSpec; elseExpr: ExprSpec }
   | { kind: "logical"; left: ExprSpec; right: ExprSpec; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprSpec; right: ExprSpec; op: "&" | "^" | "|" }
   | { kind: "helperBinary"; left: ExprSpec; right: ExprSpec; helper: ".mul" | ".asl" | ".asr" }
@@ -50,7 +59,16 @@ export type ExprIR =
   | { kind: "dataAddress"; label: string }
   | { kind: "localAddress"; slot: number }
   | { kind: "localArrayElement"; slot: number; index: ExprIR }
+  | { kind: "argArrayElement"; slot: number; index: ExprIR }
   | RefIR
+  | { kind: "incDecLocal"; slot: number; width: ValueWidth; op: "++" | "--"; mode: "prefix" | "postfix" }
+  | { kind: "incDecLocalArray"; slot: number; index: ExprIR; op: "++" | "--"; mode: "prefix" | "postfix" }
+  | { kind: "incDecArgArray"; slot: number; index: ExprIR; op: "++" | "--"; mode: "prefix" | "postfix" }
+  | { kind: "assignLocal"; slot: number; width: ValueWidth; expr: ExprIR }
+  | { kind: "assignLocalArray"; slot: number; index: ExprIR; expr: ExprIR }
+  | { kind: "assignArgArray"; slot: number; index: ExprIR; expr: ExprIR }
+  | { kind: "comma"; left: ExprIR; right: ExprIR }
+  | { kind: "conditional"; condition: ExprIR; thenExpr: ExprIR; elseExpr: ExprIR }
   | { kind: "logical"; left: ExprIR; right: ExprIR; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprIR; right: ExprIR; op: "&" | "^" | "|" }
   | { kind: "helperBinary"; left: ExprIR; right: ExprIR; helper: ".mul" | ".asl" | ".asr" }
@@ -72,6 +90,7 @@ export type StmtIRHigh =
   | { kind: "assignLocalArrayConst"; slot: number; index: number; value: number }
   | { kind: "assignLocalArrayExpr"; slot: number; index: number; expr: ExprIR }
   | { kind: "assignLocalArrayDynamic"; slot: number; index: ExprIR; expr: ExprIR }
+  | { kind: "assignArgArrayDynamic"; slot: number; index: ExprIR; expr: ExprIR }
   | { kind: "compareReturn"; left: ExprIR; right: ExprIR; helper: string }
   | { kind: "returnExpr"; expr: ExprIR }
   | { kind: "evalExpr"; expr: ExprIR }
@@ -123,6 +142,7 @@ type StatementSpec =
   | { kind: "storeImmToLocal"; offset: number; value: number }
   | { kind: "storeExprToLocalByte"; offset: number; expr: ExprSpec }
   | { kind: "storeExprToLocalArrayByte"; offset: number; index: ExprSpec; expr: ExprSpec }
+  | { kind: "storeExprToArgArrayByte"; offset: number; index: ExprSpec; expr: ExprSpec }
   | { kind: "loadLocalCharToHl"; offset: number }
   | { kind: "storeImm16ToLocal"; offset: number; value: number }
   | { kind: "storeExprToLocalWord"; offset: number; expr: ExprSpec }
@@ -203,6 +223,13 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
       return [{
         kind: "storeExprToLocalArrayByte",
         offset: getLocalOffset(layout, stmt.slot),
+        index: lowerExprIR(stmt.index, layout),
+        expr: lowerExprIR(stmt.expr, layout),
+      }];
+    case "assignArgArrayDynamic":
+      return [{
+        kind: "storeExprToArgArrayByte",
+        offset: getParamOffset(layout, stmt.slot),
         index: lowerExprIR(stmt.index, layout),
         expr: lowerExprIR(stmt.expr, layout),
       }];
@@ -367,6 +394,22 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         return { kind: "localArrayElement", offset: getLocalOffset(layout, expr.slot) + expr.index.value };
       }
       return { kind: "localArrayElementExpr", offset: getLocalOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout) };
+    case "argArrayElement":
+      return { kind: "argArrayElement", offset: getParamOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout) };
+    case "incDecLocal":
+      return { kind: "incDecLocal", offset: getLocalOffset(layout, expr.slot), width: expr.width, op: expr.op, mode: expr.mode };
+    case "incDecLocalArray":
+      return { kind: "incDecLocalArray", offset: getLocalOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), op: expr.op, mode: expr.mode };
+    case "incDecArgArray":
+      return { kind: "incDecArgArray", offset: getParamOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), op: expr.op, mode: expr.mode };
+    case "assignLocal":
+      return { kind: "assignLocal", offset: getLocalOffset(layout, expr.slot), width: expr.width, expr: lowerExprIR(expr.expr, layout) };
+    case "assignLocalArray":
+      return { kind: "assignLocalArray", offset: getLocalOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), expr: lowerExprIR(expr.expr, layout) };
+    case "assignArgArray":
+      return { kind: "assignArgArray", offset: getParamOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), expr: lowerExprIR(expr.expr, layout) };
+    case "comma":
+      return { kind: "comma", left: lowerExprIR(expr.left, layout), right: lowerExprIR(expr.right, layout) };
     case "compare":
       return {
         kind: "compare",
@@ -380,6 +423,13 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         left: lowerExprIR(expr.left, layout),
         right: lowerExprIR(expr.right, layout),
         op: expr.op,
+      };
+    case "conditional":
+      return {
+        kind: "conditional",
+        condition: lowerExprIR(expr.condition, layout),
+        thenExpr: lowerExprIR(expr.thenExpr, layout),
+        elseExpr: lowerExprIR(expr.elseExpr, layout),
       };
     case "bitwise":
       return {
@@ -512,6 +562,8 @@ function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[]
       return emitStoreExprToLocalByte(statement.offset, statement.expr, ctx);
     case "storeExprToLocalArrayByte":
       return emitStoreExprToLocalArrayByte(statement.offset, statement.index, statement.expr, ctx);
+    case "storeExprToArgArrayByte":
+      return emitStoreExprToArgArrayByte(statement.offset, statement.index, statement.expr, ctx);
     case "loadLocalCharToHl":
       return emitExprToHl({ kind: "localChar", offset: statement.offset }, ctx);
     case "storeImm16ToLocal":
@@ -541,8 +593,30 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return emitLoadStackByteToHl(expr.offset, ctx);
     case "localArrayElementExpr":
       return emitLoadIndexedLocalByteToHl(expr.offset, expr.index, ctx);
+    case "argArrayElement":
+      return emitLoadIndexedArgByteToHl(expr.offset, expr.index, ctx);
+    case "incDecLocal":
+      return expr.width === 1
+        ? emitIncDecLocalByteExpr(expr.offset, expr.op, expr.mode, ctx)
+        : emitIncDecLocalWordExpr(expr.offset, expr.op, expr.mode, ctx);
+    case "incDecLocalArray":
+      return emitIncDecLocalArrayExpr(expr.offset, expr.index, expr.op, expr.mode, ctx);
+    case "incDecArgArray":
+      return emitIncDecArgArrayExpr(expr.offset, expr.index, expr.op, expr.mode, ctx);
+    case "assignLocal":
+      return expr.width === 1
+        ? emitAssignLocalByteExpr(expr.offset, expr.expr, ctx)
+        : emitAssignLocalWordExpr(expr.offset, expr.expr, ctx);
+    case "assignLocalArray":
+      return emitAssignLocalArrayExpr(expr.offset, expr.index, expr.expr, ctx);
+    case "assignArgArray":
+      return emitAssignArgArrayExpr(expr.offset, expr.index, expr.expr, ctx);
+    case "comma":
+      return [...emitExprToHl(expr.left, ctx), ...emitExprToHl(expr.right, ctx)];
     case "call":
       return emitCallExpr(expr.target, expr.args ?? [], ctx);
+    case "conditional":
+      return emitConditionalExpr(expr.condition, expr.thenExpr, expr.elseExpr, ctx);
     case "logical":
       return emitLogicalExpr(expr.left, expr.right, expr.op, ctx);
     case "bitwise":
@@ -628,6 +702,20 @@ function emitStoreExprToLocalArrayByte(offset: number, index: ExprSpec, expr: Ex
   ];
 }
 
+function emitStoreExprToArgArrayByte(offset: number, index: ExprSpec, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpush\thl",
+    ...emitLoadStackWordToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 4 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tpop\tde",
+    "\tld\t(hl),e",
+  ];
+}
+
 function emitStoreImm16ToLocal(offset: number, value: number, ctx: EmitExprContext): string[] {
   return [
     ...emitLoadStackAddrToHl(offset, ctx),
@@ -649,11 +737,136 @@ function emitStoreExprToLocalWord(offset: number, expr: ExprSpec, ctx: EmitExprC
   ];
 }
 
+function emitAssignLocalByteExpr(offset: number, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tld\t(hl),e",
+    "\tld\tl,e",
+    "\tld\th,#0",
+  ];
+}
+
+function emitAssignLocalWordExpr(offset: number, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tld\t(hl),e",
+    "\tinc\thl",
+    "\tld\t(hl),d",
+    "\tex\tde,hl",
+  ];
+}
+
+function emitAssignLocalArrayExpr(offset: number, index: ExprSpec, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpush\thl",
+    ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 4 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tpop\tde",
+    "\tld\t(hl),e",
+    "\tld\tl,e",
+    "\tld\th,#0",
+  ];
+}
+
+function emitAssignArgArrayExpr(offset: number, index: ExprSpec, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpush\thl",
+    ...emitLoadStackWordToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 4 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tpop\tde",
+    "\tld\t(hl),e",
+    "\tld\tl,e",
+    "\tld\th,#0",
+  ];
+}
+
+function emitIncDecLocalByteExpr(offset: number, op: "++" | "--", mode: "prefix" | "postfix", ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadStackAddrToHl(offset, ctx),
+    "\tld\te,(hl)",
+    ...(mode === "postfix" ? ["\tld\tl,e", "\tld\th,#0"] : []),
+    op === "++" ? "\tinc\te" : "\tdec\te",
+    "\tld\t(hl),e",
+    ...(mode === "prefix" ? ["\tld\tl,e", "\tld\th,#0"] : []),
+  ];
+}
+
+function emitIncDecLocalWordExpr(offset: number, op: "++" | "--", mode: "prefix" | "postfix", ctx: EmitExprContext): string[] {
+  return [
+    ...emitLoadStackAddrToHl(offset, ctx),
+    "\tld\te,(hl)",
+    "\tinc\thl",
+    "\tld\td,(hl)",
+    ...(mode === "postfix" ? ["\tpush\tde"] : []),
+    op === "++" ? "\tinc\tde" : "\tdec\tde",
+    "\tld\t(hl),d",
+    "\tdec\thl",
+    "\tld\t(hl),e",
+    ...(mode === "prefix" ? ["\tex\tde,hl"] : ["\tpop\thl"]),
+  ];
+}
+
+function emitIncDecLocalArrayExpr(offset: number, index: ExprSpec, op: "++" | "--", mode: "prefix" | "postfix", ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(index, ctx),
+    "\tpush\thl",
+    ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tld\te,(hl)",
+    ...(mode === "postfix" ? ["\tld\tl,e", "\tld\th,#0"] : []),
+    op === "++" ? "\tinc\te" : "\tdec\te",
+    "\tld\t(hl),e",
+    ...(mode === "prefix" ? ["\tld\tl,e", "\tld\th,#0"] : []),
+  ];
+}
+
+function emitIncDecArgArrayExpr(offset: number, index: ExprSpec, op: "++" | "--", mode: "prefix" | "postfix", ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(index, ctx),
+    "\tpush\thl",
+    ...emitLoadStackWordToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tld\te,(hl)",
+    ...(mode === "postfix" ? ["\tld\tl,e", "\tld\th,#0"] : []),
+    op === "++" ? "\tinc\te" : "\tdec\te",
+    "\tld\t(hl),e",
+    ...(mode === "prefix" ? ["\tld\tl,e", "\tld\th,#0"] : []),
+  ];
+}
+
 function emitLoadIndexedLocalByteToHl(offset: number, index: ExprSpec, ctx: EmitExprContext): string[] {
   return [
     ...emitExprToHl(index, ctx),
     "\tpush\thl",
     ...emitLoadStackAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tld\tl,(hl)",
+    "\tld\th,#0",
+  ];
+}
+
+function emitLoadIndexedArgByteToHl(offset: number, index: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(index, ctx),
+    "\tpush\thl",
+    ...emitLoadStackWordToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
     "\tpop\tde",
     "\tadd\thl,de",
     "\tld\tl,(hl)",
@@ -720,6 +933,22 @@ function emitLogicalExpr(left: ExprSpec, right: ExprSpec, op: "&&" | "||", ctx: 
     `\tjp\t${endLabel}`,
     `${trueLabel}:`,
     "\tld\thl,#1",
+    `${endLabel}:`,
+  ];
+}
+
+function emitConditionalExpr(condition: ExprSpec, thenExpr: ExprSpec, elseExpr: ExprSpec, ctx: EmitExprContext): string[] {
+  const elseLabel = allocateExprLabel(ctx);
+  const endLabel = allocateExprLabel(ctx);
+  return [
+    ...emitExprToHl(condition, ctx),
+    "\tld\ta,h",
+    "\tor\tl",
+    `\tjp\tz,${elseLabel}`,
+    ...emitExprToHl(thenExpr, ctx),
+    `\tjp\t${endLabel}`,
+    `${elseLabel}:`,
+    ...emitExprToHl(elseExpr, ctx),
     `${endLabel}:`,
   ];
 }
