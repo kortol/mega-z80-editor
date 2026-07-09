@@ -175,6 +175,189 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tadd\thl,de");
   });
 
+  test("lowers pointer dereference reads and writes", () => {
+    const source = "int main(){ int x = 66; int *p = &x; char buf[2]; char *q = buf; *q = 65; return *p; }\n";
+    const parsed = parseProgram(source, "pointer.c");
+    const bound = analyzeProgram(parsed, source, "pointer.c");
+    const spec = lowerSourceProgram(bound, "pointer.i", source, "pointer.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\ta,(hl)");
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\t(hl),d");
+  });
+
+  test("lowers address-of array elements and pointer indexing through pointer adds", () => {
+    const source = "int main(){ int i = 1; char buf[3]; char *p = &buf[i]; return p[0]; }\n";
+    const parsed = parseProgram(source, "pointer-index.c");
+    const bound = analyzeProgram(parsed, source, "pointer-index.c");
+    const spec = lowerSourceProgram(bound, "pointer-index.i", source, "pointer-index.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tld\tl,(hl)");
+  });
+
+  test("lowers pointer indexing writes and pointer arithmetic dereference through scaled pointer adds", () => {
+    const source = "int main(){ char buf[3]; char *p = buf; p[1] = 66; return *(p + 1); }\n";
+    const parsed = parseProgram(source, "pointer-arith.c");
+    const bound = analyzeProgram(parsed, source, "pointer-arith.c");
+    const spec = lowerSourceProgram(bound, "pointer-arith.i", source, "pointer-arith.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\tl,(hl)");
+  });
+
+  test("lowers int pointer indexing and scaled pointer arithmetic with doubled indexes", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &x; return p[1] + *(p + 1); }\n";
+    const parsed = parseProgram(source, "int-pointer.c");
+    const bound = analyzeProgram(parsed, source, "int-pointer.c");
+    const spec = lowerSourceProgram(bound, "int-pointer.i", source, "int-pointer.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tld\ta,(hl)");
+  });
+
+  test("lowers backward int pointer arithmetic with scaled subtraction", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &y; return *(p - 1); }\n";
+    const parsed = parseProgram(source, "int-pointer-backward.c");
+    const bound = analyzeProgram(parsed, source, "int-pointer-backward.c");
+    const spec = lowerSourceProgram(bound, "int-pointer-backward.i", source, "int-pointer-backward.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tsbc\thl,de");
+    expect(asm).toContain("\tadd\thl,hl");
+    expect(asm).toContain("\tld\ta,(hl)");
+  });
+
+  test("lowers pointer compound assignment through scaled pointer adds and pointer stores", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &x; p += 1; return *p; }\n";
+    const parsed = parseProgram(source, "pointer-compound.c");
+    const bound = analyzeProgram(parsed, source, "pointer-compound.c");
+    const spec = lowerSourceProgram(bound, "pointer-compound.i", source, "pointer-compound.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tadd\thl,hl");
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tld\t(hl),d");
+    expect(asm).toContain("\tld\ta,(hl)");
+  });
+
+  test("lowers pointer prefix and postfix increment expressions with scaled word steps", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &x; return *(++p) + *(p++); }\n";
+    const parsed = parseProgram(source, "pointer-incdec.c");
+    const bound = analyzeProgram(parsed, source, "pointer-incdec.c");
+    const spec = lowerSourceProgram(bound, "pointer-incdec.i", source, "pointer-incdec.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tinc\tde/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers pointer prefix and postfix decrement expressions with scaled word steps", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &y; return *(--p) + *(p--); }\n";
+    const parsed = parseProgram(source, "pointer-decdec.c");
+    const bound = analyzeProgram(parsed, source, "pointer-decdec.c");
+    const spec = lowerSourceProgram(bound, "pointer-decdec.i", source, "pointer-decdec.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tdec\tde/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers pointer subtract compound assignment through scaled pointer adds and pointer stores", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &y; p -= 1; return *p; }\n";
+    const parsed = parseProgram(source, "pointer-compound-sub.c");
+    const bound = analyzeProgram(parsed, source, "pointer-compound-sub.c");
+    const spec = lowerSourceProgram(bound, "pointer-compound-sub.i", source, "pointer-compound-sub.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tsbc\thl,de");
+    expect(asm).toContain("\tadd\thl,hl");
+    expect(asm).toContain("\tld\t(hl),d");
+    expect(asm).toContain("\tld\ta,(hl)");
+  });
+
+  test("lowers dynamic int pointer indexing and arithmetic with doubled expression indexes", () => {
+    const source = "int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; return p[i] + *(p + i); }\n";
+    const parsed = parseProgram(source, "int-pointer-dynamic.c");
+    const bound = analyzeProgram(parsed, source, "int-pointer-dynamic.c");
+    const spec = lowerSourceProgram(bound, "int-pointer-dynamic.i", source, "int-pointer-dynamic.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers dynamic int pointer indexed writes through word dereference stores", () => {
+    const source = "int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; p[i] = z; return *(p + i); }\n";
+    const parsed = parseProgram(source, "int-pointer-dynamic-write.c");
+    const bound = analyzeProgram(parsed, source, "int-pointer-dynamic-write.c");
+    const spec = lowerSourceProgram(bound, "int-pointer-dynamic-write.i", source, "int-pointer-dynamic-write.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("lowers pointer equality and inequality compares through helper calls", () => {
+    const source = "int main(){ int x = 65; int *p = &x; int *q = &x; return (p == q) + (p != q); }\n";
+    const parsed = parseProgram(source, "pointer-compare.c");
+    const bound = analyzeProgram(parsed, source, "pointer-compare.c");
+    const spec = lowerSourceProgram(bound, "pointer-compare.i", source, "pointer-compare.c");
+    const asm = emitProgram(spec);
+
+    expect(spec.externs).toContain(".eq");
+    expect(spec.externs).toContain(".ne");
+    expect(asm).toContain("\tcall\t.eq");
+    expect(asm).toContain("\tcall\t.ne");
+  });
+
+  test("lowers pointer and integer equality/inequality compares in both orders through helper calls", () => {
+    const source = "int main(){ int x = 65; int *p = &x; return (p == 0) + (0 == p) + (p != 0) + (0 != p); }\n";
+    const parsed = parseProgram(source, "pointer-int-compare.c");
+    const bound = analyzeProgram(parsed, source, "pointer-int-compare.c");
+    const spec = lowerSourceProgram(bound, "pointer-int-compare.i", source, "pointer-int-compare.c");
+    const asm = emitProgram(spec);
+
+    expect(spec.externs).toContain(".eq");
+    expect(spec.externs).toContain(".ne");
+    expect((asm.match(/\tcall\t\.eq/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\t\.ne/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers pointer truthiness conditions through direct hl zero-tests", () => {
+    const source = "int main(){ int x = 65; int *p = &x; if (p) return 1; if (!p) return 2; return 3; }\n";
+    const parsed = parseProgram(source, "pointer-truthy.c");
+    const bound = analyzeProgram(parsed, source, "pointer-truthy.c");
+    const spec = lowerSourceProgram(bound, "pointer-truthy.i", source, "pointer-truthy.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\ta,h");
+    expect((asm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers int pointer parameters and calls through pointer args and scaled callee indexing", () => {
+    const source = "int second(int *p){ return p[1]; }\nint main(){ int x = 65; int y = 66; return second(&x); }\n";
+    const parsed = parseProgram(source, "pointer-param.c");
+    const bound = analyzeProgram(parsed, source, "pointer-param.c");
+    const spec = lowerSourceProgram(bound, "pointer-param.i", source, "pointer-param.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\tsecond");
+    expect(asm).toContain("\tpush\thl");
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\ta,(hl)");
+  });
+
   test("lowers bitwise expressions into inline bytewise ops", () => {
     const source = "int main(int a, int b){ return (a & b) ^ (a | b); }\n";
     const parsed = parseProgram(source, "bitwise.c");

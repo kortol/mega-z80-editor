@@ -122,14 +122,14 @@ function lowerStmt(
         return {
           kind: "assignLocalConst",
           slot: stmt.local.slot,
-          width: getScalarLocalWidth(stmt.local),
+          width: getLocalValueWidth(stmt.local),
           value: stmt.expr.value,
         };
       }
       return {
         kind: "assignLocalExpr",
         slot: stmt.local.slot,
-        width: getScalarLocalWidth(stmt.local),
+        width: getLocalValueWidth(stmt.local),
         expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
     }
@@ -216,14 +216,14 @@ function lowerForInit(
     return {
       kind: "assignLocalConst",
       slot: init.local.slot,
-      width: getScalarLocalWidth(init.local),
+      width: getLocalValueWidth(init.local),
       value: init.initializer.value,
     };
   }
   return {
     kind: "assignLocalExpr",
     slot: init.local.slot,
-    width: getScalarLocalWidth(init.local),
+    width: getLocalValueWidth(init.local),
     expr: lowerExpr(init.initializer, externs, definedFunctions, sourceText, state, file),
   };
 }
@@ -274,20 +274,25 @@ function lowerSimpleStmt(
     return {
       kind: "assignLocalConst",
       slot: stmt.local.slot,
-      width: getScalarLocalWidth(stmt.local),
+      width: getLocalValueWidth(stmt.local),
       value: stmt.expr.value,
     };
   }
   return {
     kind: "assignLocalExpr",
     slot: stmt.local.slot,
-    width: getScalarLocalWidth(stmt.local),
+    width: getLocalValueWidth(stmt.local),
     expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
   };
 }
 
 function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }> | BoundSimpleStmt & { kind: "assign" }): StmtIRHigh | null {
-  if (getScalarLocalWidth(stmt.local) !== 1 || stmt.expr.kind !== "additive" || stmt.expr.op !== "-" || stmt.expr.right.kind !== "const" || stmt.expr.right.value !== 1) {
+  if (stmt.local.type.kind !== "scalar"
+    || stmt.local.type.width !== 1
+    || stmt.expr.kind !== "additive"
+    || stmt.expr.op !== "-"
+    || stmt.expr.right.kind !== "const"
+    || stmt.expr.right.value !== 1) {
     return null;
   }
   if (stmt.expr.left.kind !== "ref" || stmt.expr.left.symbol.kind !== "local" || stmt.expr.left.symbol.slot !== stmt.local.slot) {
@@ -302,6 +307,13 @@ function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }> | Bou
 function getScalarLocalWidth(local: BoundLocalSymbol): 1 | 2 {
   if (local.type.kind !== "scalar") {
     throw new Error(`Internal lowering error: expected scalar local, got ${JSON.stringify(local.type)}`);
+  }
+  return local.type.width;
+}
+
+function getLocalValueWidth(local: BoundLocalSymbol): 1 | 2 {
+  if (local.type.kind === "array") {
+    throw new Error(`Internal lowering error: expected scalar/pointer local, got ${JSON.stringify(local.type)}`);
   }
   return local.type.width;
 }
@@ -347,7 +359,7 @@ function lowerExpr(
         kind: "ref",
         scope: expr.symbol.kind === "local" ? "local" : "arg",
         width: expr.symbol.kind === "local"
-          ? getScalarLocalWidth(expr.symbol)
+          ? getLocalValueWidth(expr.symbol)
           : expr.symbol.type.kind === "array"
             ? 2
             : expr.symbol.type.width,
@@ -357,6 +369,24 @@ function lowerExpr(
       return {
         kind: "localAddress",
         slot: expr.symbol.slot,
+      };
+    case "pointerAdd":
+      return {
+        kind: "pointerAdd",
+        pointer: lowerExpr(expr.pointer, externs, definedFunctions, sourceText, state, file),
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
+        scale: expr.pointee === "int" ? 2 : 1,
+      };
+    case "deref":
+      return {
+        kind: expr.type.width === 1 ? "derefByte" : "derefWord",
+        pointer: lowerExpr(expr.pointer, externs, definedFunctions, sourceText, state, file),
+      };
+    case "derefAssign":
+      return {
+        kind: expr.type.width === 1 ? "assignDerefByte" : "assignDerefWord",
+        pointer: lowerExpr(expr.pointer, externs, definedFunctions, sourceText, state, file),
+        expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, file),
       };
     case "localArrayElement":
       return {
@@ -417,7 +447,8 @@ function lowerExpr(
       return {
         kind: "incDecLocal",
         slot: expr.local.slot,
-        width: getScalarLocalWidth(expr.local),
+        width: getLocalValueWidth(expr.local),
+        step: expr.local.type.kind === "pointer" && expr.local.type.pointee === "int" ? 2 : 1,
         op: expr.op,
         mode: "prefix",
       };
@@ -425,7 +456,8 @@ function lowerExpr(
       return {
         kind: "incDecLocal",
         slot: expr.local.slot,
-        width: getScalarLocalWidth(expr.local),
+        width: getLocalValueWidth(expr.local),
+        step: expr.local.type.kind === "pointer" && expr.local.type.pointee === "int" ? 2 : 1,
         op: expr.op,
         mode: "postfix",
       };
@@ -449,7 +481,7 @@ function lowerExpr(
       return {
         kind: "assignLocal",
         slot: expr.local.slot,
-        width: getScalarLocalWidth(expr.local),
+        width: getLocalValueWidth(expr.local),
         expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, file),
       };
     case "arrayAssignExpr":

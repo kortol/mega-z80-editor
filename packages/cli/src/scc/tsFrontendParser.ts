@@ -160,12 +160,16 @@ function parseStatement(
     return {
       kind: "decl",
       declaration: {
-      kind: "localDecl",
-      name: declaration.name,
-      type: declaration.type === "charArray" ? makeCharArrayType(declaration.length) : makeScalarType(declaration.type),
-      initializer: declaration.type !== "charArray" && declaration.initializer
-        ? parseExpression(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
-        : undefined,
+        kind: "localDecl",
+        name: declaration.name,
+        type: declaration.type === "charArray"
+          ? makeCharArrayType(declaration.length)
+          : declaration.type === "pointer"
+            ? { kind: "pointer", pointee: declaration.pointee }
+            : makeScalarType(declaration.type),
+        initializer: declaration.type !== "charArray" && declaration.initializer
+          ? parseExpression(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
+          : undefined,
       },
     };
   }
@@ -463,6 +467,13 @@ export function parseExpression(context: ParseContext, exprText: string, functio
   if (assignment) {
     const lhs = assignment.leftText.trim();
     const rhsOffset = trimmedOffset + assignment.index + 1;
+    if (lhs.startsWith("*")) {
+      return {
+        kind: "derefAssign",
+        target: parsePrimaryExpr(context, lhs, functionName, trimmedOffset),
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
     const arrayAccess = parseArrayAccess(lhs);
     if (arrayAccess) {
       return {
@@ -587,6 +598,23 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   const trimmed = exprText.trim();
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
+  }
+  if (trimmed.startsWith("&")) {
+    const rhsText = trimmed.slice(1).trimStart();
+    if (/^[A-Za-z_]\w*$/.test(rhsText)) {
+      return { kind: "addressOf", name: rhsText };
+    }
+    return {
+      kind: "addressOfExpr",
+      expr: parsePrimaryExpr(context, rhsText, functionName, offset + trimmed.indexOf(rhsText)),
+    };
+  }
+  if (trimmed.startsWith("*")) {
+    const rhsText = trimmed.slice(1).trimStart();
+    return {
+      kind: "deref",
+      expr: parsePrimaryExpr(context, rhsText, functionName, offset + trimmed.indexOf(rhsText)),
+    };
   }
   const prefixArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
   if (prefixArrayIncDecMatch) {
@@ -744,6 +772,14 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
       name: charArrayMatch[1],
     };
   }
+  const pointerMatch = /^(int|char)\s*\*\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (pointerMatch) {
+    return {
+      kind: "param",
+      type: { kind: "pointer", pointee: pointerMatch[1] as ScalarType },
+      name: pointerMatch[2],
+    };
+  }
   const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(trimmed);
   if (!match) {
     throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support parameter '${paramText.trim()}' in ${functionName}().`, {
@@ -758,13 +794,26 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
   };
 }
 
-function parseDeclaration(statementText: string): { type: ScalarType; name: string; initializer?: string } | { type: "charArray"; name: string; length: number } | null {
+function parseDeclaration(statementText: string):
+  | { type: ScalarType; name: string; initializer?: string }
+  | { type: "pointer"; pointee: ScalarType; name: string; initializer?: string }
+  | { type: "charArray"; name: string; length: number }
+  | null {
   const arrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*(\d+)\s*\]$/.exec(statementText);
   if (arrayMatch) {
     return {
       type: "charArray",
       name: arrayMatch[1],
       length: Number.parseInt(arrayMatch[2], 10),
+    };
+  }
+  const pointerMatch = /^(int|char)\s*\*\s*([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
+  if (pointerMatch) {
+    return {
+      type: "pointer",
+      pointee: pointerMatch[1] as ScalarType,
+      name: pointerMatch[2],
+      initializer: pointerMatch[3],
     };
   }
   const match = /^(int|char)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
@@ -1324,12 +1373,11 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
       continue;
     }
     const opIndex = index - matchedOp.length + 1;
-    if ((matchedOp === "+" || matchedOp === "-")
-      && (exprText[opIndex - 1] === matchedOp || exprText[opIndex + matchedOp.length] === matchedOp)) {
-      continue;
-    }
     const longestStartingOp = allBinaryOps.find((op) => exprText.slice(opIndex, opIndex + op.length) === op);
     if (longestStartingOp !== matchedOp) {
+      continue;
+    }
+    if ((matchedOp === "+" || matchedOp === "-") && isUnaryPlusMinusAt(exprText, opIndex, matchedOp)) {
       continue;
     }
     const leftText = exprText.slice(0, opIndex).trim();
@@ -1340,6 +1388,27 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
     return { index: opIndex, op: matchedOp };
   }
   return null;
+}
+
+function isUnaryPlusMinusAt(exprText: string, opIndex: number, op: "+" | "-"): boolean {
+  if (exprText.slice(opIndex, opIndex + 2) === `${op}${op}`) {
+    return true;
+  }
+  const previousIndex = findPreviousNonWhitespaceIndex(exprText, opIndex - 1);
+  if (previousIndex < 0) {
+    return true;
+  }
+  const previousChar = exprText[previousIndex];
+  return /[([{,?:=+\-*/%&|^!<>]/.test(previousChar);
+}
+
+function findPreviousNonWhitespaceIndex(text: string, startIndex: number): number {
+  for (let index = startIndex; index >= 0; index -= 1) {
+    if (!/\s/.test(text[index])) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function findMatchingBraceIndex(context: ParseContext, openBraceIndex: number): number {
@@ -1420,7 +1489,14 @@ function parseExpressionStatement(
 ): SourceStmt | null {
   const simple = parseSimpleStatement(context, statementText, functionName, offset);
   if (!simple) {
-    return null;
+    const trimmed = statementText.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    return {
+      kind: "expr",
+      expr: parseExpression(context, trimmed, functionName, offset + statementText.indexOf(trimmed)),
+    };
   }
   switch (simple.kind) {
     case "expr":
@@ -1644,7 +1720,11 @@ function parseForInitializer(
     return {
       kind: "localDecl",
       name: declaration.name,
-      type: declaration.type === "charArray" ? makeCharArrayType(declaration.length) : makeScalarType(declaration.type),
+      type: declaration.type === "charArray"
+        ? makeCharArrayType(declaration.length)
+        : declaration.type === "pointer"
+          ? { kind: "pointer", pointee: declaration.pointee }
+          : makeScalarType(declaration.type),
       initializer: declaration.type !== "charArray" && declaration.initializer
         ? parseExpression(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
         : undefined,

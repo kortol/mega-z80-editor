@@ -201,6 +201,35 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
 - comma operator
   - `return x = 1, x += 2, x;`
   - `return (buf[0] = 65, buf[0]);`
+- minimal pointer subset
+  - `int *p = &x;`
+  - `char *q = buf;`
+  - `return *p;`
+  - `return *q = 65;`
+  - `char *p = &buf[i];`
+  - `return p[0];`
+  - `p[1] = 66;`
+  - `return *(p + 1);`
+  - `return p[1];`
+  - `return *(p - 1);`
+  - `p += 1;`
+  - `p -= 1;`
+  - `return *(++p);`
+  - `return *(p++);`
+  - `return *(--p);`
+  - `return *(p--);`
+  - `return p[i];`
+  - `return *(p + i);`
+  - `p[i] = z;`
+  - `*(p + i) = z;`
+  - `p == q`
+  - `p != q`
+  - `p == 0`
+  - `0 != p`
+  - `if (p) ...`
+  - `if (!p) ...`
+  - `int second(int *p){ return p[1]; }`
+  - `return second(&x);`
 - bitwise operators
   - `a & b`
   - `a ^ b`

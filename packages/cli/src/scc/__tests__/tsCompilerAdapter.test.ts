@@ -687,6 +687,245 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tadd\thl,de");
   });
 
+  test("source mode supports pointer locals and dereference in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-"));
+    const inputFile = path.join(tempDir, "pointer.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 66; int *p = &x; char buf[2]; char *q = buf; *q = 65; return *p; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+    expect(sccAsm).toContain("\tld\t(hl),d");
+  });
+
+  test("source mode supports address-of array elements and pointer indexing in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-index-"));
+    const inputFile = path.join(tempDir, "pointer-index.c");
+    fs.writeFileSync(inputFile, "int main(){ int i = 1; char buf[3]; buf[1] = 65; char *p = &buf[i]; return p[0]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+  });
+
+  test("source mode supports pointer indexing writes and pointer arithmetic dereference in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-arith-"));
+    const inputFile = path.join(tempDir, "pointer-arith.c");
+    fs.writeFileSync(inputFile, "int main(){ char buf[3]; char *p = buf; p[1] = 66; return *(p + 1); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\t(hl),e");
+    expect(sccAsm).toContain("\tld\tl,(hl)");
+  });
+
+  test("source mode supports int pointer indexing and scaled pointer arithmetic in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-"));
+    const inputFile = path.join(tempDir, "int-pointer.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int *p = &x; return p[1] + *(p + 1); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
+  test("source mode supports backward int pointer arithmetic in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-backward-"));
+    const inputFile = path.join(tempDir, "int-pointer-backward.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int *p = &y; return *(p - 1); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+    expect(sccAsm).toContain("\tadd\thl,hl");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
+  test("source mode supports pointer compound assignment in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-compound-"));
+    const inputFile = path.join(tempDir, "pointer-compound.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int *p = &x; p += 1; return *p; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,hl");
+    expect(sccAsm).toContain("\tld\t(hl),e");
+    expect(sccAsm).toContain("\tld\t(hl),d");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
+  test("source mode supports pointer prefix and postfix increment expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-incdec-"));
+    const inputFile = path.join(tempDir, "pointer-incdec.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int *p = &x; return *(++p) + *(p++); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tinc\tde/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode supports pointer prefix and postfix decrement expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-decdec-"));
+    const inputFile = path.join(tempDir, "pointer-decdec.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int *p = &y; return *(--p) + *(p--); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tdec\tde/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode supports pointer subtract compound assignment in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-compound-sub-"));
+    const inputFile = path.join(tempDir, "pointer-compound-sub.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int *p = &y; p -= 1; return *p; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tsbc\thl,de");
+    expect(sccAsm).toContain("\tadd\thl,hl");
+    expect(sccAsm).toContain("\tld\t(hl),d");
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
+  test("source mode supports dynamic int pointer indexing and arithmetic in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-dynamic-"));
+    const inputFile = path.join(tempDir, "int-pointer-dynamic.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; return p[i] + *(p + i); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode supports dynamic int pointer indexed writes in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-dynamic-write-"));
+    const inputFile = path.join(tempDir, "int-pointer-dynamic-write.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; p[i] = z; return *(p + i); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("source mode supports pointer equality and inequality compares in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-compare-"));
+    const inputFile = path.join(tempDir, "pointer-compare.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int *p = &x; int *q = &x; return (p == q) + (p != q); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\t.eq");
+    expect(sccAsm).toContain("\tcall\t.ne");
+  });
+
+  test("source mode supports pointer and integer equality/inequality compares in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-int-compare-"));
+    const inputFile = path.join(tempDir, "pointer-int-compare.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int *p = &x; return (p == 0) + (0 == p) + (p != 0) + (0 != p); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\t\.eq/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tcall\t\.ne/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode supports pointer truthiness conditions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-truthy-"));
+    const inputFile = path.join(tempDir, "pointer-truthy.c");
+    fs.writeFileSync(inputFile, "int main(){ int x = 65; int *p = &x; if (p) return 1; if (!p) return 2; return 3; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\ta,h");
+    expect((sccAsm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("source mode supports int pointer parameters and calls in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-param-"));
+    const inputFile = path.join(tempDir, "pointer-param.c");
+    fs.writeFileSync(inputFile, "int second(int *p){ return p[1]; }\nint main(){ int x = 65; int y = 66; return second(&x); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\tsecond");
+    expect(sccAsm).toContain("\tpush\thl");
+    expect((sccAsm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(sccAsm).toContain("\tld\ta,(hl)");
+  });
+
   test("source mode supports bitwise expressions in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-bitwise-"));

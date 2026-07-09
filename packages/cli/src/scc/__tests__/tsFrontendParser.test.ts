@@ -191,6 +191,202 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.right.kind).toBe("comma");
   });
 
+  test("parses pointer locals, address-of, and dereference", () => {
+    const program = parseProgram("int main(){ int x = 66; int *p = &x; return *p; }\n", "pointer.c");
+    expect(program.functions[0].body.declarations[1]?.type).toEqual({ kind: "pointer", pointee: "int" });
+    const stmt = program.functions[0].body.statements[2];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return") {
+      return;
+    }
+    expect(stmt.expr).toEqual({ kind: "deref", expr: { kind: "ref", name: "p" } });
+  });
+
+  test("parses dereference assignment expressions", () => {
+    const program = parseProgram("int main(){ char buf[2]; char *p = buf; return *p = 65; }\n", "pointer-assign.c");
+    expect(program.functions[0].body.declarations[1]?.type).toEqual({ kind: "pointer", pointee: "char" });
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(stmt.expr.target.kind).toBe("deref");
+  });
+
+  test("parses address-of array elements and pointer indexing", () => {
+    const program = parseProgram("int main(){ int i = 1; char buf[3]; char *p = &buf[i]; return p[0]; }\n", "pointer-index.c");
+    expect(program.functions[0].body.declarations[2]?.type).toEqual({ kind: "pointer", pointee: "char" });
+    expect(program.functions[0].body.declarations[2]?.initializer).toEqual({
+      kind: "addressOfExpr",
+      expr: { kind: "arrayIndex", name: "buf", index: { kind: "ref", name: "i" } },
+    });
+    const stmt = program.functions[0].body.statements[2];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return") {
+      return;
+    }
+    expect(stmt.expr).toEqual({ kind: "arrayIndex", name: "p", index: { kind: "const", value: 0 } });
+  });
+
+  test("parses pointer indexing writes and pointer arithmetic dereference", () => {
+    const program = parseProgram("int main(){ char buf[3]; char *p = buf; p[1] = 66; return *(p + 1); }\n", "pointer-arith.c");
+    const assignStmt = program.functions[0].body.statements[1];
+    expect(assignStmt.kind).toBe("arrayAssign");
+    if (assignStmt.kind !== "arrayAssign") {
+      return;
+    }
+    expect(assignStmt.name).toBe("p");
+    const returnStmt = program.functions[0].body.statements[2];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "deref") {
+      return;
+    }
+    expect(returnStmt.expr.expr.kind).toBe("binary");
+  });
+
+  test("parses int pointer indexing and scaled pointer arithmetic", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &x; return p[1] + *(p + 1); }\n", "int-pointer.c");
+    expect(program.functions[0].body.declarations[2]?.type).toEqual({ kind: "pointer", pointee: "int" });
+    const returnStmt = program.functions[0].body.statements[3];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("arrayIndex");
+    expect(returnStmt.expr.right.kind).toBe("deref");
+  });
+
+  test("parses pointer subtraction with a unary-minus rhs", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &x; return *(p - -1); }\n", "int-pointer-neg.c");
+    const returnStmt = program.functions[0].body.statements[3];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "deref") {
+      return;
+    }
+    expect(returnStmt.expr.expr.kind).toBe("binary");
+    if (returnStmt.expr.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.expr.op).toBe("-");
+    expect(returnStmt.expr.expr.right.kind).toBe("binary");
+  });
+
+  test("parses pointer compound assignment on locals", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &x; p += 1; return *p; }\n", "pointer-compound.c");
+    const assignStmt = program.functions[0].body.statements[3];
+    expect(assignStmt.kind).toBe("assign");
+    if (assignStmt.kind !== "assign" || assignStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(assignStmt.name).toBe("p");
+    expect(assignStmt.expr.op).toBe("+");
+  });
+
+  test("parses pointer prefix and postfix increment expressions", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &x; return *(++p) + *(p++); }\n", "pointer-incdec.c");
+    const returnStmt = program.functions[0].body.statements[3];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("deref");
+    expect(returnStmt.expr.right.kind).toBe("deref");
+  });
+
+  test("parses pointer prefix and postfix decrement expressions", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &y; return *(--p) + *(p--); }\n", "pointer-decdec.c");
+    const returnStmt = program.functions[0].body.statements[3];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("deref");
+    expect(returnStmt.expr.right.kind).toBe("deref");
+  });
+
+  test("parses pointer subtract compound assignment on locals", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &y; p -= 1; return *p; }\n", "pointer-compound-sub.c");
+    const assignStmt = program.functions[0].body.statements[3];
+    expect(assignStmt.kind).toBe("assign");
+    if (assignStmt.kind !== "assign" || assignStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(assignStmt.name).toBe("p");
+    expect(assignStmt.expr.op).toBe("-");
+  });
+
+  test("parses dynamic int pointer indexing and arithmetic", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; return p[i] + *(p + i); }\n", "int-pointer-dynamic.c");
+    const returnStmt = program.functions[0].body.statements[5];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("arrayIndex");
+    expect(returnStmt.expr.right.kind).toBe("deref");
+  });
+
+  test("parses dynamic int pointer indexed writes", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; p[i] = z; return *(p + i); }\n", "int-pointer-dynamic-write.c");
+    const assignStmt = program.functions[0].body.statements[5];
+    expect(assignStmt.kind).toBe("arrayAssign");
+    if (assignStmt.kind !== "arrayAssign") {
+      return;
+    }
+    expect(assignStmt.name).toBe("p");
+    const returnStmt = program.functions[0].body.statements[6];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "deref") {
+      return;
+    }
+    expect(returnStmt.expr.expr.kind).toBe("binary");
+  });
+
+  test("parses pointer equality and inequality compares", () => {
+    const program = parseProgram("int main(){ int x = 65; int *p = &x; int *q = &x; return (p == q) + (p != q); }\n", "pointer-compare.c");
+    const returnStmt = program.functions[0].body.statements[3];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("binary");
+    expect(returnStmt.expr.right.kind).toBe("binary");
+  });
+
+  test("parses pointer and integer equality/inequality compares in both orders", () => {
+    const program = parseProgram("int main(){ int x = 65; int *p = &x; return (p == 0) + (0 == p) + (p != 0) + (0 != p); }\n", "pointer-int-compare.c");
+    const returnStmt = program.functions[0].body.statements[2];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("binary");
+    expect(returnStmt.expr.right.kind).toBe("binary");
+  });
+
+  test("parses pointer truthiness conditions", () => {
+    const program = parseProgram("int main(){ int x = 65; int *p = &x; if (p) return 1; if (!p) return 2; return 3; }\n", "pointer-truthy.c");
+    expect(program.functions[0].body.statements[2]?.kind).toBe("if");
+    expect(program.functions[0].body.statements[3]?.kind).toBe("if");
+  });
+
+  test("parses int pointer parameters and calls", () => {
+    const program = parseProgram("int second(int *p){ return p[1]; }\nint main(){ int x = 65; int y = 66; return second(&x); }\n", "pointer-param.c");
+    expect(program.functions[0].params[0]?.type).toEqual({ kind: "pointer", pointee: "int" });
+    const calleeReturn = program.functions[0].body.statements[0];
+    expect(calleeReturn.kind).toBe("return");
+    if (calleeReturn.kind !== "return") {
+      return;
+    }
+    expect(calleeReturn.expr.kind).toBe("arrayIndex");
+    const mainReturn = program.functions[1].body.statements[2];
+    expect(mainReturn.kind).toBe("return");
+    if (mainReturn.kind !== "return") {
+      return;
+    }
+    expect(mainReturn.expr.kind).toBe("call");
+  });
+
   test("parses logical and/or with lower precedence than compare", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a == b || b == c && c; }\n", "logical.c");
     const stmt = program.functions[0].body.statements[0];

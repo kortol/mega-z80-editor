@@ -6,6 +6,10 @@ export type SourceType =
     name: ScalarType;
   }
   | {
+    kind: "pointer";
+    pointee: ScalarType;
+  }
+  | {
     kind: "array";
     elementType: "char";
     length?: number;
@@ -143,6 +147,9 @@ export type SourceExpr =
   | { kind: "const"; value: number }
   | { kind: "string"; value: string }
   | { kind: "ref"; name: string }
+  | { kind: "addressOf"; name: string }
+  | { kind: "addressOfExpr"; expr: SourceExpr }
+  | { kind: "deref"; expr: SourceExpr }
   | { kind: "arrayIndex"; name: string; index: SourceExpr }
   | { kind: "call"; target: string; args: SourceExpr[] }
   | { kind: "preIncDec"; name: string; op: "++" | "--" }
@@ -151,6 +158,7 @@ export type SourceExpr =
   | { kind: "postArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }
   | { kind: "assign"; name: string; expr: SourceExpr }
   | { kind: "arrayAssign"; name: string; index: SourceExpr; expr: SourceExpr }
+  | { kind: "derefAssign"; target: SourceExpr; expr: SourceExpr }
   | { kind: "sizeofType"; type: SourceType }
   | { kind: "sizeofExpr"; expr: SourceExpr }
   | { kind: "comma"; left: SourceExpr; right: SourceExpr }

@@ -30,7 +30,13 @@ export type SemanticArrayType = {
   length?: number;
 };
 
-export type SemanticType = SemanticScalarType | SemanticArrayType;
+export type SemanticPointerType = {
+  kind: "pointer";
+  pointee: ScalarType;
+  width: 2;
+};
+
+export type SemanticType = SemanticScalarType | SemanticArrayType | SemanticPointerType;
 
 export type BoundFunctionSymbol = {
   kind: "function";
@@ -106,18 +112,21 @@ export type BoundForInit =
 export type BoundExpr =
   | { kind: "const"; value: number; type: SemanticScalarType }
   | { kind: "string"; value: string; type: SemanticScalarType }
-  | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType }
-  | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticScalarType }
+  | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticPointerType }
+  | { kind: "pointerAdd"; pointer: BoundExpr; index: BoundExpr; pointee: ScalarType; type: SemanticPointerType }
   | { kind: "localArrayElement"; symbol: BoundLocalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "paramArrayElement"; symbol: BoundParamSymbol; index: BoundExpr; type: SemanticScalarType }
+  | { kind: "deref"; pointer: BoundExpr; type: SemanticScalarType }
+  | { kind: "derefAssign"; pointer: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
   | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundExpr[]; type: SemanticScalarType }
-  | { kind: "preIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType }
-  | { kind: "postIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType }
+  | { kind: "preIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "postIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
   | { kind: "postArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
-  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr; type: SemanticScalarType }
+  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "arrayAssignExpr"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
-  | { kind: "comma"; left: BoundExpr; right: BoundExpr; type: SemanticScalarType }
+  | { kind: "comma"; left: BoundExpr; right: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundExpr; elseExpr: BoundExpr; type: SemanticScalarType }
   | { kind: "compare"; left: BoundExpr; right: BoundExpr; op: CompareOp; type: SemanticScalarType }
   | { kind: "logical"; left: BoundExpr; right: BoundExpr; op: LogicalOp; type: SemanticScalarType }
@@ -319,7 +328,7 @@ function analyzeStmt(
       };
     case "assign": {
       const symbol = lookupVisible(scope, stmt.name);
-      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "scalar") {
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
           file,
           offset: 0,
@@ -332,7 +341,7 @@ function analyzeStmt(
       };
     }
     case "arrayAssign":
-      return analyzeArrayAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+      return analyzeIndexedAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
     case "break":
       if (breakDepth === 0) {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports 'break' inside loops or switches in ${functionName}().`, {
@@ -366,10 +375,10 @@ function analyzeSimpleStmt(
     return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
   }
   if (stmt.kind === "arrayAssign") {
-    return analyzeArrayAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+    return analyzeIndexedAssignSimpleStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
   }
   const symbol = lookupVisible(scope, stmt.name);
-  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "scalar") {
+  if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
     throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
       file,
       offset: 0,
@@ -408,6 +417,73 @@ function analyzeArrayAssignStmt(
     target: symbol,
     index: boundIndex,
     expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+  };
+}
+
+function analyzeIndexedAssignStmt(
+  name: string,
+  index: SourceExpr,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundStmt {
+  const symbol = lookupVisible(scope, name);
+  if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
+    return {
+      kind: "expr",
+      expr: analyzePointerIndexedAssignExpr(symbol, index, expr, scope, functionSymbols, functionName, sourceText, file),
+    };
+  }
+  return analyzeArrayAssignStmt(name, index, expr, scope, functionSymbols, functionName, sourceText, file);
+}
+
+function analyzeIndexedAssignSimpleStmt(
+  name: string,
+  index: SourceExpr,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundSimpleStmt {
+  const symbol = lookupVisible(scope, name);
+  if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
+    return {
+      kind: "expr",
+      expr: analyzePointerIndexedAssignExpr(symbol, index, expr, scope, functionSymbols, functionName, sourceText, file),
+    };
+  }
+  return analyzeArrayAssignStmt(name, index, expr, scope, functionSymbols, functionName, sourceText, file);
+}
+
+function analyzePointerIndexedAssignExpr(
+  symbol: BoundLocalSymbol | BoundParamSymbol,
+  index: SourceExpr,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundExpr, { kind: "derefAssign" }> {
+  if (symbol.type.kind !== "pointer") {
+    throw new Error("Internal semantic error: expected pointer symbol.");
+  }
+  return {
+    kind: "derefAssign",
+    pointer: {
+      kind: "pointerAdd",
+      pointer: { kind: "ref", symbol, type: symbol.type },
+      index: analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file),
+      pointee: symbol.type.pointee,
+      type: symbol.type,
+    },
+    expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+    type: toSemanticScalarType(symbol.type.pointee),
   };
 }
 
@@ -469,6 +545,55 @@ function analyzeExpr(
       return { kind: "const", value: expr.value, type: toSemanticScalarType("int") };
     case "string":
       return { kind: "string", value: expr.value, type: toSemanticScalarType("int") };
+    case "addressOf": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || symbol.kind !== "local") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports address-of on local symbols, got '${expr.name}'.`, {
+          file,
+          offset: 0,
+        });
+      }
+      if (symbol.type.kind === "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support pointer-to-pointer address-of for '${expr.name}' in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      if (symbol.type.kind === "array") {
+        return { kind: "localAddress", symbol, type: toSemanticPointerType("char") };
+      }
+      return { kind: "localAddress", symbol, type: toSemanticPointerType(symbol.type.name) };
+    }
+    case "addressOfExpr": {
+      const target = analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file);
+      if (target.kind === "localArrayElement") {
+        return {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", symbol: target.symbol, type: toSemanticPointerType("char") },
+          index: target.index,
+          pointee: "char",
+          type: toSemanticPointerType("char"),
+        };
+      }
+      if (target.kind === "paramArrayElement") {
+        return {
+          kind: "pointerAdd",
+          pointer: { kind: "ref", symbol: target.symbol, type: toSemanticPointerType("char") },
+          index: target.index,
+          pointee: "char",
+          type: toSemanticPointerType("char"),
+        };
+      }
+      if (target.kind === "deref") {
+        if (target.pointer.type.kind === "pointer") {
+          return target.pointer;
+        }
+      }
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports address-of on locals, array elements, or dereference in ${functionName}().`, {
+        file,
+        offset: 0,
+      });
+    }
     case "ref": {
       const symbol = lookupVisible(scope, expr.name);
       if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {
@@ -478,20 +603,50 @@ function analyzeExpr(
         });
       }
       if (symbol.kind === "local" && symbol.type.kind === "array") {
-        return { kind: "localAddress", symbol, type: toSemanticScalarType("int") };
+        return { kind: "localAddress", symbol, type: toSemanticPointerType("char") };
       }
       if (symbol.kind === "param" && symbol.type.kind === "array") {
-        return { kind: "ref", symbol, type: toSemanticScalarType("int") };
+        return { kind: "ref", symbol, type: toSemanticPointerType("char") };
       }
-      if (symbol.kind === "local") {
-        return { kind: "ref", symbol, type: getScalarSemanticType(symbol.type) };
+      return { kind: "ref", symbol, type: getValueSemanticType(symbol.type) };
+    }
+    case "deref": {
+      const pointer = analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file);
+      if (pointer.type.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports dereference on pointer values in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
       }
-      return { kind: "ref", symbol, type: getScalarSemanticType(symbol.type) };
+      return {
+        kind: "deref",
+        pointer,
+        type: toSemanticScalarType(pointer.type.pointee),
+      };
     }
     case "arrayIndex": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "array") {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports indexing on local/parameter char arrays, got '${expr.name}[...]'.`, {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know symbol '${expr.name}'.`, {
+          file,
+          offset: 0,
+        });
+      }
+      if (symbol.type.kind === "pointer") {
+        return {
+          kind: "deref",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: { kind: "ref", symbol, type: symbol.type },
+            index: analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file),
+            pointee: symbol.type.pointee,
+            type: symbol.type,
+          },
+          type: toSemanticScalarType(symbol.type.pointee),
+        };
+      }
+      if (symbol.type.kind !== "array") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports indexing on local/parameter char arrays or pointers, got '${expr.name}[...]'.`, {
           file,
           offset: 0,
         });
@@ -532,8 +687,8 @@ function analyzeExpr(
     case "preIncDec":
     case "postIncDec": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "scalar") {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports increment/decrement on local scalar symbols, got '${expr.name}'.`, {
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports increment/decrement on local scalar/pointer symbols, got '${expr.name}'.`, {
           file,
           offset: 0,
         });
@@ -542,7 +697,7 @@ function analyzeExpr(
         kind: expr.kind,
         local: symbol,
         op: expr.op,
-        type: getScalarSemanticType(symbol.type),
+        type: getValueSemanticType(symbol.type),
       };
     }
     case "preArrayIncDec":
@@ -568,7 +723,7 @@ function analyzeExpr(
     }
     case "assign": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "scalar") {
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${expr.name}'.`, {
           file,
           offset: 0,
@@ -578,7 +733,7 @@ function analyzeExpr(
         kind: "assign",
         local: symbol,
         expr: analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file),
-        type: getScalarSemanticType(symbol.type),
+        type: getValueSemanticType(symbol.type),
       };
     }
     case "arrayAssign": {
@@ -589,6 +744,22 @@ function analyzeExpr(
         index: stmt.index,
         expr: stmt.expr,
         type: toSemanticScalarType("char"),
+      };
+    }
+    case "derefAssign": {
+      const target = analyzeExpr(expr.target, scope, functionSymbols, functionName, sourceText, file);
+      const pointer = target.kind === "deref" ? target.pointer : target;
+      if (pointer.type.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports pointer assignment through dereference in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      return {
+        kind: "derefAssign",
+        pointer,
+        expr: analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file),
+        type: toSemanticScalarType(pointer.type.pointee),
       };
     }
     case "sizeofType":
@@ -668,13 +839,43 @@ function analyzeExpr(
           type: toSemanticScalarType("int"),
         };
       }
-      return {
-        kind: "additive",
-        left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
-        right: analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file),
-        op: expr.op,
-        type: toSemanticScalarType("int"),
-      };
+      {
+        const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
+        const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
+        if (left.type.kind === "pointer" && right.type.kind === "scalar") {
+          return {
+            kind: "pointerAdd",
+            pointer: left,
+            index: expr.op === "+"
+              ? right
+              : {
+                kind: "additive",
+                left: { kind: "const", value: 0, type: toSemanticScalarType("int") },
+                right,
+                op: "-",
+                type: toSemanticScalarType("int"),
+              },
+            pointee: left.type.pointee,
+            type: left.type,
+          };
+        }
+        if (left.type.kind === "scalar" && right.type.kind === "pointer" && expr.op === "+") {
+          return {
+            kind: "pointerAdd",
+            pointer: right,
+            index: left,
+            pointee: right.type.pointee,
+            type: right.type,
+          };
+        }
+        return {
+          kind: "additive",
+          left,
+          right,
+          op: expr.op,
+          type: toSemanticScalarType("int"),
+        };
+      }
     default:
       return assertNever(expr);
   }
@@ -719,6 +920,9 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
   if (type.kind === "scalar") {
     return toSemanticScalarType(type.name);
   }
+  if (type.kind === "pointer") {
+    return toSemanticPointerType(type.pointee);
+  }
   return {
     kind: "array",
     elementType: type.elementType,
@@ -734,9 +938,20 @@ function toSemanticScalarType(type: ScalarType): SemanticScalarType {
   };
 }
 
+function toSemanticPointerType(pointee: ScalarType): SemanticPointerType {
+  return {
+    kind: "pointer",
+    pointee,
+    width: 2,
+  };
+}
+
 function getTypeStorageBytes(type: SourceType): number {
   if (type.kind === "scalar") {
     return type.name === "char" ? 1 : 2;
+  }
+  if (type.kind === "pointer") {
+    return 2;
   }
   if (type.length === undefined) {
     throw new Error(`Unsized arrays are only supported for parameters, got ${JSON.stringify(type)}`);
@@ -762,6 +977,9 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
     case "conditional":
       return expr.type.width;
     case "localAddress":
+    case "pointerAdd":
+    case "deref":
+    case "derefAssign":
       return expr.type.width;
     case "localArrayElement":
     case "paramArrayElement":
@@ -809,6 +1027,13 @@ function getScalarSourceType(type: SourceType): Extract<SourceType, { kind: "sca
 function getScalarSemanticType(type: SemanticType): SemanticScalarType {
   if (type.kind !== "scalar") {
     throw new Error(`Expected scalar semantic type, got ${JSON.stringify(type)}`);
+  }
+  return type;
+}
+
+function getValueSemanticType(type: SemanticType): SemanticScalarType | SemanticPointerType {
+  if (type.kind === "array") {
+    throw new Error(`Expected scalar or pointer semantic type, got ${JSON.stringify(type)}`);
   }
   return type;
 }
