@@ -697,6 +697,22 @@ describe("tsFrontendSemantic", () => {
     }).toThrow(/only supports address-of on locals, array elements, or dereference/);
   });
 
+  test("rejects aggregate object value returns", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return x; }\n";
+    expect(() => {
+      const parsed = parseProgram(source, "aggregate-return-value.c");
+      analyzeProgram(parsed, source, "aggregate-return-value.c");
+    }).toThrow(/does not yet support aggregate object values/);
+  });
+
+  test("rejects aggregate object assignments", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo y; x = y; return 0; }\n";
+    expect(() => {
+      const parsed = parseProgram(source, "aggregate-assign-value.c");
+      analyzeProgram(parsed, source, "aggregate-assign-value.c");
+    }).toThrow(/Expected scalar or pointer semantic type|does not yet support aggregate object values/);
+  });
+
   test("rejects local shadowing a parameter", () => {
     const source = "int main(int a){ if (a > 0) { int a = 1; return a; } return 0; }\n";
     const parsed = parseProgram(source, "shadow.c");

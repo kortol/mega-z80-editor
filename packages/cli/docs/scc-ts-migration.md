@@ -251,6 +251,8 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - still rejected: `struct Foo **pp;`
   - still rejected: `union Bar **pp;`
   - still rejected: `&(&x)`
+  - still rejected: `return x;` where `x` is `struct`/`union`
+  - still rejected: `x = y;` where `x` and `y` are `struct`/`union`
 - bitwise operators
   - `a & b`
   - `a ^ b`

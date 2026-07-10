@@ -619,6 +619,27 @@ describe("tsFrontendParser", () => {
     expect(returnStmt.kind).toBe("return");
   });
 
+  test("parses aggregate object value return for later semantic rejection", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return x; }\n";
+    const program = parseProgram(source, "aggregate-return-value.c");
+    const returnStmt = program.functions[0].body.statements[0];
+    expect(returnStmt).toEqual({
+      kind: "return",
+      expr: { kind: "ref", name: "x" },
+    });
+  });
+
+  test("parses aggregate object assignment for later semantic rejection", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo y; x = y; return 0; }\n";
+    const program = parseProgram(source, "aggregate-assign-value.c");
+    const assignStmt = program.functions[0].body.statements[0];
+    expect(assignStmt).toEqual({
+      kind: "assign",
+      name: "x",
+      expr: { kind: "ref", name: "y" },
+    });
+  });
+
   test("parses logical and/or with lower precedence than compare", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a == b || b == c && c; }\n", "logical.c");
     const stmt = program.functions[0].body.statements[0];
