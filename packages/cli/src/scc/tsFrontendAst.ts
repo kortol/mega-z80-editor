@@ -1,13 +1,23 @@
 export type ScalarType = "char" | "int";
+export type AggregateKind = "struct" | "union";
+
+export type AggregateTypeRef = {
+  kind: "aggregate";
+  aggregateKind: AggregateKind;
+  name: string;
+};
+
+export type PointerPointee = ScalarType | AggregateTypeRef;
 
 export type SourceType =
   | {
     kind: "scalar";
     name: ScalarType;
   }
+  | AggregateTypeRef
   | {
     kind: "pointer";
-    pointee: ScalarType;
+    pointee: PointerPointee;
   }
   | {
     kind: "array";
@@ -17,7 +27,21 @@ export type SourceType =
 
 export type SourceProgram = {
   kind: "program";
+  aggregates: SourceAggregateDef[];
   functions: SourceFunction[];
+};
+
+export type SourceAggregateField = {
+  kind: "field";
+  name: string;
+  type: Extract<SourceType, { kind: "scalar" }>;
+};
+
+export type SourceAggregateDef = {
+  kind: "aggregateDef";
+  aggregateKind: AggregateKind;
+  name: string;
+  fields: SourceAggregateField[];
 };
 
 export type SourceFunction = {

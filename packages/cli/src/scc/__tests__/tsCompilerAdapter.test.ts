@@ -926,6 +926,37 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tld\ta,(hl)");
   });
 
+  test("source mode supports opaque struct and union pointer params in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-"));
+    const inputFile = path.join(tempDir, "aggregate-pointer.c");
+    fs.writeFileSync(inputFile, "int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\ta,h");
+    expect(sccAsm).toContain("\tcall\t.ne");
+    expect(sccAsm).toContain("\tcall\t.eq");
+  });
+
+  test("source mode supports sizeof aggregate types in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-sizeof-"));
+    const inputFile = path.join(tempDir, "aggregate-sizeof.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ return sizeof(struct Foo) + sizeof(union Bar); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#3");
+    expect(sccAsm).toContain("\tld\thl,#2");
+  });
+
   test("source mode supports bitwise expressions in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-bitwise-"));

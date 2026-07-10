@@ -230,6 +230,10 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `if (!p) ...`
   - `int second(int *p){ return p[1]; }`
   - `return second(&x);`
+  - `int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }`
+  - `struct Foo { char a; int b; };`
+  - `union Bar { char a; int b; };`
+  - `return sizeof(struct Foo) + sizeof(union Bar);`
 - bitwise operators
   - `a & b`
   - `a ^ b`

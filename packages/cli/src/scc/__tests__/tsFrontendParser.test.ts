@@ -387,6 +387,31 @@ describe("tsFrontendParser", () => {
     expect(mainReturn.expr.kind).toBe("call");
   });
 
+  test("parses opaque struct and union pointer params", () => {
+    const program = parseProgram("int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }\n", "aggregate-pointer.c");
+    expect(program.functions[0].params[0]?.type).toEqual({
+      kind: "pointer",
+      pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" },
+    });
+    expect(program.functions[0].params[1]?.type).toEqual({
+      kind: "pointer",
+      pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" },
+    });
+  });
+
+  test("parses aggregate definitions and sizeof aggregate types", () => {
+    const program = parseProgram("struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ return sizeof(struct Foo) + sizeof(union Bar); }\n", "aggregate-sizeof.c");
+    expect(program.aggregates).toHaveLength(2);
+    expect(program.aggregates[0]?.fields).toHaveLength(2);
+    const returnStmt = program.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("sizeofType");
+    expect(returnStmt.expr.right.kind).toBe("sizeofType");
+  });
+
   test("parses logical and/or with lower precedence than compare", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a == b || b == c && c; }\n", "logical.c");
     const stmt = program.functions[0].body.statements[0];

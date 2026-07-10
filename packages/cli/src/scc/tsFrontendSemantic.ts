@@ -1,15 +1,19 @@
 import {
+  AggregateKind,
+  AggregateTypeRef,
   AdditiveOp,
   BitwiseOp,
   CompareOp,
   LogicalOp,
   MultiplicativeOp,
+  PointerPointee,
   ScalarType,
   ShiftOp,
   SourceBlock,
   SourceExpr,
   SourceForInit,
   SourceFunction,
+  SourceAggregateDef,
   SourceSimpleStmt,
   SourceProgram,
   SourceStmt,
@@ -32,7 +36,7 @@ export type SemanticArrayType = {
 
 export type SemanticPointerType = {
   kind: "pointer";
-  pointee: ScalarType;
+  pointee: PointerPointee;
   width: 2;
 };
 
@@ -140,9 +144,18 @@ type Scope = {
   entries: Map<string, BoundSymbol>;
 };
 
+type AggregateLayout = {
+  kind: "aggregateLayout";
+  aggregateKind: AggregateKind;
+  name: string;
+  size: number;
+};
+
 const MAX_CONTROL_NESTING = 8;
+let currentAggregateLayouts = new Map<string, AggregateLayout>();
 
 export function analyzeProgram(program: SourceProgram, sourceText: string, file?: string): BoundProgram {
+  currentAggregateLayouts = buildAggregateLayouts(program.aggregates, sourceText, file);
   const functionSymbols = new Map<string, BoundFunctionSymbol>();
   for (const fn of program.functions) {
     if (functionSymbols.has(fn.name)) {
@@ -473,17 +486,18 @@ function analyzePointerIndexedAssignExpr(
   if (symbol.type.kind !== "pointer") {
     throw new Error("Internal semantic error: expected pointer symbol.");
   }
+  const pointee = getScalarPointerPointee(symbol.type, functionName, sourceText, file);
   return {
     kind: "derefAssign",
     pointer: {
       kind: "pointerAdd",
       pointer: { kind: "ref", symbol, type: symbol.type },
       index: analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file),
-      pointee: symbol.type.pointee,
+      pointee,
       type: symbol.type,
     },
     expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
-    type: toSemanticScalarType(symbol.type.pointee),
+    type: toSemanticScalarType(pointee),
   };
 }
 
@@ -618,10 +632,11 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      const pointee = getScalarPointerPointee(pointer.type, functionName, sourceText, file);
       return {
         kind: "deref",
         pointer,
-        type: toSemanticScalarType(pointer.type.pointee),
+        type: toSemanticScalarType(pointee),
       };
     }
     case "arrayIndex": {
@@ -633,16 +648,17 @@ function analyzeExpr(
         });
       }
       if (symbol.type.kind === "pointer") {
+        const pointee = getScalarPointerPointee(symbol.type, functionName, sourceText, file);
         return {
           kind: "deref",
           pointer: {
             kind: "pointerAdd",
             pointer: { kind: "ref", symbol, type: symbol.type },
             index: analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file),
-            pointee: symbol.type.pointee,
+            pointee,
             type: symbol.type,
           },
-          type: toSemanticScalarType(symbol.type.pointee),
+          type: toSemanticScalarType(pointee),
         };
       }
       if (symbol.type.kind !== "array") {
@@ -755,11 +771,12 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      const pointee = getScalarPointerPointee(pointer.type, functionName, sourceText, file);
       return {
         kind: "derefAssign",
         pointer,
         expr: analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file),
-        type: toSemanticScalarType(pointer.type.pointee),
+        type: toSemanticScalarType(pointee),
       };
     }
     case "sizeofType":
@@ -843,6 +860,7 @@ function analyzeExpr(
         const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
         const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
         if (left.type.kind === "pointer" && right.type.kind === "scalar") {
+          const pointee = getScalarPointerPointee(left.type, functionName, sourceText, file);
           return {
             kind: "pointerAdd",
             pointer: left,
@@ -855,16 +873,17 @@ function analyzeExpr(
                 op: "-",
                 type: toSemanticScalarType("int"),
               },
-            pointee: left.type.pointee,
+            pointee,
             type: left.type,
           };
         }
         if (left.type.kind === "scalar" && right.type.kind === "pointer" && expr.op === "+") {
+          const pointee = getScalarPointerPointee(right.type, functionName, sourceText, file);
           return {
             kind: "pointerAdd",
             pointer: right,
             index: left,
-            pointee: right.type.pointee,
+            pointee,
             type: right.type,
           };
         }
@@ -920,6 +939,9 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
   if (type.kind === "scalar") {
     return toSemanticScalarType(type.name);
   }
+  if (type.kind === "aggregate") {
+    throw new Error(`Aggregate object values are not yet supported in semantic type lowering, got ${JSON.stringify(type)}`);
+  }
   if (type.kind === "pointer") {
     return toSemanticPointerType(type.pointee);
   }
@@ -938,7 +960,7 @@ function toSemanticScalarType(type: ScalarType): SemanticScalarType {
   };
 }
 
-function toSemanticPointerType(pointee: ScalarType): SemanticPointerType {
+function toSemanticPointerType(pointee: PointerPointee): SemanticPointerType {
   return {
     kind: "pointer",
     pointee,
@@ -949,6 +971,13 @@ function toSemanticPointerType(pointee: ScalarType): SemanticPointerType {
 function getTypeStorageBytes(type: SourceType): number {
   if (type.kind === "scalar") {
     return type.name === "char" ? 1 : 2;
+  }
+  if (type.kind === "aggregate") {
+    const layout = currentAggregateLayouts.get(`${type.aggregateKind}:${type.name}`);
+    if (!layout) {
+      throw new Error(`Unknown aggregate type '${type.aggregateKind} ${type.name}'.`);
+    }
+    return layout.size;
   }
   if (type.kind === "pointer") {
     return 2;
@@ -1036,6 +1065,53 @@ function getValueSemanticType(type: SemanticType): SemanticScalarType | Semantic
     throw new Error(`Expected scalar or pointer semantic type, got ${JSON.stringify(type)}`);
   }
   return type;
+}
+
+function getScalarPointerPointee(
+  type: SemanticPointerType,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): ScalarType {
+  if (typeof type.pointee === "string") {
+    return type.pointee;
+  }
+  throwDiagnostic(
+    sourceText,
+    `TsSccCompilerAdapter Phase C subset does not yet support ${formatAggregateTypeRef(type.pointee)} pointee layout operations in ${functionName}().`,
+    { file, offset: 0 },
+  );
+}
+
+function formatAggregateTypeRef(type: AggregateTypeRef): string {
+  return `${type.aggregateKind} ${type.name}`;
+}
+
+function buildAggregateLayouts(
+  defs: SourceAggregateDef[],
+  sourceText: string,
+  file?: string,
+): Map<string, AggregateLayout> {
+  const layouts = new Map<string, AggregateLayout>();
+  for (const def of defs) {
+    const key = `${def.aggregateKind}:${def.name}`;
+    if (layouts.has(key)) {
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support duplicate ${def.aggregateKind} tag '${def.name}'.`, {
+        file,
+        offset: 0,
+      });
+    }
+    const fieldSizes = def.fields.map((field) => getTypeStorageBytes(field.type));
+    layouts.set(key, {
+      kind: "aggregateLayout",
+      aggregateKind: def.aggregateKind,
+      name: def.name,
+      size: def.aggregateKind === "struct"
+        ? fieldSizes.reduce((sum, size) => sum + size, 0)
+        : Math.max(0, ...fieldSizes),
+    });
+  }
+  return layouts;
 }
 
 function getSizedArrayLength(type: SemanticArrayType): number {

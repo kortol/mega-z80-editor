@@ -1,9 +1,12 @@
 import {
+  AggregateKind,
+  AggregateTypeRef,
   AdditiveOp,
   BitwiseOp,
   BinaryOp,
   CompareOp,
   LogicalOp,
+  PointerPointee,
   MultiplicativeOp,
   ScalarType,
   ShiftOp,
@@ -11,6 +14,8 @@ import {
   SourceExpr,
   SourceFunction,
   SourceForInit,
+  SourceAggregateDef,
+  SourceAggregateField,
   SourceLocalDecl,
   SourceParam,
   SourceProgram,
@@ -43,6 +48,7 @@ const BINARY_PRECEDENCE: ReadonlyArray<{
 export function parseProgram(sourceText: string, file?: string): SourceProgram {
   const normalized = stripLineComments(sourceText);
   const context: ParseContext = { file, normalized };
+  const aggregates = parseAggregateDefs(context);
   const functions: SourceFunction[] = [];
   const headerPattern = /\b(int|char)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
   let match: RegExpExecArray | null;
@@ -68,8 +74,46 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
   }
   return {
     kind: "program",
+    aggregates,
     functions,
   };
+}
+
+function parseAggregateDefs(context: ParseContext): SourceAggregateDef[] {
+  const defs: SourceAggregateDef[] = [];
+  const pattern = /\b(struct|union)\s+([A-Za-z_]\w*)\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(context.normalized)) !== null) {
+    const bodyStart = pattern.lastIndex;
+    const bodyEnd = findMatchingBraceIndex(context, bodyStart - 1);
+    const bodyText = context.normalized.slice(bodyStart, bodyEnd);
+    defs.push({
+      kind: "aggregateDef",
+      aggregateKind: match[1] as AggregateKind,
+      name: match[2],
+      fields: parseAggregateFields(bodyText),
+    });
+    pattern.lastIndex = bodyEnd + 1;
+  }
+  return defs;
+}
+
+function parseAggregateFields(bodyText: string): SourceAggregateField[] {
+  return bodyText
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(part);
+      if (!match) {
+        throw new Error(`Unsupported aggregate field '${part}'.`);
+      }
+      return {
+        kind: "field",
+        name: match[2],
+        type: { kind: "scalar", name: match[1] as ScalarType },
+      };
+    });
 }
 
 export function stripLineComments(sourceText: string): string {
@@ -721,17 +765,20 @@ function parseSizeofExpr(context: ParseContext, exprText: string, functionName: 
   }
   const operandText = exprText.slice(match[0].length).trimStart();
   const operandOffset = offset + exprText.indexOf(operandText);
-  const typeMatch = /^\(\s*(int|char)\s*\)$/.exec(operandText);
-  if (typeMatch) {
+  const parenType = operandText.startsWith("(") && operandText.endsWith(")")
+    ? parseNamedType(operandText.replace(/^\(\s*|\s*\)$/g, ""))
+    : null;
+  if (parenType) {
     return {
       kind: "sizeofType",
-      type: makeScalarType(typeMatch[1] as ScalarType),
+      type: parenType,
     };
   }
-  if (/^(int|char)$/.test(operandText)) {
+  const bareType = parseNamedType(operandText);
+  if (bareType) {
     return {
       kind: "sizeofType",
-      type: makeScalarType(operandText as ScalarType),
+      type: bareType,
     };
   }
   if (operandText.startsWith("(") && findMatchingParenInText(operandText, 0) === operandText.length - 1) {
@@ -772,11 +819,11 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
       name: charArrayMatch[1],
     };
   }
-  const pointerMatch = /^(int|char)\s*\*\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))\s*\*\s*([A-Za-z_]\w*)$/.exec(trimmed);
   if (pointerMatch) {
     return {
       kind: "param",
-      type: { kind: "pointer", pointee: pointerMatch[1] as ScalarType },
+      type: { kind: "pointer", pointee: parsePointerPointee(pointerMatch[1]) },
       name: pointerMatch[2],
     };
   }
@@ -796,7 +843,7 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
 
 function parseDeclaration(statementText: string):
   | { type: ScalarType; name: string; initializer?: string }
-  | { type: "pointer"; pointee: ScalarType; name: string; initializer?: string }
+  | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
   | { type: "charArray"; name: string; length: number }
   | null {
   const arrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*(\d+)\s*\]$/.exec(statementText);
@@ -807,11 +854,11 @@ function parseDeclaration(statementText: string):
       length: Number.parseInt(arrayMatch[2], 10),
     };
   }
-  const pointerMatch = /^(int|char)\s*\*\s*([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
+  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))\s*\*\s*([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
   if (pointerMatch) {
     return {
       type: "pointer",
-      pointee: pointerMatch[1] as ScalarType,
+      pointee: parsePointerPointee(pointerMatch[1]),
       name: pointerMatch[2],
       initializer: pointerMatch[3],
     };
@@ -1475,6 +1522,36 @@ function findMatchingDelimitedIndex(
 
 function makeScalarType(name: ScalarType): SourceType {
   return { kind: "scalar", name };
+}
+
+function parseNamedType(text: string): SourceType | null {
+  if (text === "int" || text === "char") {
+    return makeScalarType(text);
+  }
+  const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(text);
+  if (!aggregateMatch) {
+    return null;
+  }
+  return makeAggregateTypeRef(aggregateMatch[1] as AggregateKind, aggregateMatch[2]);
+}
+
+function parsePointerPointee(text: string): PointerPointee {
+  if (text === "int" || text === "char") {
+    return text;
+  }
+  const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(text);
+  if (!aggregateMatch) {
+    throw new Error(`Internal parser error: unsupported pointer pointee '${text}'.`);
+  }
+  return makeAggregateTypeRef(aggregateMatch[1] as AggregateKind, aggregateMatch[2]);
+}
+
+function makeAggregateTypeRef(aggregateKind: AggregateKind, name: string): AggregateTypeRef {
+  return {
+    kind: "aggregate",
+    aggregateKind,
+    name,
+  };
 }
 
 function makeCharArrayType(length: number): SourceType {

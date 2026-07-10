@@ -358,6 +358,31 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\ta,(hl)");
   });
 
+  test("lowers opaque struct and union pointer params for compare and truthiness", () => {
+    const source = "int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer.i", source, "aggregate-pointer.c");
+    const asm = emitProgram(spec);
+
+    expect(spec.externs).toContain(".eq");
+    expect(spec.externs).toContain(".ne");
+    expect(asm).toContain("\tld\ta,h");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toContain("\tcall\t.eq");
+  });
+
+  test("lowers sizeof aggregate types as integer constants", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ return sizeof(struct Foo) + sizeof(union Bar); }\n";
+    const parsed = parseProgram(source, "aggregate-sizeof.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-sizeof.c");
+    const spec = lowerSourceProgram(bound, "aggregate-sizeof.i", source, "aggregate-sizeof.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#3");
+    expect(asm).toContain("\tld\thl,#2");
+  });
+
   test("lowers bitwise expressions into inline bytewise ops", () => {
     const source = "int main(int a, int b){ return (a & b) ^ (a | b); }\n";
     const parsed = parseProgram(source, "bitwise.c");

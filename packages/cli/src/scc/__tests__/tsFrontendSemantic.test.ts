@@ -418,6 +418,36 @@ describe("tsFrontendSemantic", () => {
     expect(mainReturn.expr.args[0]?.kind).toBe("localAddress");
   });
 
+  test("binds opaque struct and union pointer params for compare and truthiness", () => {
+    const source = "int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer.c");
+    expect(bound.functions[0].params[0]?.type).toEqual({
+      kind: "pointer",
+      pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" },
+      width: 2,
+    });
+    expect(bound.functions[0].params[1]?.type).toEqual({
+      kind: "pointer",
+      pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" },
+      width: 2,
+    });
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("if");
+  });
+
+  test("folds sizeof aggregate types into integer constants", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ return sizeof(struct Foo) + sizeof(union Bar); }\n";
+    const parsed = parseProgram(source, "aggregate-sizeof.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-sizeof.c");
+    const returnStmt = bound.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "const", value: 3, type: { kind: "scalar", name: "int", width: 2 } });
+    expect(returnStmt.expr.right).toEqual({ kind: "const", value: 2, type: { kind: "scalar", name: "int", width: 2 } });
+  });
+
   test("rejects local shadowing a parameter", () => {
     const source = "int main(int a){ if (a > 0) { int a = 1; return a; } return 0; }\n";
     const parsed = parseProgram(source, "shadow.c");
