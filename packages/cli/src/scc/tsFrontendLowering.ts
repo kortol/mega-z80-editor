@@ -312,14 +312,20 @@ function getScalarLocalWidth(local: BoundLocalSymbol): 1 | 2 {
 }
 
 function getLocalValueWidth(local: BoundLocalSymbol): 1 | 2 {
-  if (local.type.kind === "array") {
+  if (local.type.kind === "array" || local.type.kind === "aggregate") {
     throw new Error(`Internal lowering error: expected scalar/pointer local, got ${JSON.stringify(local.type)}`);
   }
   return local.type.width;
 }
 
 function getParamWidth(param: BoundFunction["params"][number]): 1 | 2 {
-  return param.type.kind === "array" ? 2 : param.type.width;
+  if (param.type.kind === "array") {
+    return 2;
+  }
+  if (param.type.kind === "aggregate") {
+    throw new Error(`Internal lowering error: expected scalar/pointer parameter, got ${JSON.stringify(param.type)}`);
+  }
+  return param.type.width;
 }
 
 function lowerParamArrayAssign(
@@ -362,6 +368,10 @@ function lowerExpr(
           ? getLocalValueWidth(expr.symbol)
           : expr.symbol.type.kind === "array"
             ? 2
+            : expr.symbol.type.kind === "aggregate"
+              ? (() => {
+                throw new Error(`Internal lowering error: aggregate parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
+              })()
             : expr.symbol.type.width,
         slot: expr.symbol.slot,
       } satisfies RefIR;

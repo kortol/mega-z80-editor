@@ -40,7 +40,14 @@ export type SemanticPointerType = {
   width: 2;
 };
 
-export type SemanticType = SemanticScalarType | SemanticArrayType | SemanticPointerType;
+export type SemanticAggregateType = {
+  kind: "aggregate";
+  aggregateKind: AggregateKind;
+  name: string;
+  size: number;
+};
+
+export type SemanticType = SemanticScalarType | SemanticArrayType | SemanticPointerType | SemanticAggregateType;
 
 export type BoundFunctionSymbol = {
   kind: "function";
@@ -576,6 +583,17 @@ function analyzeExpr(
       if (symbol.type.kind === "array") {
         return { kind: "localAddress", symbol, type: toSemanticPointerType("char") };
       }
+      if (symbol.type.kind === "aggregate") {
+        return {
+          kind: "localAddress",
+          symbol,
+          type: toSemanticPointerType({
+            kind: "aggregate",
+            aggregateKind: symbol.type.aggregateKind,
+            name: symbol.type.name,
+          }),
+        };
+      }
       return { kind: "localAddress", symbol, type: toSemanticPointerType(symbol.type.name) };
     }
     case "addressOfExpr": {
@@ -621,6 +639,12 @@ function analyzeExpr(
       }
       if (symbol.kind === "param" && symbol.type.kind === "array") {
         return { kind: "ref", symbol, type: toSemanticPointerType("char") };
+      }
+      if (symbol.type.kind === "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not yet support aggregate object values for '${expr.name}' in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
       }
       return { kind: "ref", symbol, type: getValueSemanticType(symbol.type) };
     }
@@ -940,7 +964,16 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
     return toSemanticScalarType(type.name);
   }
   if (type.kind === "aggregate") {
-    throw new Error(`Aggregate object values are not yet supported in semantic type lowering, got ${JSON.stringify(type)}`);
+    const layout = currentAggregateLayouts.get(`${type.aggregateKind}:${type.name}`);
+    if (!layout) {
+      throw new Error(`Unknown aggregate type '${type.aggregateKind} ${type.name}'.`);
+    }
+    return {
+      kind: "aggregate",
+      aggregateKind: type.aggregateKind,
+      name: type.name,
+      size: layout.size,
+    };
   }
   if (type.kind === "pointer") {
     return toSemanticPointerType(type.pointee);
@@ -1040,7 +1073,9 @@ function getSourceExprStorageBytes(
     }
     return symbol.type.kind === "array"
       ? symbol.type.length ?? 2
-      : symbol.type.width;
+      : symbol.type.kind === "aggregate"
+        ? symbol.type.size
+        : symbol.type.width;
   }
   const boundExpr = analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file);
   return getBoundExprStorageBytes(boundExpr);
@@ -1061,7 +1096,7 @@ function getScalarSemanticType(type: SemanticType): SemanticScalarType {
 }
 
 function getValueSemanticType(type: SemanticType): SemanticScalarType | SemanticPointerType {
-  if (type.kind === "array") {
+  if (type.kind === "array" || type.kind === "aggregate") {
     throw new Error(`Expected scalar or pointer semantic type, got ${JSON.stringify(type)}`);
   }
   return type;

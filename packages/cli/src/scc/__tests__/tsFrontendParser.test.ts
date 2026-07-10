@@ -412,6 +412,213 @@ describe("tsFrontendParser", () => {
     expect(returnStmt.expr.right.kind).toBe("sizeofType");
   });
 
+  test("parses local aggregate declarations, sizeof locals, and address-of aggregate objects", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; return sizeof x + take(&x); }\n";
+    const program = parseProgram(source, "aggregate-local.c");
+    expect(program.functions[1].body.declarations[0]?.type).toEqual({
+      kind: "aggregate",
+      aggregateKind: "struct",
+      name: "Foo",
+    });
+    const returnStmt = program.functions[1].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "sizeofExpr", expr: { kind: "ref", name: "x" } });
+    expect(returnStmt.expr.right.kind).toBe("call");
+    if (returnStmt.expr.right.kind !== "call") {
+      return;
+    }
+    expect(returnStmt.expr.right.args[0]).toEqual({ kind: "addressOf", name: "x" });
+  });
+
+  test("parses local aggregate pointers initialized from aggregate object addresses", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p = &x; return take(p) + (p != 0); }\n";
+    const program = parseProgram(source, "aggregate-local-pointer.c");
+    expect(program.functions[1].body.declarations[1]).toEqual({
+      kind: "localDecl",
+      name: "p",
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" } },
+      initializer: { kind: "addressOf", name: "x" },
+    });
+  });
+
+  test("parses local union pointers initialized from union object addresses", () => {
+    const source = "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p = &x; return take(p) + (p != 0); }\n";
+    const program = parseProgram(source, "union-local-pointer.c");
+    expect(program.functions[1].body.declarations[0]?.type).toEqual({
+      kind: "aggregate",
+      aggregateKind: "union",
+      name: "Bar",
+    });
+    expect(program.functions[1].body.declarations[1]).toEqual({
+      kind: "localDecl",
+      name: "p",
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" } },
+      initializer: { kind: "addressOf", name: "x" },
+    });
+  });
+
+  test("parses aggregate pointer assignment after declaration", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p; p = &x; return take(p) + (p != 0); }\n";
+    const program = parseProgram(source, "aggregate-pointer-assign.c");
+    expect(program.functions[1].body.declarations[1]).toEqual({
+      kind: "localDecl",
+      name: "p",
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" } },
+    });
+    const assignStmt = program.functions[1].body.statements[0];
+    expect(assignStmt).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: { kind: "addressOf", name: "x" },
+    });
+  });
+
+  test("parses union pointer assignment after declaration", () => {
+    const source = "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p; p = &x; return take(p) + (p != 0); }\n";
+    const program = parseProgram(source, "union-pointer-assign.c");
+    expect(program.functions[1].body.declarations[1]).toEqual({
+      kind: "localDecl",
+      name: "p",
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" } },
+    });
+    const assignStmt = program.functions[1].body.statements[0];
+    expect(assignStmt).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: { kind: "addressOf", name: "x" },
+    });
+  });
+
+  test("parses aggregate pointer null assignment and reassignment", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n";
+    const program = parseProgram(source, "aggregate-pointer-null.c");
+    const firstAssign = program.functions[0].body.statements[0];
+    const secondAssign = program.functions[0].body.statements[1];
+    expect(firstAssign).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: { kind: "const", value: 0 },
+    });
+    expect(secondAssign).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: { kind: "addressOf", name: "x" },
+    });
+    expect(program.functions[0].body.statements[2]?.kind).toBe("if");
+  });
+
+  test("parses union pointer null assignment and reassignment", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; union Bar *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n";
+    const program = parseProgram(source, "union-pointer-null.c");
+    const firstAssign = program.functions[0].body.statements[0];
+    const secondAssign = program.functions[0].body.statements[1];
+    expect(firstAssign).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: { kind: "const", value: 0 },
+    });
+    expect(secondAssign).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: { kind: "addressOf", name: "x" },
+    });
+    expect(program.functions[0].body.statements[2]?.kind).toBe("if");
+  });
+
+  test("parses direct aggregate address compares and truthiness", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; if (&x) return &x != 0; return 0; }\n";
+    const program = parseProgram(source, "aggregate-address-direct.c");
+    const ifStmt = program.functions[0].body.statements[0];
+    expect(ifStmt?.kind).toBe("if");
+    if (ifStmt?.kind !== "if") {
+      return;
+    }
+    expect(ifStmt.condition).toEqual({ kind: "addressOf", name: "x" });
+    expect(ifStmt.thenBlock.statements[0]).toEqual({
+      kind: "return",
+      expr: {
+        kind: "binary",
+        op: "!=",
+        left: { kind: "addressOf", name: "x" },
+        right: { kind: "const", value: 0 },
+      },
+    });
+  });
+
+  test("parses direct union address compares and truthiness", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; if (&x) return &x != 0; return 0; }\n";
+    const program = parseProgram(source, "union-address-direct.c");
+    const ifStmt = program.functions[0].body.statements[0];
+    expect(ifStmt?.kind).toBe("if");
+    if (ifStmt?.kind !== "if") {
+      return;
+    }
+    expect(ifStmt.condition).toEqual({ kind: "addressOf", name: "x" });
+    expect(ifStmt.thenBlock.statements[0]).toEqual({
+      kind: "return",
+      expr: {
+        kind: "binary",
+        op: "!=",
+        left: { kind: "addressOf", name: "x" },
+        right: { kind: "const", value: 0 },
+      },
+    });
+  });
+
+  test("parses mixed aggregate sizeof and direct address compare expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return sizeof x + (&x != 0); }\n";
+    const program = parseProgram(source, "aggregate-mixed-expr.c");
+    const returnStmt = program.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "sizeofExpr", expr: { kind: "ref", name: "x" } });
+    expect(returnStmt.expr.right).toEqual({
+      kind: "binary",
+      op: "!=",
+      left: { kind: "addressOf", name: "x" },
+      right: { kind: "const", value: 0 },
+    });
+  });
+
+  test("parses mixed union sizeof and direct address conditional expressions", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; return sizeof x + (&x ? 1 : 0); }\n";
+    const program = parseProgram(source, "union-mixed-expr.c");
+    const returnStmt = program.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "sizeofExpr", expr: { kind: "ref", name: "x" } });
+    expect(returnStmt.expr.right).toEqual({
+      kind: "conditional",
+      condition: { kind: "addressOf", name: "x" },
+      thenExpr: { kind: "const", value: 1 },
+      elseExpr: { kind: "const", value: 0 },
+    });
+  });
+
+  test("rejects aggregate pointer-to-pointer declarations", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n";
+    expect(() => parseProgram(source, "aggregate-pointer-pointer.c")).toThrow(/does not support expression|does not support statement|does not support parameter/);
+  });
+
+  test("rejects union pointer-to-pointer declarations", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n";
+    expect(() => parseProgram(source, "union-pointer-pointer.c")).toThrow(/does not support expression|does not support statement|does not support parameter/);
+  });
+
+  test("parses address-of applied to address-of expressions for later semantic rejection", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return &(&x) != 0; }\n";
+    const program = parseProgram(source, "aggregate-double-address.c");
+    const returnStmt = program.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+  });
+
   test("parses logical and/or with lower precedence than compare", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a == b || b == c && c; }\n", "logical.c");
     const stmt = program.functions[0].body.statements[0];

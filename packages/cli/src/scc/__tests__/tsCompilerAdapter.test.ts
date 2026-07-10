@@ -957,6 +957,180 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tld\thl,#2");
   });
 
+  test("source mode supports local aggregate objects for sizeof locals and address-of calls in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-local-"));
+    const inputFile = path.join(tempDir, "aggregate-local.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; return sizeof x + take(&x); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#3");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\ttake");
+  });
+
+  test("source mode supports local aggregate pointers initialized from aggregate object addresses in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-local-pointer-"));
+    const inputFile = path.join(tempDir, "aggregate-local-pointer.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p = &x; return take(p) + (p != 0); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\ttake");
+    expect(sccAsm).toContain("\tcall\t.ne");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+  });
+
+  test("source mode supports local union pointers initialized from union object addresses in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-union-local-pointer-"));
+    const inputFile = path.join(tempDir, "union-local-pointer.c");
+    fs.writeFileSync(inputFile, "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p = &x; return take(p) + (p != 0); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\ttake");
+    expect(sccAsm).toContain("\tcall\t.ne");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+  });
+
+  test("source mode supports aggregate pointer assignment after declaration in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-assign-"));
+    const inputFile = path.join(tempDir, "aggregate-pointer-assign.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p; p = &x; return take(p) + (p != 0); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\ttake");
+    expect(sccAsm).toContain("\tcall\t.ne");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+  });
+
+  test("source mode supports union pointer assignment after declaration in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-union-pointer-assign-"));
+    const inputFile = path.join(tempDir, "union-pointer-assign.c");
+    fs.writeFileSync(inputFile, "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p; p = &x; return take(p) + (p != 0); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tcall\ttake");
+    expect(sccAsm).toContain("\tcall\t.ne");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+  });
+
+  test("source mode supports aggregate pointer null assignment and reassignment in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-null-"));
+    const inputFile = path.join(tempDir, "aggregate-pointer-null.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#0");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\t.ne");
+  });
+
+  test("source mode supports union pointer null assignment and reassignment in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-union-pointer-null-"));
+    const inputFile = path.join(tempDir, "union-pointer-null.c");
+    fs.writeFileSync(inputFile, "union Bar { char a; int b; };\nint main(){ union Bar x; union Bar *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#0");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\t.ne");
+  });
+
+  test("source mode supports direct aggregate address compares and truthiness in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-address-direct-"));
+    const inputFile = path.join(tempDir, "aggregate-address-direct.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nint main(){ struct Foo x; if (&x) return &x != 0; return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\t.ne");
+  });
+
+  test("source mode supports direct union address compares and truthiness in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-union-address-direct-"));
+    const inputFile = path.join(tempDir, "union-address-direct.c");
+    fs.writeFileSync(inputFile, "union Bar { char a; int b; };\nint main(){ union Bar x; if (&x) return &x != 0; return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\t.ne");
+  });
+
+  test("source mode supports mixed aggregate sizeof and direct address compare expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-mixed-expr-"));
+    const inputFile = path.join(tempDir, "aggregate-mixed-expr.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nint main(){ struct Foo x; return sizeof x + (&x != 0); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#3");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toContain("\tcall\t.ne");
+  });
+
+  test("source mode supports mixed union sizeof and direct address conditional expressions in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-union-mixed-expr-"));
+    const inputFile = path.join(tempDir, "union-mixed-expr.c");
+    fs.writeFileSync(inputFile, "union Bar { char a; int b; };\nint main(){ union Bar x; return sizeof x + (&x ? 1 : 0); }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\thl,#2");
+    expect(sccAsm).toContain("\tadd\thl,sp");
+    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
   test("source mode supports bitwise expressions in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-bitwise-"));

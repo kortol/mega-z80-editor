@@ -234,6 +234,23 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `struct Foo { char a; int b; };`
   - `union Bar { char a; int b; };`
   - `return sizeof(struct Foo) + sizeof(union Bar);`
+  - `struct Foo x;`
+  - `return sizeof x;`
+  - `return take(&x);`
+  - `struct Foo *p = &x;`
+  - `return take(p) + (p != 0);`
+  - `union Bar x;`
+  - `union Bar *p = &x;`
+  - `struct Foo *p; p = &x;`
+  - `union Bar *p; p = &x;`
+  - `p = 0;`
+  - `if (p) return p != 0;`
+  - `if (&x) return &x != 0;`
+  - `return sizeof x + (&x != 0);`
+  - `return sizeof x + (&x ? 1 : 0);`
+  - still rejected: `struct Foo **pp;`
+  - still rejected: `union Bar **pp;`
+  - still rejected: `&(&x)`
 - bitwise operators
   - `a & b`
   - `a ^ b`

@@ -448,6 +448,255 @@ describe("tsFrontendSemantic", () => {
     expect(returnStmt.expr.right).toEqual({ kind: "const", value: 2, type: { kind: "scalar", name: "int", width: 2 } });
   });
 
+  test("binds local aggregate objects for sizeof locals and address-of calls", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; return sizeof x + take(&x); }\n";
+    const parsed = parseProgram(source, "aggregate-local.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-local.c");
+    expect(bound.functions[1].locals[0]).toEqual({
+      kind: "local",
+      name: "x",
+      type: { kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 3 },
+      storageBytes: 3,
+      slot: 0,
+    });
+    const returnStmt = bound.functions[1].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "const", value: 3, type: { kind: "scalar", name: "int", width: 2 } });
+    expect(returnStmt.expr.right.kind).toBe("call");
+    if (returnStmt.expr.right.kind !== "call") {
+      return;
+    }
+    expect(returnStmt.expr.right.args[0]).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[1].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" }, width: 2 },
+    });
+  });
+
+  test("binds local aggregate pointers initialized from aggregate object addresses", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "aggregate-local-pointer.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-local-pointer.c");
+    expect(bound.functions[1].locals[1]).toEqual({
+      kind: "local",
+      name: "p",
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" }, width: 2 },
+      storageBytes: 2,
+      slot: 1,
+    });
+    const returnStmt = bound.functions[1].body.statements[1];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("call");
+    expect(returnStmt.expr.right.kind).toBe("compare");
+  });
+
+  test("binds local union pointers initialized from union object addresses", () => {
+    const source = "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "union-local-pointer.c");
+    const bound = analyzeProgram(parsed, source, "union-local-pointer.c");
+    expect(bound.functions[1].locals[0]).toEqual({
+      kind: "local",
+      name: "x",
+      type: { kind: "aggregate", aggregateKind: "union", name: "Bar", size: 2 },
+      storageBytes: 2,
+      slot: 0,
+    });
+    expect(bound.functions[1].locals[1]).toEqual({
+      kind: "local",
+      name: "p",
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" }, width: 2 },
+      storageBytes: 2,
+      slot: 1,
+    });
+    const returnStmt = bound.functions[1].body.statements[1];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("call");
+    expect(returnStmt.expr.right.kind).toBe("compare");
+  });
+
+  test("binds aggregate pointer assignment after declaration", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p; p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-assign.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-assign.c");
+    const assignStmt = bound.functions[1].body.statements[0];
+    expect(assignStmt.kind).toBe("assign");
+    if (assignStmt.kind !== "assign") {
+      return;
+    }
+    expect(assignStmt.local).toEqual(bound.functions[1].locals[1]);
+    expect(assignStmt.expr).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[1].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" }, width: 2 },
+    });
+    const returnStmt = bound.functions[1].body.statements[1];
+    expect(returnStmt.kind).toBe("return");
+  });
+
+  test("binds union pointer assignment after declaration", () => {
+    const source = "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p; p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "union-pointer-assign.c");
+    const bound = analyzeProgram(parsed, source, "union-pointer-assign.c");
+    const assignStmt = bound.functions[1].body.statements[0];
+    expect(assignStmt.kind).toBe("assign");
+    if (assignStmt.kind !== "assign") {
+      return;
+    }
+    expect(assignStmt.local).toEqual(bound.functions[1].locals[1]);
+    expect(assignStmt.expr).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[1].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" }, width: 2 },
+    });
+    const returnStmt = bound.functions[1].body.statements[1];
+    expect(returnStmt.kind).toBe("return");
+  });
+
+  test("binds aggregate pointer null assignment and reassignment", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-null.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-null.c");
+    const firstAssign = bound.functions[0].body.statements[0];
+    expect(firstAssign.kind).toBe("assign");
+    if (firstAssign.kind !== "assign") {
+      return;
+    }
+    expect(firstAssign.local).toEqual(bound.functions[0].locals[1]);
+    expect(firstAssign.expr).toEqual({ kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } });
+    const secondAssign = bound.functions[0].body.statements[1];
+    expect(secondAssign.kind).toBe("assign");
+    if (secondAssign.kind !== "assign") {
+      return;
+    }
+    expect(secondAssign.expr).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[0].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" }, width: 2 },
+    });
+    const ifStmt = bound.functions[0].body.statements[2];
+    expect(ifStmt.kind).toBe("if");
+  });
+
+  test("binds union pointer null assignment and reassignment", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; union Bar *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n";
+    const parsed = parseProgram(source, "union-pointer-null.c");
+    const bound = analyzeProgram(parsed, source, "union-pointer-null.c");
+    const firstAssign = bound.functions[0].body.statements[0];
+    expect(firstAssign.kind).toBe("assign");
+    if (firstAssign.kind !== "assign") {
+      return;
+    }
+    expect(firstAssign.local).toEqual(bound.functions[0].locals[1]);
+    expect(firstAssign.expr).toEqual({ kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } });
+    const secondAssign = bound.functions[0].body.statements[1];
+    expect(secondAssign.kind).toBe("assign");
+    if (secondAssign.kind !== "assign") {
+      return;
+    }
+    expect(secondAssign.expr).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[0].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" }, width: 2 },
+    });
+    const ifStmt = bound.functions[0].body.statements[2];
+    expect(ifStmt.kind).toBe("if");
+  });
+
+  test("binds direct aggregate address compares and truthiness", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; if (&x) return &x != 0; return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-address-direct.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-address-direct.c");
+    const ifStmt = bound.functions[0].body.statements[0];
+    expect(ifStmt.kind).toBe("if");
+    if (ifStmt.kind !== "if") {
+      return;
+    }
+    expect(ifStmt.condition).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[0].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" }, width: 2 },
+    });
+    const thenReturn = ifStmt.thenBlock.statements[0];
+    expect(thenReturn?.kind).toBe("return");
+  });
+
+  test("binds direct union address compares and truthiness", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; if (&x) return &x != 0; return 0; }\n";
+    const parsed = parseProgram(source, "union-address-direct.c");
+    const bound = analyzeProgram(parsed, source, "union-address-direct.c");
+    const ifStmt = bound.functions[0].body.statements[0];
+    expect(ifStmt.kind).toBe("if");
+    if (ifStmt.kind !== "if") {
+      return;
+    }
+    expect(ifStmt.condition).toEqual({
+      kind: "localAddress",
+      symbol: bound.functions[0].locals[0],
+      type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" }, width: 2 },
+    });
+    const thenReturn = ifStmt.thenBlock.statements[0];
+    expect(thenReturn?.kind).toBe("return");
+  });
+
+  test("binds mixed aggregate sizeof and direct address compare expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return sizeof x + (&x != 0); }\n";
+    const parsed = parseProgram(source, "aggregate-mixed-expr.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-mixed-expr.c");
+    const returnStmt = bound.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "const", value: 3, type: { kind: "scalar", name: "int", width: 2 } });
+    expect(returnStmt.expr.right.kind).toBe("compare");
+  });
+
+  test("binds mixed union sizeof and direct address conditional expressions", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; return sizeof x + (&x ? 1 : 0); }\n";
+    const parsed = parseProgram(source, "union-mixed-expr.c");
+    const bound = analyzeProgram(parsed, source, "union-mixed-expr.c");
+    const returnStmt = bound.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.left).toEqual({ kind: "const", value: 2, type: { kind: "scalar", name: "int", width: 2 } });
+    expect(returnStmt.expr.right.kind).toBe("conditional");
+  });
+
+  test("rejects aggregate pointer-to-pointer declarations during parse/analyze flow", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n";
+    expect(() => {
+      const parsed = parseProgram(source, "aggregate-pointer-pointer.c");
+      analyzeProgram(parsed, source, "aggregate-pointer-pointer.c");
+    }).toThrow(/does not support/);
+  });
+
+  test("rejects union pointer-to-pointer declarations during parse/analyze flow", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n";
+    expect(() => {
+      const parsed = parseProgram(source, "union-pointer-pointer.c");
+      analyzeProgram(parsed, source, "union-pointer-pointer.c");
+    }).toThrow(/does not support/);
+  });
+
+  test("rejects address-of applied to address-of expressions during parse/analyze flow", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return &(&x) != 0; }\n";
+    expect(() => {
+      const parsed = parseProgram(source, "aggregate-double-address.c");
+      analyzeProgram(parsed, source, "aggregate-double-address.c");
+    }).toThrow(/only supports address-of on locals, array elements, or dereference/);
+  });
+
   test("rejects local shadowing a parameter", () => {
     const source = "int main(int a){ if (a > 0) { int a = 1; return a; } return 0; }\n";
     const parsed = parseProgram(source, "shadow.c");

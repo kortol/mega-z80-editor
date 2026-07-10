@@ -383,6 +383,140 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\thl,#2");
   });
 
+  test("lowers local aggregate objects for sizeof locals and address-of calls", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; return sizeof x + take(&x); }\n";
+    const parsed = parseProgram(source, "aggregate-local.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-local.c");
+    const spec = lowerSourceProgram(bound, "aggregate-local.i", source, "aggregate-local.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#3");
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tcall\ttake");
+  });
+
+  test("lowers local aggregate pointers initialized from aggregate object addresses", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "aggregate-local-pointer.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-local-pointer.c");
+    const spec = lowerSourceProgram(bound, "aggregate-local-pointer.i", source, "aggregate-local-pointer.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\ttake");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toContain("\tadd\thl,sp");
+  });
+
+  test("lowers local union pointers initialized from union object addresses", () => {
+    const source = "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "union-local-pointer.c");
+    const bound = analyzeProgram(parsed, source, "union-local-pointer.c");
+    const spec = lowerSourceProgram(bound, "union-local-pointer.i", source, "union-local-pointer.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\ttake");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toContain("\tadd\thl,sp");
+  });
+
+  test("lowers aggregate pointer assignment after declaration", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(){ struct Foo x; struct Foo *p; p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-assign.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-assign.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-assign.i", source, "aggregate-pointer-assign.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\ttake");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toContain("\tadd\thl,sp");
+  });
+
+  test("lowers union pointer assignment after declaration", () => {
+    const source = "union Bar { char a; int b; };\nint take(union Bar *p){ return p != 0; }\nint main(){ union Bar x; union Bar *p; p = &x; return take(p) + (p != 0); }\n";
+    const parsed = parseProgram(source, "union-pointer-assign.c");
+    const bound = analyzeProgram(parsed, source, "union-pointer-assign.c");
+    const spec = lowerSourceProgram(bound, "union-pointer-assign.i", source, "union-pointer-assign.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\ttake");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toContain("\tadd\thl,sp");
+  });
+
+  test("lowers aggregate pointer null assignment and reassignment", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-null.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-null.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-null.i", source, "aggregate-pointer-null.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#0");
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers union pointer null assignment and reassignment", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; union Bar *p; p = 0; p = &x; if (p) return p != 0; return 0; }\n";
+    const parsed = parseProgram(source, "union-pointer-null.c");
+    const bound = analyzeProgram(parsed, source, "union-pointer-null.c");
+    const spec = lowerSourceProgram(bound, "union-pointer-null.i", source, "union-pointer-null.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#0");
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers direct aggregate address compares and truthiness", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; if (&x) return &x != 0; return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-address-direct.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-address-direct.c");
+    const spec = lowerSourceProgram(bound, "aggregate-address-direct.i", source, "aggregate-address-direct.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers direct union address compares and truthiness", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; if (&x) return &x != 0; return 0; }\n";
+    const parsed = parseProgram(source, "union-address-direct.c");
+    const bound = analyzeProgram(parsed, source, "union-address-direct.c");
+    const spec = lowerSourceProgram(bound, "union-address-direct.i", source, "union-address-direct.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tcall\t.ne");
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers mixed aggregate sizeof and direct address compare expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return sizeof x + (&x != 0); }\n";
+    const parsed = parseProgram(source, "aggregate-mixed-expr.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-mixed-expr.c");
+    const spec = lowerSourceProgram(bound, "aggregate-mixed-expr.i", source, "aggregate-mixed-expr.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#3");
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toContain("\tcall\t.ne");
+  });
+
+  test("lowers mixed union sizeof and direct address conditional expressions", () => {
+    const source = "union Bar { char a; int b; };\nint main(){ union Bar x; return sizeof x + (&x ? 1 : 0); }\n";
+    const parsed = parseProgram(source, "union-mixed-expr.c");
+    const bound = analyzeProgram(parsed, source, "union-mixed-expr.c");
+    const spec = lowerSourceProgram(bound, "union-mixed-expr.i", source, "union-mixed-expr.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#2");
+    expect(asm).toContain("\tadd\thl,sp");
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
   test("lowers bitwise expressions into inline bytewise ops", () => {
     const source = "int main(int a, int b){ return (a & b) ^ (a | b); }\n";
     const parsed = parseProgram(source, "bitwise.c");

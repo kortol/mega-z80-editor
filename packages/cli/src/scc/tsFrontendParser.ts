@@ -206,11 +206,7 @@ function parseStatement(
       declaration: {
         kind: "localDecl",
         name: declaration.name,
-        type: declaration.type === "charArray"
-          ? makeCharArrayType(declaration.length)
-          : declaration.type === "pointer"
-            ? { kind: "pointer", pointee: declaration.pointee }
-            : makeScalarType(declaration.type),
+        type: declarationToSourceType(declaration),
         initializer: declaration.type !== "charArray" && declaration.initializer
           ? parseExpression(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
           : undefined,
@@ -843,6 +839,7 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
 
 function parseDeclaration(statementText: string):
   | { type: ScalarType; name: string; initializer?: string }
+  | { type: AggregateTypeRef; name: string; initializer?: string }
   | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
   | { type: "charArray"; name: string; length: number }
   | null {
@@ -861,6 +858,14 @@ function parseDeclaration(statementText: string):
       pointee: parsePointerPointee(pointerMatch[1]),
       name: pointerMatch[2],
       initializer: pointerMatch[3],
+    };
+  }
+  const aggregateMatch = /^((?:struct|union)\s+[A-Za-z_]\w*)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
+  if (aggregateMatch) {
+    return {
+      type: parseNamedType(aggregateMatch[1]) as AggregateTypeRef,
+      name: aggregateMatch[2],
+      initializer: aggregateMatch[3],
     };
   }
   const match = /^(int|char)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
@@ -1797,17 +1802,32 @@ function parseForInitializer(
     return {
       kind: "localDecl",
       name: declaration.name,
-      type: declaration.type === "charArray"
-        ? makeCharArrayType(declaration.length)
-        : declaration.type === "pointer"
-          ? { kind: "pointer", pointee: declaration.pointee }
-          : makeScalarType(declaration.type),
+      type: declarationToSourceType(declaration),
       initializer: declaration.type !== "charArray" && declaration.initializer
         ? parseExpression(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
         : undefined,
     };
   }
   return parseSimpleStatement(context, initText, functionName, offset);
+}
+
+function declarationToSourceType(
+  declaration:
+    | { type: ScalarType; name: string; initializer?: string }
+    | { type: AggregateTypeRef; name: string; initializer?: string }
+    | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
+    | { type: "charArray"; name: string; length: number },
+): SourceType {
+  if (declaration.type === "charArray") {
+    return makeCharArrayType(declaration.length);
+  }
+  if (declaration.type === "pointer") {
+    return { kind: "pointer", pointee: declaration.pointee };
+  }
+  if (typeof declaration.type === "string") {
+    return makeScalarType(declaration.type);
+  }
+  return declaration.type;
 }
 
 function splitForHeaderParts(
