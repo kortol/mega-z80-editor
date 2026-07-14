@@ -21,6 +21,7 @@ export type ExprSpec =
   | { kind: "derefWord"; pointer: ExprSpec }
   | { kind: "assignDerefByte"; pointer: ExprSpec; expr: ExprSpec }
   | { kind: "assignDerefWord"; pointer: ExprSpec; expr: ExprSpec }
+  | { kind: "incDecDeref"; pointer: ExprSpec; width: ValueWidth; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "call"; target: string; args?: ExprSpec[] }
   | { kind: "incDecLocal"; offset: number; width: ValueWidth; step: 1 | 2; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecLocalArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
@@ -70,6 +71,7 @@ export type ExprIR =
   | { kind: "derefWord"; pointer: ExprIR }
   | { kind: "assignDerefByte"; pointer: ExprIR; expr: ExprIR }
   | { kind: "assignDerefWord"; pointer: ExprIR; expr: ExprIR }
+  | { kind: "incDecDeref"; pointer: ExprIR; width: ValueWidth; op: "++" | "--"; mode: "prefix" | "postfix" }
   | RefIR
   | { kind: "incDecLocal"; slot: number; width: ValueWidth; step: 1 | 2; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecLocalArray"; slot: number; index: ExprIR; op: "++" | "--"; mode: "prefix" | "postfix" }
@@ -416,6 +418,8 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
       return { kind: "assignDerefByte", pointer: lowerExprIR(expr.pointer, layout), expr: lowerExprIR(expr.expr, layout) };
     case "assignDerefWord":
       return { kind: "assignDerefWord", pointer: lowerExprIR(expr.pointer, layout), expr: lowerExprIR(expr.expr, layout) };
+    case "incDecDeref":
+      return { kind: "incDecDeref", pointer: lowerExprIR(expr.pointer, layout), width: expr.width, op: expr.op, mode: expr.mode };
     case "incDecLocal":
       return { kind: "incDecLocal", offset: getLocalOffset(layout, expr.slot), width: expr.width, step: expr.step, op: expr.op, mode: expr.mode };
     case "incDecLocalArray":
@@ -625,6 +629,10 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return emitAssignDerefByteExpr(expr.pointer, expr.expr, ctx);
     case "assignDerefWord":
       return emitAssignDerefWordExpr(expr.pointer, expr.expr, ctx);
+    case "incDecDeref":
+      return expr.width === 1
+        ? emitIncDecDerefByteExpr(expr.pointer, expr.op, expr.mode, ctx)
+        : emitIncDecDerefWordExpr(expr.pointer, expr.op, expr.mode, ctx);
     case "incDecLocal":
       return expr.width === 1
         ? emitIncDecLocalByteExpr(expr.offset, expr.op, expr.mode, ctx)
@@ -875,6 +883,33 @@ function emitAssignDerefWordExpr(pointer: ExprSpec, expr: ExprSpec, ctx: EmitExp
     "\tinc\thl",
     "\tld\t(hl),d",
     "\tex\tde,hl",
+  ];
+}
+
+function emitIncDecDerefByteExpr(pointer: ExprSpec, op: "++" | "--", mode: "prefix" | "postfix", ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(pointer, ctx),
+    "\tld\te,(hl)",
+    ...(mode === "postfix" ? ["\tld\td,#0", "\tpush\tde"] : []),
+    op === "++" ? "\tinc\te" : "\tdec\te",
+    "\tld\t(hl),e",
+    ...(mode === "prefix" ? ["\tld\tl,e", "\tld\th,#0"] : ["\tpop\thl"]),
+  ];
+}
+
+function emitIncDecDerefWordExpr(pointer: ExprSpec, op: "++" | "--", mode: "prefix" | "postfix", ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(pointer, ctx),
+    "\tld\te,(hl)",
+    "\tinc\thl",
+    "\tld\td,(hl)",
+    ...(mode === "postfix" ? ["\tpush\tde"] : []),
+    ...(op === "++" ? ["\tinc\tde"] : ["\tdec\tde"]),
+    "\tdec\thl",
+    "\tld\t(hl),e",
+    "\tinc\thl",
+    "\tld\t(hl),d",
+    ...(mode === "prefix" ? ["\tex\tde,hl"] : ["\tpop\thl"]),
   ];
 }
 

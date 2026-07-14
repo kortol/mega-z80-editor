@@ -125,6 +125,7 @@ export type BoundExpr =
   | { kind: "string"; value: string; type: SemanticScalarType }
   | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType | SemanticPointerType }
   | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticPointerType }
+  | { kind: "aggregateFieldAccess"; symbol: BoundLocalSymbol; offset: number; type: SemanticScalarType }
   | { kind: "pointerAdd"; pointer: BoundExpr; index: BoundExpr; pointee: ScalarType; type: SemanticPointerType }
   | { kind: "localArrayElement"; symbol: BoundLocalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "paramArrayElement"; symbol: BoundParamSymbol; index: BoundExpr; type: SemanticScalarType }
@@ -135,10 +136,11 @@ export type BoundExpr =
   | { kind: "postIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
   | { kind: "postArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
+  | { kind: "derefIncDec"; pointer: BoundExpr; op: "++" | "--"; mode: "prefix" | "postfix"; type: SemanticScalarType }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "arrayAssignExpr"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
   | { kind: "comma"; left: BoundExpr; right: BoundExpr; type: SemanticScalarType | SemanticPointerType }
-  | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundExpr; elseExpr: BoundExpr; type: SemanticScalarType }
+  | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundExpr; elseExpr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "compare"; left: BoundExpr; right: BoundExpr; op: CompareOp; type: SemanticScalarType }
   | { kind: "logical"; left: BoundExpr; right: BoundExpr; op: LogicalOp; type: SemanticScalarType }
   | { kind: "bitwise"; left: BoundExpr; right: BoundExpr; op: BitwiseOp; type: SemanticScalarType }
@@ -156,6 +158,7 @@ type AggregateLayout = {
   aggregateKind: AggregateKind;
   name: string;
   size: number;
+  fields: Map<string, { offset: number; type: ScalarType }>;
 };
 
 const MAX_CONTROL_NESTING = 8;
@@ -362,6 +365,26 @@ function analyzeStmt(
     }
     case "arrayAssign":
       return analyzeIndexedAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+    case "memberAssign":
+      return {
+        kind: "expr",
+        expr: analyzeAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+      };
+    case "memberExprAssign":
+      return {
+        kind: "expr",
+        expr: analyzeAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+      };
+    case "pointerMemberAssign":
+      return {
+        kind: "expr",
+        expr: analyzePointerAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+      };
+    case "pointerMemberExprAssign":
+      return {
+        kind: "expr",
+        expr: analyzePointerAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+      };
     case "break":
       if (breakDepth === 0) {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports 'break' inside loops or switches in ${functionName}().`, {
@@ -396,6 +419,30 @@ function analyzeSimpleStmt(
   }
   if (stmt.kind === "arrayAssign") {
     return analyzeIndexedAssignSimpleStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+  }
+  if (stmt.kind === "memberAssign") {
+    return {
+      kind: "expr",
+      expr: analyzeAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+    };
+  }
+  if (stmt.kind === "memberExprAssign") {
+    return {
+      kind: "expr",
+      expr: analyzeAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+    };
+  }
+  if (stmt.kind === "pointerMemberAssign") {
+    return {
+      kind: "expr",
+      expr: analyzePointerAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+    };
+  }
+  if (stmt.kind === "pointerMemberExprAssign") {
+    return {
+      kind: "expr",
+      expr: analyzePointerAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+    };
   }
   const symbol = lookupVisible(scope, stmt.name);
   if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
@@ -508,6 +555,211 @@ function analyzePointerIndexedAssignExpr(
   };
 }
 
+function analyzeAggregateFieldAssignExpr(
+  name: string,
+  fieldName: string,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundExpr, { kind: "derefAssign" }> {
+  const symbol = lookupVisible(scope, name);
+  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports member assignment on local struct/union objects, got '${name}.${fieldName}'.`, {
+      file,
+      offset: 0,
+    });
+  }
+  const field = getAggregateFieldLayout(symbol.type, fieldName, functionName, sourceText, file);
+  return {
+    kind: "derefAssign",
+    pointer: {
+      kind: "pointerAdd",
+      pointer: {
+        kind: "localAddress",
+        symbol,
+        type: toSemanticPointerType({
+          kind: "aggregate",
+          aggregateKind: symbol.type.aggregateKind,
+          name: symbol.type.name,
+        }),
+      },
+      index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+      pointee: "char",
+      type: toSemanticPointerType("char"),
+    },
+    expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+    type: toSemanticScalarType(field.type),
+  };
+}
+
+function analyzePointerAggregateFieldAssignExpr(
+  name: string,
+  fieldName: string,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundExpr, { kind: "derefAssign" }> {
+  const { symbol, field } = getPointerAggregateFieldTarget(name, fieldName, scope, functionName, sourceText, file);
+  return {
+    kind: "derefAssign",
+    pointer: {
+      kind: "pointerAdd",
+      pointer: { kind: "ref", symbol, type: symbol.type },
+      index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+      pointee: "char",
+      type: toSemanticPointerType("char"),
+    },
+    expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+    type: toSemanticScalarType(field.type),
+  };
+}
+
+function analyzeAggregateFieldAssignExprTarget(
+  targetExpr: SourceExpr,
+  fieldName: string,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundExpr, { kind: "derefAssign" }> {
+  const target = getAggregateFieldPointerFromTargetExpr(targetExpr, fieldName, scope, functionSymbols, functionName, sourceText, file);
+  return {
+    kind: "derefAssign",
+    pointer: target.pointer,
+    expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+    type: target.type,
+  };
+}
+
+function analyzePointerAggregateFieldAssignExprTarget(
+  targetExpr: SourceExpr,
+  fieldName: string,
+  expr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundExpr, { kind: "derefAssign" }> {
+  const pointer = analyzeExpr(targetExpr, scope, functionSymbols, functionName, sourceText, file);
+  const { field } = getPointerAggregateFieldFromExpr(pointer, fieldName, functionName, sourceText, file);
+  return {
+    kind: "derefAssign",
+    pointer: {
+      kind: "pointerAdd",
+      pointer,
+      index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+      pointee: "char",
+      type: toSemanticPointerType("char"),
+    },
+    expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+    type: toSemanticScalarType(field.type),
+  };
+}
+
+function analyzeAggregateFieldPointer(
+  name: string,
+  fieldName: string,
+  scope: Scope,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): { pointer: BoundExpr; type: SemanticScalarType } {
+  const symbol = lookupVisible(scope, name);
+  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate field access on local struct/union objects, got '${name}.${fieldName}'.`, {
+      file,
+      offset: 0,
+    });
+  }
+  const field = getAggregateFieldLayout(symbol.type, fieldName, functionName, sourceText, file);
+  return {
+    pointer: {
+      kind: "pointerAdd",
+      pointer: {
+        kind: "localAddress",
+        symbol,
+        type: toSemanticPointerType({
+          kind: "aggregate",
+          aggregateKind: symbol.type.aggregateKind,
+          name: symbol.type.name,
+        }),
+      },
+      index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+      pointee: "char",
+      type: toSemanticPointerType("char"),
+    },
+    type: toSemanticScalarType(field.type),
+  };
+}
+
+function analyzePointerAggregateFieldPointer(
+  name: string,
+  fieldName: string,
+  scope: Scope,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): { pointer: BoundExpr; type: SemanticScalarType } {
+  const { symbol, field } = getPointerAggregateFieldTarget(name, fieldName, scope, functionName, sourceText, file);
+  return {
+    pointer: {
+      kind: "pointerAdd",
+      pointer: { kind: "ref", symbol, type: symbol.type },
+      index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+      pointee: "char",
+      type: toSemanticPointerType("char"),
+    },
+    type: toSemanticScalarType(field.type),
+  };
+}
+
+function getAggregateFieldPointerFromTargetExpr(
+  targetExpr: SourceExpr,
+  fieldName: string,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): { pointer: BoundExpr; type: SemanticScalarType } {
+  if (targetExpr.kind === "ref") {
+    return analyzeAggregateFieldPointer(targetExpr.name, fieldName, scope, functionName, sourceText, file);
+  }
+  if (targetExpr.kind === "deref") {
+    const pointer = analyzeExpr(targetExpr.expr, scope, functionSymbols, functionName, sourceText, file);
+    if (pointer.type.kind !== "pointer" || typeof pointer.type.pointee === "string") {
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '.' on dereferenced struct/union pointers in ${functionName}().`, {
+        file,
+        offset: 0,
+      });
+    }
+    const { field } = getPointerAggregateFieldFromExpr(pointer, fieldName, functionName, sourceText, file);
+    return {
+      pointer: {
+        kind: "pointerAdd",
+        pointer,
+        index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+        pointee: "char",
+        type: toSemanticPointerType("char"),
+      },
+      type: toSemanticScalarType(field.type),
+    };
+  }
+  throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '.' on local aggregates or dereferenced struct/union pointers in ${functionName}().`, {
+    file,
+    offset: 0,
+  });
+}
+
 function analyzeForInitializer(
   init: SourceForInit,
   scope: Scope,
@@ -616,6 +868,24 @@ function analyzeExpr(
           type: toSemanticPointerType("char"),
         };
       }
+      if (target.kind === "aggregateFieldAccess") {
+        const aggregateType = target.symbol.type as SemanticAggregateType;
+        return {
+          kind: "pointerAdd",
+          pointer: {
+            kind: "localAddress",
+            symbol: target.symbol,
+            type: toSemanticPointerType({
+              kind: "aggregate",
+              aggregateKind: aggregateType.aggregateKind,
+              name: aggregateType.name,
+            }),
+          },
+          index: { kind: "const", value: target.offset, type: toSemanticScalarType("int") },
+          pointee: "char",
+          type: toSemanticPointerType(target.type.name),
+        };
+      }
       if (target.kind === "deref") {
         if (target.pointer.type.kind === "pointer") {
           return target.pointer;
@@ -647,6 +917,59 @@ function analyzeExpr(
         });
       }
       return { kind: "ref", symbol, type: getValueSemanticType(symbol.type) };
+    }
+    case "memberAccess": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports member access on local struct/union objects, got '${expr.name}.${expr.field}'.`, {
+          file,
+          offset: 0,
+        });
+      }
+      const field = getAggregateFieldLayout(symbol.type, expr.field, functionName, sourceText, file);
+      return {
+        kind: "aggregateFieldAccess",
+        symbol,
+        offset: field.offset,
+        type: toSemanticScalarType(field.type),
+      };
+    }
+    case "memberExprAccess": {
+      const target = getAggregateFieldPointerFromTargetExpr(expr.target, expr.field, scope, functionSymbols, functionName, sourceText, file);
+      return {
+        kind: "deref",
+        pointer: target.pointer,
+        type: target.type,
+      };
+    }
+    case "pointerMemberAccess": {
+      const { symbol, field } = getPointerAggregateFieldTarget(expr.name, expr.field, scope, functionName, sourceText, file);
+      return {
+        kind: "deref",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: { kind: "ref", symbol, type: symbol.type },
+          index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+          pointee: "char",
+          type: toSemanticPointerType("char"),
+        },
+        type: toSemanticScalarType(field.type),
+      };
+    }
+    case "pointerMemberExprAccess": {
+      const pointer = analyzeExpr(expr.target, scope, functionSymbols, functionName, sourceText, file);
+      const { field } = getPointerAggregateFieldFromExpr(pointer, expr.field, functionName, sourceText, file);
+      return {
+        kind: "deref",
+        pointer: {
+          kind: "pointerAdd",
+          pointer,
+          index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+          pointee: "char",
+          type: toSemanticPointerType("char"),
+        },
+        type: toSemanticScalarType(field.type),
+      };
     }
     case "deref": {
       const pointer = analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file);
@@ -743,13 +1066,29 @@ function analyzeExpr(
     case "preArrayIncDec":
     case "postArrayIncDec": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "array") {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports increment/decrement on local/parameter char arrays, got '${expr.name}[...]'.`, {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || (symbol.type.kind !== "array" && symbol.type.kind !== "pointer")) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports increment/decrement on local/parameter char arrays or scalar pointers, got '${expr.name}[...]'.`, {
           file,
           offset: 0,
         });
       }
       const boundIndex = analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file);
+      if (symbol.type.kind === "pointer") {
+        const pointee = getScalarPointerPointee(symbol.type, functionName, sourceText, file);
+        return {
+          kind: "derefIncDec",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: { kind: "ref", symbol, type: symbol.type },
+            index: boundIndex,
+            pointee,
+            type: symbol.type,
+          },
+          op: expr.op,
+          mode: expr.kind === "preArrayIncDec" ? "prefix" : "postfix",
+          type: toSemanticScalarType(pointee),
+        };
+      }
       if (symbol.kind === "local") {
         assertArrayIndexInBounds(boundIndex, expr.name, getSizedArrayLength(symbol.type), functionName, sourceText, file);
       }
@@ -759,6 +1098,76 @@ function analyzeExpr(
         index: boundIndex,
         op: expr.op,
         type: toSemanticScalarType("char"),
+      };
+    }
+    case "preDerefIncDec":
+    case "postDerefIncDec": {
+      const target = analyzeExpr(expr.target, scope, functionSymbols, functionName, sourceText, file);
+      const pointer = target.kind === "deref" ? target.pointer : target;
+      if (pointer.type.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports increment/decrement on dereferenced scalar pointers in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      const pointee = getScalarPointerPointee(pointer.type, functionName, sourceText, file);
+      return {
+        kind: "derefIncDec",
+        pointer,
+        op: expr.op,
+        mode: expr.kind === "preDerefIncDec" ? "prefix" : "postfix",
+        type: toSemanticScalarType(pointee),
+      };
+    }
+    case "preMemberIncDec":
+    case "postMemberIncDec": {
+      const target = analyzeAggregateFieldPointer(expr.name, expr.field, scope, functionName, sourceText, file);
+      return {
+        kind: "derefIncDec",
+        pointer: target.pointer,
+        op: expr.op,
+        mode: expr.kind === "preMemberIncDec" ? "prefix" : "postfix",
+        type: target.type,
+      };
+    }
+    case "preMemberExprIncDec":
+    case "postMemberExprIncDec": {
+      const target = getAggregateFieldPointerFromTargetExpr(expr.target, expr.field, scope, functionSymbols, functionName, sourceText, file);
+      return {
+        kind: "derefIncDec",
+        pointer: target.pointer,
+        op: expr.op,
+        mode: expr.kind === "preMemberExprIncDec" ? "prefix" : "postfix",
+        type: target.type,
+      };
+    }
+    case "prePointerMemberIncDec":
+    case "postPointerMemberIncDec": {
+      const target = analyzePointerAggregateFieldPointer(expr.name, expr.field, scope, functionName, sourceText, file);
+      return {
+        kind: "derefIncDec",
+        pointer: target.pointer,
+        op: expr.op,
+        mode: expr.kind === "prePointerMemberIncDec" ? "prefix" : "postfix",
+        type: target.type,
+      };
+    }
+    case "prePointerMemberExprIncDec":
+    case "postPointerMemberExprIncDec": {
+      const pointer = analyzeExpr(expr.target, scope, functionSymbols, functionName, sourceText, file);
+      const { field } = getPointerAggregateFieldFromExpr(pointer, expr.field, functionName, sourceText, file);
+      return {
+        kind: "derefIncDec",
+        pointer: {
+          kind: "pointerAdd",
+          pointer,
+          index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
+          pointee: "char",
+          type: toSemanticPointerType("char"),
+        },
+        op: expr.op,
+        mode: expr.kind === "prePointerMemberExprIncDec" ? "prefix" : "postfix",
+        type: toSemanticScalarType(field.type),
       };
     }
     case "assign": {
@@ -777,6 +1186,10 @@ function analyzeExpr(
       };
     }
     case "arrayAssign": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
+        return analyzePointerIndexedAssignExpr(symbol, expr.index, expr.expr, scope, functionSymbols, functionName, sourceText, file);
+      }
       const stmt = analyzeArrayAssignStmt(expr.name, expr.index, expr.expr, scope, functionSymbols, functionName, sourceText, file);
       return {
         kind: "arrayAssignExpr",
@@ -786,6 +1199,14 @@ function analyzeExpr(
         type: toSemanticScalarType("char"),
       };
     }
+    case "memberAssign":
+      return analyzeAggregateFieldAssignExpr(expr.name, expr.field, expr.expr, scope, functionSymbols, functionName, sourceText, file);
+    case "memberExprAssign":
+      return analyzeAggregateFieldAssignExprTarget(expr.target, expr.field, expr.expr, scope, functionSymbols, functionName, sourceText, file);
+    case "pointerMemberAssign":
+      return analyzePointerAggregateFieldAssignExpr(expr.name, expr.field, expr.expr, scope, functionSymbols, functionName, sourceText, file);
+    case "pointerMemberExprAssign":
+      return analyzePointerAggregateFieldAssignExprTarget(expr.target, expr.field, expr.expr, scope, functionSymbols, functionName, sourceText, file);
     case "derefAssign": {
       const target = analyzeExpr(expr.target, scope, functionSymbols, functionName, sourceText, file);
       const pointer = target.kind === "deref" ? target.pointer : target;
@@ -826,14 +1247,18 @@ function analyzeExpr(
         type: right.type,
       };
     }
-    case "conditional":
+    case "conditional": {
+      const condition = analyzeExpr(expr.condition, scope, functionSymbols, functionName, sourceText, file);
+      const thenExpr = analyzeExpr(expr.thenExpr, scope, functionSymbols, functionName, sourceText, file);
+      const elseExpr = analyzeExpr(expr.elseExpr, scope, functionSymbols, functionName, sourceText, file);
       return {
         kind: "conditional",
-        condition: analyzeExpr(expr.condition, scope, functionSymbols, functionName, sourceText, file),
-        thenExpr: analyzeExpr(expr.thenExpr, scope, functionSymbols, functionName, sourceText, file),
-        elseExpr: analyzeExpr(expr.elseExpr, scope, functionSymbols, functionName, sourceText, file),
-        type: toSemanticScalarType("int"),
+        condition,
+        thenExpr,
+        elseExpr,
+        type: getConditionalResultType(thenExpr, elseExpr, functionName, sourceText, file),
       };
+    }
     case "binary":
       if (isLogicalOp(expr.op)) {
         return {
@@ -1039,9 +1464,11 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
     case "conditional":
       return expr.type.width;
     case "localAddress":
+    case "aggregateFieldAccess":
     case "pointerAdd":
     case "deref":
     case "derefAssign":
+    case "derefIncDec":
       return expr.type.width;
     case "localArrayElement":
     case "paramArrayElement":
@@ -1102,6 +1529,42 @@ function getValueSemanticType(type: SemanticType): SemanticScalarType | Semantic
   return type;
 }
 
+function getConditionalResultType(
+  thenExpr: BoundExpr,
+  elseExpr: BoundExpr,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): SemanticScalarType | SemanticPointerType {
+  if (thenExpr.type.kind === "pointer" && elseExpr.type.kind === "pointer") {
+    if (samePointerType(thenExpr.type, elseExpr.type)) {
+      return thenExpr.type;
+    }
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports conditional expressions with matching pointer branch types in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  if (thenExpr.type.kind === "pointer" && isZeroConstantExpr(elseExpr)) {
+    return thenExpr.type;
+  }
+  if (elseExpr.type.kind === "pointer" && isZeroConstantExpr(thenExpr)) {
+    return elseExpr.type;
+  }
+  return toSemanticScalarType("int");
+}
+
+function samePointerType(left: SemanticPointerType, right: SemanticPointerType): boolean {
+  if (typeof left.pointee === "string" || typeof right.pointee === "string") {
+    return left.pointee === right.pointee;
+  }
+  return left.pointee.aggregateKind === right.pointee.aggregateKind && left.pointee.name === right.pointee.name;
+}
+
+function isZeroConstantExpr(expr: BoundExpr): boolean {
+  return expr.kind === "const" && expr.value === 0;
+}
+
 function getScalarPointerPointee(
   type: SemanticPointerType,
   functionName: string,
@@ -1136,6 +1599,23 @@ function buildAggregateLayouts(
         offset: 0,
       });
     }
+    const fields = new Map<string, { offset: number; type: ScalarType }>();
+    let runningOffset = 0;
+    for (const field of def.fields) {
+      if (fields.has(field.name)) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support duplicate field '${field.name}' in ${def.aggregateKind} ${def.name}.`, {
+          file,
+          offset: 0,
+        });
+      }
+      fields.set(field.name, {
+        offset: def.aggregateKind === "struct" ? runningOffset : 0,
+        type: field.type.name,
+      });
+      if (def.aggregateKind === "struct") {
+        runningOffset += getTypeStorageBytes(field.type);
+      }
+    }
     const fieldSizes = def.fields.map((field) => getTypeStorageBytes(field.type));
     layouts.set(key, {
       kind: "aggregateLayout",
@@ -1144,9 +1624,96 @@ function buildAggregateLayouts(
       size: def.aggregateKind === "struct"
         ? fieldSizes.reduce((sum, size) => sum + size, 0)
         : Math.max(0, ...fieldSizes),
+      fields,
     });
   }
   return layouts;
+}
+
+function getAggregateFieldLayout(
+  type: SemanticAggregateType,
+  fieldName: string,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): { offset: number; type: ScalarType } {
+  const layout = currentAggregateLayouts.get(`${type.aggregateKind}:${type.name}`);
+  if (!layout) {
+    throw new Error(`Unknown aggregate type '${type.aggregateKind} ${type.name}'.`);
+  }
+  const field = layout.fields.get(fieldName);
+  if (!field) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support unknown field '${fieldName}' on ${type.aggregateKind} ${type.name} in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  return field;
+}
+
+function getPointerAggregateFieldTarget(
+  name: string,
+  fieldName: string,
+  scope: Scope,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): {
+  symbol: (BoundLocalSymbol | BoundParamSymbol) & { type: SemanticPointerType };
+  field: { offset: number; type: ScalarType };
+} {
+  const symbol = lookupVisible(scope, name);
+  if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "pointer" || typeof symbol.type.pointee === "string") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '->' on struct/union pointers, got '${name}->${fieldName}' in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  const layout = currentAggregateLayouts.get(`${symbol.type.pointee.aggregateKind}:${symbol.type.pointee.name}`);
+  if (!layout) {
+    throw new Error(`Unknown aggregate type '${symbol.type.pointee.aggregateKind} ${symbol.type.pointee.name}'.`);
+  }
+  const field = layout.fields.get(fieldName);
+  if (!field) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support unknown field '${fieldName}' on ${symbol.type.pointee.aggregateKind} ${symbol.type.pointee.name} in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  return {
+    symbol: symbol as (BoundLocalSymbol | BoundParamSymbol) & { type: SemanticPointerType },
+    field,
+  };
+}
+
+function getPointerAggregateFieldFromExpr(
+  pointer: BoundExpr,
+  fieldName: string,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): { field: { offset: number; type: ScalarType } } {
+  if (pointer.type.kind !== "pointer" || typeof pointer.type.pointee === "string") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '->' on struct/union pointer expressions in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  const layout = currentAggregateLayouts.get(`${pointer.type.pointee.aggregateKind}:${pointer.type.pointee.name}`);
+  if (!layout) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know ${formatAggregateTypeRef(pointer.type.pointee)} for pointer-member access in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  const field = layout.fields.get(fieldName);
+  if (!field) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know field '${fieldName}' on ${formatAggregateTypeRef(pointer.type.pointee)} in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  return { field };
 }
 
 function getSizedArrayLength(type: SemanticArrayType): number {

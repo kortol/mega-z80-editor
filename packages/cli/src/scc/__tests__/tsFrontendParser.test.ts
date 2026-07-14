@@ -152,6 +152,32 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.index.kind).toBe("ref");
   });
 
+  test("parses pointer-indexed assignment and compound assignment expressions", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; return (p[i] = z) + (p[i] |= 3); }\n", "pointer-index-assign-expr.c");
+    const stmt = program.functions[0].body.statements[5];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "arrayAssign",
+      name: "p",
+      index: { kind: "ref", name: "i" },
+      expr: { kind: "ref", name: "z" },
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "arrayAssign",
+      name: "p",
+      index: { kind: "ref", name: "i" },
+      expr: {
+        kind: "binary",
+        left: { kind: "arrayIndex", name: "p", index: { kind: "ref", name: "i" } },
+        op: "|",
+        right: { kind: "const", value: 3 },
+      },
+    });
+  });
+
   test("parses prefix and postfix increment/decrement expressions", () => {
     const program = parseProgram("int main(){ int i = 1; char buf[4]; return ++i + buf[i]--; }\n", "incdec-expr.c");
     const stmt = program.functions[0].body.statements[1];
@@ -161,6 +187,27 @@ describe("tsFrontendParser", () => {
     }
     expect(stmt.expr.left.kind).toBe("preIncDec");
     expect(stmt.expr.right.kind).toBe("postArrayIncDec");
+  });
+
+  test("parses pointer-indexed prefix and postfix increment/decrement expressions", () => {
+    const program = parseProgram("int main(){ int x = 1; int y = 2; int i = 1; int *p = &x; return ++p[i] + p[i]--; }\n", "pointer-index-incdec-expr.c");
+    const stmt = program.functions[0].body.statements[4];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "preArrayIncDec",
+      name: "p",
+      index: { kind: "ref", name: "i" },
+      op: "++",
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "postArrayIncDec",
+      name: "p",
+      index: { kind: "ref", name: "i" },
+      op: "--",
+    });
   });
 
   test("parses compound assignment expressions", () => {
@@ -213,6 +260,35 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.target.kind).toBe("deref");
   });
 
+  test("parses dereference compound assignment and incdec expressions", () => {
+    const program = parseProgram("int main(){ int x = 1; int *p = &x; return (*p += 2) + (++*p) + ((*p)--); }\n", "pointer-deref-ops.c");
+    const stmt = program.functions[0].body.statements[2];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left).toEqual({
+      kind: "derefAssign",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      expr: {
+        kind: "binary",
+        left: { kind: "deref", expr: { kind: "ref", name: "p" } },
+        op: "+",
+        right: { kind: "const", value: 2 },
+      },
+    });
+    expect(stmt.expr.left.right).toEqual({
+      kind: "preDerefIncDec",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      op: "++",
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "postDerefIncDec",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      op: "--",
+    });
+  });
+
   test("parses address-of array elements and pointer indexing", () => {
     const program = parseProgram("int main(){ int i = 1; char buf[3]; char *p = &buf[i]; return p[0]; }\n", "pointer-index.c");
     expect(program.functions[0].body.declarations[2]?.type).toEqual({ kind: "pointer", pointee: "char" });
@@ -226,6 +302,28 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(stmt.expr).toEqual({ kind: "arrayIndex", name: "p", index: { kind: "const", value: 0 } });
+  });
+
+  test("parses address-of dereference cancellation and pointer-index element address", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int i = 1; int *p = &x; return (&*p == p) + *(&p[i]); }\n", "pointer-address-cancel.c");
+    const stmt = program.functions[0].body.statements[4];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "binary",
+      left: { kind: "addressOfExpr", expr: { kind: "deref", expr: { kind: "ref", name: "p" } } },
+      op: "==",
+      right: { kind: "ref", name: "p" },
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "deref",
+      expr: {
+        kind: "addressOfExpr",
+        expr: { kind: "arrayIndex", name: "p", index: { kind: "ref", name: "i" } },
+      },
+    });
   });
 
   test("parses pointer indexing writes and pointer arithmetic dereference", () => {
@@ -364,10 +462,45 @@ describe("tsFrontendParser", () => {
     expect(returnStmt.expr.right.kind).toBe("binary");
   });
 
+  test("parses pointer relational compares", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int *p = &x; int *q = &y; return (p < q) + (p <= q) + (q > p) + (q >= p); }\n", "pointer-rel-compare.c");
+    const body = program.functions[0].body.statements;
+    const returnStmt = body[body.length - 1];
+    expect(returnStmt?.kind).toBe("return");
+    if (!returnStmt || returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("binary");
+    expect(returnStmt.expr.right.kind).toBe("binary");
+  });
+
   test("parses pointer truthiness conditions", () => {
     const program = parseProgram("int main(){ int x = 65; int *p = &x; if (p) return 1; if (!p) return 2; return 3; }\n", "pointer-truthy.c");
     expect(program.functions[0].body.statements[2]?.kind).toBe("if");
     expect(program.functions[0].body.statements[3]?.kind).toBe("if");
+  });
+
+  test("parses dereference truthiness in if/while/for conditions", () => {
+    const program = parseProgram("int main(){ int x = 2; int *p = &x; if (*p) while (*p) { (*p)--; } for (; *p; ++p) { break; } return x; }\n", "deref-truthy.c");
+    const ifStmt = program.functions[0].body.statements[2];
+    expect(ifStmt.kind).toBe("if");
+    if (ifStmt.kind !== "if") {
+      return;
+    }
+    expect(ifStmt.condition.kind).toBe("deref");
+    expect(ifStmt.thenBlock.statements[0]?.kind).toBe("while");
+    const whileStmt = ifStmt.thenBlock.statements[0];
+    if (!whileStmt || whileStmt.kind !== "while") {
+      return;
+    }
+    expect(whileStmt.condition.kind).toBe("deref");
+    const forStmt = program.functions[0].body.statements[3];
+    expect(forStmt.kind).toBe("for");
+    if (forStmt.kind !== "for" || !forStmt.condition || !forStmt.step || forStmt.step.kind !== "expr") {
+      return;
+    }
+    expect(forStmt.condition.kind).toBe("deref");
+    expect(forStmt.step.expr.kind).toBe("preIncDec");
   });
 
   test("parses int pointer parameters and calls", () => {
@@ -602,41 +735,246 @@ describe("tsFrontendParser", () => {
     });
   });
 
-  test("rejects aggregate pointer-to-pointer declarations", () => {
-    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n";
-    expect(() => parseProgram(source, "aggregate-pointer-pointer.c")).toThrow(/does not support expression|does not support statement|does not support parameter/);
+  test("keeps aggregate subset parse boundaries explicit", () => {
+    const rejectCases = [
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n",
+        file: "aggregate-pointer-pointer.c",
+      },
+      {
+        source: "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n",
+        file: "union-pointer-pointer.c",
+      },
+    ];
+    for (const { source, file } of rejectCases) {
+      expect(() => parseProgram(source, file)).toThrow(/does not support expression|does not support statement|does not support parameter/);
+    }
+
+    const parseThroughCases: Array<{
+      source: string;
+      file: string;
+      assert(program: ReturnType<typeof parseProgram>): void;
+    }> = [
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; return &(&x) != 0; }\n",
+        file: "aggregate-double-address.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]?.kind).toBe("return");
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; return x; }\n",
+        file: "aggregate-return-value.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]).toEqual({
+            kind: "return",
+            expr: { kind: "ref", name: "x" },
+          });
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo y; x = y; return 0; }\n",
+        file: "aggregate-assign-value.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]).toEqual({
+            kind: "assign",
+            name: "x",
+            expr: { kind: "ref", name: "y" },
+          });
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint take(int n){ return n; }\nint main(){ struct Foo x; return take(x); }\n",
+        file: "aggregate-call-value.c",
+        assert(program) {
+          expect(program.functions[1].body.statements[0]).toEqual({
+            kind: "return",
+            expr: { kind: "call", target: "take", args: [{ kind: "ref", name: "x" }] },
+          });
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint main(int c){ struct Foo x; struct Foo y; return c ? x : y; }\n",
+        file: "aggregate-conditional-value.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]).toEqual({
+            kind: "return",
+            expr: {
+              kind: "conditional",
+              condition: { kind: "ref", name: "c" },
+              thenExpr: { kind: "ref", name: "x" },
+              elseExpr: { kind: "ref", name: "y" },
+            },
+          });
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo y; return (x, y); }\n",
+        file: "aggregate-comma-value.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]).toEqual({
+            kind: "return",
+            expr: { kind: "comma", left: { kind: "ref", name: "x" }, right: { kind: "ref", name: "y" } },
+          });
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; if (x) return 1; return 0; }\n",
+        file: "aggregate-truthiness-value.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]).toEqual({
+            kind: "if",
+            condition: { kind: "ref", name: "x" },
+            thenBlock: { kind: "block", declarations: [], statements: [{ kind: "return", expr: { kind: "const", value: 1 } }] },
+          });
+        },
+      },
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; return x == 0; }\n",
+        file: "aggregate-compare-value.c",
+        assert(program) {
+          expect(program.functions[0].body.statements[0]).toEqual({
+            kind: "return",
+            expr: {
+              kind: "binary",
+              op: "==",
+              left: { kind: "ref", name: "x" },
+              right: { kind: "const", value: 0 },
+            },
+          });
+        },
+      },
+    ];
+    for (const testCase of parseThroughCases) {
+      testCase.assert(parseProgram(testCase.source, testCase.file));
+    }
   });
 
-  test("rejects union pointer-to-pointer declarations", () => {
-    const source = "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n";
-    expect(() => parseProgram(source, "union-pointer-pointer.c")).toThrow(/does not support expression|does not support statement|does not support parameter/);
-  });
-
-  test("parses address-of applied to address-of expressions for later semantic rejection", () => {
-    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return &(&x) != 0; }\n";
-    const program = parseProgram(source, "aggregate-double-address.c");
+  test("parses local struct and union member reads", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar u; return x.a + x.b + u.a + u.b; }\n";
+    const program = parseProgram(source, "aggregate-member-read.c");
     const returnStmt = program.functions[0].body.statements[0];
     expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("binary");
+    expect(returnStmt.expr.right).toEqual({ kind: "memberAccess", name: "u", field: "b" });
   });
 
-  test("parses aggregate object value return for later semantic rejection", () => {
-    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; return x; }\n";
-    const program = parseProgram(source, "aggregate-return-value.c");
-    const returnStmt = program.functions[0].body.statements[0];
-    expect(returnStmt).toEqual({
-      kind: "return",
-      expr: { kind: "ref", name: "x" },
+  test("parses local struct and union member writes", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar u; x.a = 1; x.b = 2; u.a = 3; u.b = 4; return x.a + x.b + u.a + u.b; }\n";
+    const program = parseProgram(source, "aggregate-member-write.c");
+    expect(program.functions[0].body.statements[0]).toEqual({
+      kind: "memberAssign",
+      name: "x",
+      field: "a",
+      expr: { kind: "const", value: 1 },
+    });
+    expect(program.functions[0].body.statements[3]).toEqual({
+      kind: "memberAssign",
+      name: "u",
+      field: "b",
+      expr: { kind: "const", value: 4 },
     });
   });
 
-  test("parses aggregate object assignment for later semantic rejection", () => {
-    const source = "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo y; x = y; return 0; }\n";
-    const program = parseProgram(source, "aggregate-assign-value.c");
-    const assignStmt = program.functions[0].body.statements[0];
-    expect(assignStmt).toEqual({
-      kind: "assign",
+  test("parses aggregate pointer member reads and writes", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(struct Foo *p, union Bar *q){ p->a = 1; p->b = 2; q->a = 3; q->b = 4; return p->a + p->b + q->a + q->b; }\n";
+    const program = parseProgram(source, "aggregate-pointer-member.c");
+    expect(program.functions[0].body.statements[0]).toEqual({
+      kind: "pointerMemberAssign",
+      name: "p",
+      field: "a",
+      expr: { kind: "const", value: 1 },
+    });
+    const returnStmt = program.functions[0].body.statements[4];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.right).toEqual({ kind: "pointerMemberAccess", name: "q", field: "b" });
+  });
+
+  test("parses address-of on aggregate fields", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(struct Foo *p){ struct Foo x; return first(&x.a) + second(&x.b) + first(&p->a) + second(&p->b); }\n";
+    const program = parseProgram(source, "aggregate-field-address.c");
+    const returnStmt = program.functions[2].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(returnStmt.expr.left.kind).toBe("binary");
+    expect(returnStmt.expr.right).toEqual({
+      kind: "call",
+      target: "second",
+      args: [{ kind: "addressOfExpr", expr: { kind: "pointerMemberAccess", name: "p", field: "b" } }],
+    });
+  });
+
+  test("parses aggregate field compound assignments and incdec statements", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(struct Foo *p, union Bar *q){ x.a += 1; x.b -= 2; ++u.a; u.b--; p->a += 3; p->b -= 4; ++q->a; q->b--; return x.a + x.b + u.a + u.b + p->a + p->b + q->a + q->b; }\n";
+    const program = parseProgram(source.replace("int main(struct Foo *p, union Bar *q){", "int main(struct Foo *p, union Bar *q){ struct Foo x; union Bar u; "), "aggregate-field-ops.c");
+    expect(program.functions[0].body.statements[0]).toEqual({
+      kind: "memberAssign",
       name: "x",
-      expr: { kind: "ref", name: "y" },
+      field: "a",
+      expr: {
+        kind: "binary",
+        left: { kind: "memberAccess", name: "x", field: "a" },
+        op: "+",
+        right: { kind: "const", value: 1 },
+      },
+    });
+    expect(program.functions[0].body.statements[7]).toEqual({
+      kind: "pointerMemberAssign",
+      name: "q",
+      field: "b",
+      expr: {
+        kind: "binary",
+        left: { kind: "pointerMemberAccess", name: "q", field: "b" },
+        op: "-",
+        right: { kind: "const", value: 1 },
+      },
+    });
+  });
+
+  test("parses aggregate field assignment expressions and incdec expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(struct Foo *p){ struct Foo x; return (x.a += 3) + (++x.b) + (p->a = 4) + (p->b--); }\n";
+    const program = parseProgram(source, "aggregate-field-expr-ops.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.left.kind !== "binary" || stmt.expr.left.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left.left).toEqual({
+      kind: "memberAssign",
+      name: "x",
+      field: "a",
+      expr: {
+        kind: "binary",
+        left: { kind: "memberAccess", name: "x", field: "a" },
+        op: "+",
+        right: { kind: "const", value: 3 },
+      },
+    });
+    expect(stmt.expr.left.left.right).toEqual({
+      kind: "preMemberIncDec",
+      name: "x",
+      field: "b",
+      op: "++",
+    });
+    expect(stmt.expr.left.right).toEqual({
+      kind: "pointerMemberAssign",
+      name: "p",
+      field: "a",
+      expr: { kind: "const", value: 4 },
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "postPointerMemberIncDec",
+      name: "p",
+      field: "b",
+      op: "--",
     });
   });
 
@@ -665,6 +1003,422 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.condition.kind).toBe("binary");
     expect(stmt.expr.thenExpr).toEqual({ kind: "ref", name: "c" });
     expect(stmt.expr.elseExpr.kind).toBe("conditional");
+  });
+
+  test("parses pointer-valued ternary conditional expressions", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int c = 1; int *p = &x; int *q = &y; return *(c ? p : q) + *(c ? p : 0); }\n", "pointer-conditional.c");
+    const body = program.functions[0].body.statements;
+    const stmt = body[body.length - 1];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "deref",
+      expr: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "deref",
+      expr: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "const", value: 0 },
+      },
+    });
+  });
+
+  test("parses pointer-valued conditional assignment and compare expressions", () => {
+    const program = parseProgram("int main(){ int x = 65; int y = 66; int c = 1; int *p = &x; int *q = &y; p = c ? p : q; return (p != 0) + ((c ? p : q) == p); }\n", "pointer-conditional-assign.c");
+    const body = program.functions[0].body.statements;
+    expect(body[5]).toEqual({
+      kind: "assign",
+      name: "p",
+      expr: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+    });
+    const stmt = body[6];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "binary",
+      left: { kind: "ref", name: "p" },
+      op: "!=",
+      right: { kind: "const", value: 0 },
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "binary",
+      left: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      op: "==",
+      right: { kind: "ref", name: "p" },
+    });
+  });
+
+  test("parses aggregate-pointer-valued conditional expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return (c ? p : q) == p; }\n";
+    const program = parseProgram(source, "aggregate-pointer-conditional.c");
+    const body = program.functions[0].body.statements;
+    const stmt = body[body.length - 1];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "conditional",
+      condition: { kind: "ref", name: "c" },
+      thenExpr: { kind: "ref", name: "p" },
+      elseExpr: { kind: "ref", name: "q" },
+    });
+    expect(stmt.expr.op).toBe("==");
+    expect(stmt.expr.right).toEqual({ kind: "ref", name: "p" });
+  });
+
+  test("parses pointer-member access on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return (c ? p : q)->a + (c ? p : q)->b; }\n";
+    const program = parseProgram(source, "aggregate-pointer-member-conditional.c");
+    const body = program.functions[0].body.statements;
+    const stmt = body[body.length - 1];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "pointerMemberExprAccess",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "a",
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "pointerMemberExprAccess",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "b",
+    });
+  });
+
+  test("parses address-of on pointer-member access from conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return first(&(c ? p : q)->a) + second(&(c ? p : q)->b); }\n";
+    const program = parseProgram(source, "aggregate-pointer-member-conditional-address.c");
+    const body = program.functions[2].body.statements;
+    const stmt = body[body.length - 1];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left).toEqual({
+      kind: "call",
+      target: "first",
+      args: [{
+        kind: "addressOfExpr",
+        expr: {
+          kind: "pointerMemberExprAccess",
+          target: {
+            kind: "conditional",
+            condition: { kind: "ref", name: "c" },
+            thenExpr: { kind: "ref", name: "p" },
+            elseExpr: { kind: "ref", name: "q" },
+          },
+          field: "a",
+        },
+      }],
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "call",
+      target: "second",
+      args: [{
+        kind: "addressOfExpr",
+        expr: {
+          kind: "pointerMemberExprAccess",
+          target: {
+            kind: "conditional",
+            condition: { kind: "ref", name: "c" },
+            thenExpr: { kind: "ref", name: "p" },
+            elseExpr: { kind: "ref", name: "q" },
+          },
+          field: "b",
+        },
+      }],
+    });
+  });
+
+  test("parses dereferenced aggregate member reads and address-of", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(struct Foo *p){ return (*p).a + (*p).b + first(&(*p).a) + second(&(*p).b); }\n";
+    const program = parseProgram(source, "aggregate-deref-member-read.c");
+    const stmt = program.functions[2].body.statements[0];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.left.kind !== "binary" || stmt.expr.left.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left.left).toEqual({
+      kind: "memberExprAccess",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      field: "a",
+    });
+    expect(stmt.expr.left.left.right).toEqual({
+      kind: "memberExprAccess",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      field: "b",
+    });
+  });
+
+  test("parses pointer-member writes on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (c ? p : q)->a = 1; (c ? p : q)->b += 2; return x.a + x.b + y.a + y.b; }\n";
+    const program = parseProgram(source, "aggregate-pointer-member-conditional-write.c");
+    expect(program.functions[0].body.statements[3]).toEqual({
+      kind: "pointerMemberExprAssign",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "a",
+      expr: { kind: "const", value: 1 },
+    });
+    expect(program.functions[0].body.statements[4]).toEqual({
+      kind: "pointerMemberExprAssign",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "b",
+      expr: {
+        kind: "binary",
+        left: {
+          kind: "pointerMemberExprAccess",
+          target: {
+            kind: "conditional",
+            condition: { kind: "ref", name: "c" },
+            thenExpr: { kind: "ref", name: "p" },
+            elseExpr: { kind: "ref", name: "q" },
+          },
+          field: "b",
+        },
+        op: "+",
+        right: { kind: "const", value: 2 },
+      },
+    });
+  });
+
+  test("parses pointer-member incdec on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; ++(c ? p : q)->a; (c ? p : q)->b--; return x.a + x.b + y.a + y.b; }\n";
+    const program = parseProgram(source, "aggregate-pointer-member-conditional-incdec.c");
+    expect(program.functions[0].body.statements[3]).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "prePointerMemberExprIncDec",
+        target: {
+          kind: "conditional",
+          condition: { kind: "ref", name: "c" },
+          thenExpr: { kind: "ref", name: "p" },
+          elseExpr: { kind: "ref", name: "q" },
+        },
+        field: "a",
+        op: "++",
+      },
+    });
+    expect(program.functions[0].body.statements[4]).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "postPointerMemberExprIncDec",
+        target: {
+          kind: "conditional",
+          condition: { kind: "ref", name: "c" },
+          thenExpr: { kind: "ref", name: "p" },
+          elseExpr: { kind: "ref", name: "q" },
+        },
+        field: "b",
+        op: "--",
+      },
+    });
+  });
+
+  test("parses pointer-member assignment and incdec expressions on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return ((c ? p : q)->a = 4) + (++(c ? p : q)->b) + ((c ? p : q)->a--); }\n";
+    const program = parseProgram(source, "aggregate-pointer-member-conditional-expr-ops.c");
+    const stmt = program.functions[0].body.statements[3];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left).toEqual({
+      kind: "pointerMemberExprAssign",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "a",
+      expr: { kind: "const", value: 4 },
+    });
+    expect(stmt.expr.left.right).toEqual({
+      kind: "prePointerMemberExprIncDec",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "b",
+      op: "++",
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "postPointerMemberExprIncDec",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "a",
+      op: "--",
+    });
+  });
+
+  test("parses dereferenced aggregate member assignment and incdec expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(struct Foo *p){ return ((*p).a = 4) + (++(*p).b) + ((*p).a--); }\n";
+    const program = parseProgram(source, "aggregate-deref-member-expr-ops.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      field: "a",
+      expr: { kind: "const", value: 4 },
+    });
+    expect(stmt.expr.left.right).toEqual({
+      kind: "preMemberExprIncDec",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      field: "b",
+      op: "++",
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "postMemberExprIncDec",
+      target: { kind: "deref", expr: { kind: "ref", name: "p" } },
+      field: "a",
+      op: "--",
+    });
+  });
+
+  test("parses dereferenced conditional aggregate pointer member operations", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return (*(c ? p : q)).a + first(&(*(c ? p : q)).a) + ((*(c ? p : q)).b = 3) + ((*(c ? p : q)).a--); }\n";
+    const program = parseProgram(source, "aggregate-deref-conditional-member-ops.c");
+    const stmt = program.functions[1].body.statements[3];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("binary");
+    if (stmt.expr.left.left.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.left.left.left).toEqual({
+      kind: "memberExprAccess",
+      target: {
+        kind: "deref",
+        expr: {
+          kind: "conditional",
+          condition: { kind: "ref", name: "c" },
+          thenExpr: { kind: "ref", name: "p" },
+          elseExpr: { kind: "ref", name: "q" },
+        },
+      },
+      field: "a",
+    });
+    expect(stmt.expr.right).toEqual({
+      kind: "postMemberExprIncDec",
+      target: {
+        kind: "deref",
+        expr: {
+          kind: "conditional",
+          condition: { kind: "ref", name: "c" },
+          thenExpr: { kind: "ref", name: "p" },
+          elseExpr: { kind: "ref", name: "q" },
+        },
+      },
+      field: "a",
+      op: "--",
+    });
+  });
+
+  test("parses dereferenced conditional aggregate pointer member statements", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (*(c ? p : q)).a = 1; (*(c ? p : q)).b += 2; ++(*(c ? p : q)).a; (*(c ? p : q)).b--; return x.a + x.b + y.a + y.b; }\n";
+    const program = parseProgram(source, "aggregate-deref-conditional-member-stmt.c");
+    expect(program.functions[0].body.statements[3]).toEqual({
+      kind: "memberExprAssign",
+      target: {
+        kind: "deref",
+        expr: {
+          kind: "conditional",
+          condition: { kind: "ref", name: "c" },
+          thenExpr: { kind: "ref", name: "p" },
+          elseExpr: { kind: "ref", name: "q" },
+        },
+      },
+      field: "a",
+      expr: { kind: "const", value: 1 },
+    });
+    expect(program.functions[0].body.statements[4]).toEqual({
+      kind: "memberExprAssign",
+      target: {
+        kind: "deref",
+        expr: {
+          kind: "conditional",
+          condition: { kind: "ref", name: "c" },
+          thenExpr: { kind: "ref", name: "p" },
+          elseExpr: { kind: "ref", name: "q" },
+        },
+      },
+      field: "b",
+      expr: {
+        kind: "binary",
+        left: {
+          kind: "memberExprAccess",
+          target: {
+            kind: "deref",
+            expr: {
+              kind: "conditional",
+              condition: { kind: "ref", name: "c" },
+              thenExpr: { kind: "ref", name: "p" },
+              elseExpr: { kind: "ref", name: "q" },
+            },
+          },
+          field: "b",
+        },
+        op: "+",
+        right: { kind: "const", value: 2 },
+      },
+    });
   });
 
   test("parses bitwise operators between logical and compare precedence levels", () => {
@@ -791,6 +1545,34 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(subStmt.expr.op).toBe("-");
+  });
+
+  test("parses dereference simple statements and for-loop steps", () => {
+    const program = parseProgram("int main(){ int x = 0; int *p = &x; ++*p; *p += 2; (*p)--; for (; x < 3; ++*p) { break; } return x; }\n", "deref-simple.c");
+    const firstStmt = program.functions[0].body.statements[2];
+    expect(firstStmt.kind).toBe("expr");
+    if (firstStmt.kind !== "expr") {
+      return;
+    }
+    expect(firstStmt.expr.kind).toBe("preDerefIncDec");
+    const secondStmt = program.functions[0].body.statements[3];
+    expect(secondStmt.kind).toBe("expr");
+    if (secondStmt.kind !== "expr") {
+      return;
+    }
+    expect(secondStmt.expr.kind).toBe("derefAssign");
+    const thirdStmt = program.functions[0].body.statements[4];
+    expect(thirdStmt.kind).toBe("expr");
+    if (thirdStmt.kind !== "expr") {
+      return;
+    }
+    expect(thirdStmt.expr.kind).toBe("postDerefIncDec");
+    const loopStmt = program.functions[0].body.statements[5];
+    expect(loopStmt.kind).toBe("for");
+    if (loopStmt.kind !== "for" || !loopStmt.step || loopStmt.step.kind !== "expr") {
+      return;
+    }
+    expect(loopStmt.step.expr.kind).toBe("preDerefIncDec");
   });
 
   test("parses wider compound assignment operators via assignment lowering", () => {

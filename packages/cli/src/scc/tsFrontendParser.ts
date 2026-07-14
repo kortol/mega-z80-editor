@@ -471,6 +471,87 @@ export function parseExpression(context: ParseContext, exprText: string, functio
     const lhs = compoundAssignment.leftText.trim();
     const rhsOffset = trimmedOffset + compoundAssignment.index + compoundAssignment.op.length;
     const rhs = parseExpression(context, compoundAssignment.rightText, functionName, rhsOffset);
+    if (lhs.startsWith("*")) {
+      const target = parsePrimaryExpr(context, lhs, functionName, trimmedOffset);
+      return {
+        kind: "derefAssign",
+        target,
+        expr: {
+          kind: "binary",
+          left: target,
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
+    const pointerMemberAccess = parsePointerMemberAccess(lhs);
+    if (pointerMemberAccess) {
+      return {
+        kind: "pointerMemberAssign",
+        name: pointerMemberAccess.name,
+        field: pointerMemberAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "pointerMemberAccess", name: pointerMemberAccess.name, field: pointerMemberAccess.field },
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
+    const pointerMemberExprAccess = parseParenthesizedPointerMemberAccess(lhs);
+    if (pointerMemberExprAccess) {
+      const target = parseExpression(
+        context,
+        pointerMemberExprAccess.targetText,
+        functionName,
+        trimmedOffset + lhs.indexOf(pointerMemberExprAccess.targetText),
+      );
+      return {
+        kind: "pointerMemberExprAssign",
+        target,
+        field: pointerMemberExprAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "pointerMemberExprAccess", target, field: pointerMemberExprAccess.field },
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
+    const memberExprAccess = parseParenthesizedMemberAccess(lhs);
+    if (memberExprAccess) {
+      const target = parseExpression(
+        context,
+        memberExprAccess.targetText,
+        functionName,
+        trimmedOffset + lhs.indexOf(memberExprAccess.targetText),
+      );
+      return {
+        kind: "memberExprAssign",
+        target,
+        field: memberExprAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "memberExprAccess", target, field: memberExprAccess.field },
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
+    const memberAccess = parseMemberAccess(lhs);
+    if (memberAccess) {
+      return {
+        kind: "memberAssign",
+        name: memberAccess.name,
+        field: memberAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "memberAccess", name: memberAccess.name, field: memberAccess.field },
+          op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+          right: rhs,
+        },
+      };
+    }
     const arrayAccess = parseArrayAccess(lhs);
     if (arrayAccess) {
       const indexExpr = parseExpression(context, arrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(arrayAccess.indexText));
@@ -498,7 +579,7 @@ export function parseExpression(context: ParseContext, exprText: string, functio
         },
       };
     }
-    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports compound assignment to local symbols or char array elements, got '${lhs}' in ${functionName}().`, {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports compound assignment to local symbols, char array elements, aggregate fields, or dereference lvalues, got '${lhs}' in ${functionName}().`, {
       file: context.file,
       offset: trimmedOffset,
     });
@@ -511,6 +592,52 @@ export function parseExpression(context: ParseContext, exprText: string, functio
       return {
         kind: "derefAssign",
         target: parsePrimaryExpr(context, lhs, functionName, trimmedOffset),
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
+    const pointerMemberAccess = parsePointerMemberAccess(lhs);
+    if (pointerMemberAccess) {
+      return {
+        kind: "pointerMemberAssign",
+        name: pointerMemberAccess.name,
+        field: pointerMemberAccess.field,
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
+    const pointerMemberExprAccess = parseParenthesizedPointerMemberAccess(lhs);
+    if (pointerMemberExprAccess) {
+      return {
+        kind: "pointerMemberExprAssign",
+        target: parseExpression(
+          context,
+          pointerMemberExprAccess.targetText,
+          functionName,
+          trimmedOffset + lhs.indexOf(pointerMemberExprAccess.targetText),
+        ),
+        field: pointerMemberExprAccess.field,
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
+    const memberExprAccess = parseParenthesizedMemberAccess(lhs);
+    if (memberExprAccess) {
+      return {
+        kind: "memberExprAssign",
+        target: parseExpression(
+          context,
+          memberExprAccess.targetText,
+          functionName,
+          trimmedOffset + lhs.indexOf(memberExprAccess.targetText),
+        ),
+        field: memberExprAccess.field,
+        expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+      };
+    }
+    const memberAccess = parseMemberAccess(lhs);
+    if (memberAccess) {
+      return {
+        kind: "memberAssign",
+        name: memberAccess.name,
+        field: memberAccess.field,
         expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
       };
     }
@@ -530,7 +657,7 @@ export function parseExpression(context: ParseContext, exprText: string, functio
         expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
       };
     }
-    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols or char array elements, got '${lhs}' in ${functionName}().`, {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, char array elements, or aggregate fields, got '${lhs}' in ${functionName}().`, {
       file: context.file,
       offset: trimmedOffset,
     });
@@ -636,6 +763,32 @@ function parseExpressionByPrecedence(
 
 function parsePrimaryExpr(context: ParseContext, exprText: string, functionName: string, offset: number): SourceExpr {
   const trimmed = exprText.trim();
+  const parenthesizedPointerMemberAccess = parseParenthesizedPointerMemberAccess(trimmed);
+  if (parenthesizedPointerMemberAccess) {
+    return {
+      kind: "pointerMemberExprAccess",
+      target: parseExpression(
+        context,
+        parenthesizedPointerMemberAccess.targetText,
+        functionName,
+        offset + trimmed.indexOf(parenthesizedPointerMemberAccess.targetText),
+      ),
+      field: parenthesizedPointerMemberAccess.field,
+    };
+  }
+  const parenthesizedMemberAccess = parseParenthesizedMemberAccess(trimmed);
+  if (parenthesizedMemberAccess) {
+    return {
+      kind: "memberExprAccess",
+      target: parseExpression(
+        context,
+        parenthesizedMemberAccess.targetText,
+        functionName,
+        offset + trimmed.indexOf(parenthesizedMemberAccess.targetText),
+      ),
+      field: parenthesizedMemberAccess.field,
+    };
+  }
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
   }
@@ -665,6 +818,64 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       op: prefixArrayIncDecMatch[1] as "++" | "--",
     };
   }
+  const prefixDerefIncDecMatch = /^(\+\+|--)\s*(\*.+)$/.exec(trimmed);
+  if (prefixDerefIncDecMatch) {
+    return {
+      kind: "preDerefIncDec",
+      target: parsePrimaryExpr(context, prefixDerefIncDecMatch[2], functionName, offset + trimmed.indexOf(prefixDerefIncDecMatch[2])),
+      op: prefixDerefIncDecMatch[1] as "++" | "--",
+    };
+  }
+  const prefixPointerMemberExpr = /^(\+\+|--)\s*(\(.+\)\s*->\s*[A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixPointerMemberExpr) {
+    const target = parsePrimaryExpr(context, prefixPointerMemberExpr[2], functionName, offset + trimmed.indexOf(prefixPointerMemberExpr[2]));
+    if (target.kind !== "pointerMemberExprAccess") {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      kind: "prePointerMemberExprIncDec",
+      target: target.target,
+      field: target.field,
+      op: prefixPointerMemberExpr[1] as "++" | "--",
+    };
+  }
+  const prefixPointerMemberIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixPointerMemberIncDecMatch) {
+    return {
+      kind: "prePointerMemberIncDec",
+      name: prefixPointerMemberIncDecMatch[2],
+      field: prefixPointerMemberIncDecMatch[3],
+      op: prefixPointerMemberIncDecMatch[1] as "++" | "--",
+    };
+  }
+  const prefixMemberExpr = /^(\+\+|--)\s*(\(.+\)\s*\.\s*[A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixMemberExpr) {
+    const target = parsePrimaryExpr(context, prefixMemberExpr[2], functionName, offset + trimmed.indexOf(prefixMemberExpr[2]));
+    if (target.kind !== "memberExprAccess") {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      kind: "preMemberExprIncDec",
+      target: target.target,
+      field: target.field,
+      op: prefixMemberExpr[1] as "++" | "--",
+    };
+  }
+  const prefixMemberIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixMemberIncDecMatch) {
+    return {
+      kind: "preMemberIncDec",
+      name: prefixMemberIncDecMatch[2],
+      field: prefixMemberIncDecMatch[3],
+      op: prefixMemberIncDecMatch[1] as "++" | "--",
+    };
+  }
   const prefixIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)$/.exec(trimmed);
   if (prefixIncDecMatch) {
     return {
@@ -680,6 +891,64 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       name: postfixArrayIncDecMatch[1],
       index: parseExpression(context, postfixArrayIncDecMatch[2], functionName, offset + trimmed.indexOf(postfixArrayIncDecMatch[2])),
       op: postfixArrayIncDecMatch[3] as "++" | "--",
+    };
+  }
+  const postfixDerefIncDecMatch = /^\((\*.+)\)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixDerefIncDecMatch) {
+    return {
+      kind: "postDerefIncDec",
+      target: parsePrimaryExpr(context, postfixDerefIncDecMatch[1], functionName, offset + trimmed.indexOf(postfixDerefIncDecMatch[1])),
+      op: postfixDerefIncDecMatch[2] as "++" | "--",
+    };
+  }
+  const postfixPointerMemberExpr = /^(\(.+\)\s*->\s*[A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixPointerMemberExpr) {
+    const target = parsePrimaryExpr(context, postfixPointerMemberExpr[1], functionName, offset + trimmed.indexOf(postfixPointerMemberExpr[1]));
+    if (target.kind !== "pointerMemberExprAccess") {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      kind: "postPointerMemberExprIncDec",
+      target: target.target,
+      field: target.field,
+      op: postfixPointerMemberExpr[2] as "++" | "--",
+    };
+  }
+  const postfixPointerMemberIncDecMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixPointerMemberIncDecMatch) {
+    return {
+      kind: "postPointerMemberIncDec",
+      name: postfixPointerMemberIncDecMatch[1],
+      field: postfixPointerMemberIncDecMatch[2],
+      op: postfixPointerMemberIncDecMatch[3] as "++" | "--",
+    };
+  }
+  const postfixMemberExpr = /^(\(.+\)\s*\.\s*[A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixMemberExpr) {
+    const target = parsePrimaryExpr(context, postfixMemberExpr[1], functionName, offset + trimmed.indexOf(postfixMemberExpr[1]));
+    if (target.kind !== "memberExprAccess") {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      kind: "postMemberExprIncDec",
+      target: target.target,
+      field: target.field,
+      op: postfixMemberExpr[2] as "++" | "--",
+    };
+  }
+  const postfixMemberIncDecMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixMemberIncDecMatch) {
+    return {
+      kind: "postMemberIncDec",
+      name: postfixMemberIncDecMatch[1],
+      field: postfixMemberIncDecMatch[2],
+      op: postfixMemberIncDecMatch[3] as "++" | "--",
     };
   }
   const postfixIncDecMatch = /^([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
@@ -732,6 +1001,22 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       kind: "arrayIndex",
       name: arrayAccess.name,
       index: parseExpression(context, arrayAccess.indexText, functionName, offset + trimmed.indexOf(arrayAccess.indexText)),
+    };
+  }
+  const pointerMemberAccess = parsePointerMemberAccess(trimmed);
+  if (pointerMemberAccess) {
+    return {
+      kind: "pointerMemberAccess",
+      name: pointerMemberAccess.name,
+      field: pointerMemberAccess.field,
+    };
+  }
+  const memberAccess = parseMemberAccess(trimmed);
+  if (memberAccess) {
+    return {
+      kind: "memberAccess",
+      name: memberAccess.name,
+      field: memberAccess.field,
     };
   }
   if (/^[A-Za-z_]\w*$/.test(trimmed)) {
@@ -1429,7 +1714,16 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
     if (longestStartingOp !== matchedOp) {
       continue;
     }
+    if (matchedOp === "-" && exprText[opIndex + 1] === ">") {
+      continue;
+    }
+    if (matchedOp === ">" && exprText[opIndex - 1] === "-") {
+      continue;
+    }
     if ((matchedOp === "+" || matchedOp === "-") && isUnaryPlusMinusAt(exprText, opIndex, matchedOp)) {
+      continue;
+    }
+    if (matchedOp === "*" && isUnaryStarAt(exprText, opIndex)) {
       continue;
     }
     const leftText = exprText.slice(0, opIndex).trim();
@@ -1446,6 +1740,15 @@ function isUnaryPlusMinusAt(exprText: string, opIndex: number, op: "+" | "-"): b
   if (exprText.slice(opIndex, opIndex + 2) === `${op}${op}`) {
     return true;
   }
+  const previousIndex = findPreviousNonWhitespaceIndex(exprText, opIndex - 1);
+  if (previousIndex < 0) {
+    return true;
+  }
+  const previousChar = exprText[previousIndex];
+  return /[([{,?:=+\-*/%&|^!<>]/.test(previousChar);
+}
+
+function isUnaryStarAt(exprText: string, opIndex: number): boolean {
   const previousIndex = findPreviousNonWhitespaceIndex(exprText, opIndex - 1);
   if (previousIndex < 0) {
     return true;
@@ -1587,6 +1890,14 @@ function parseExpressionStatement(
       return { kind: "assign", name: simple.name, expr: simple.expr };
     case "arrayAssign":
       return { kind: "arrayAssign", name: simple.name, index: simple.index, expr: simple.expr };
+    case "memberAssign":
+      return { kind: "memberAssign", name: simple.name, field: simple.field, expr: simple.expr };
+    case "memberExprAssign":
+      return { kind: "memberExprAssign", target: simple.target, field: simple.field, expr: simple.expr };
+    case "pointerMemberAssign":
+      return { kind: "pointerMemberAssign", name: simple.name, field: simple.field, expr: simple.expr };
+    case "pointerMemberExprAssign":
+      return { kind: "pointerMemberExprAssign", target: simple.target, field: simple.field, expr: simple.expr };
     default:
       return assertNever(simple);
   }
@@ -1599,6 +1910,66 @@ function parseSimpleStatement(
   offset: number,
 ): SourceSimpleStmt | null {
   const trimmed = statementText.trim();
+  const prefixDerefIncDecMatch = /^(\+\+|--)\s*(\*.+)$/.exec(trimmed);
+  if (prefixDerefIncDecMatch) {
+    return {
+      kind: "expr",
+      expr: {
+        kind: "preDerefIncDec",
+        target: parsePrimaryExpr(context, prefixDerefIncDecMatch[2], functionName, offset + trimmed.indexOf(prefixDerefIncDecMatch[2])),
+        op: prefixDerefIncDecMatch[1] as "++" | "--",
+      },
+    };
+  }
+  const prefixPointerMemberIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixPointerMemberIncDecMatch) {
+    return {
+      kind: "pointerMemberAssign",
+      name: prefixPointerMemberIncDecMatch[2],
+      field: prefixPointerMemberIncDecMatch[3],
+      expr: {
+        kind: "binary",
+        left: { kind: "pointerMemberAccess", name: prefixPointerMemberIncDecMatch[2], field: prefixPointerMemberIncDecMatch[3] },
+        op: prefixPointerMemberIncDecMatch[1] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const prefixMemberExprIncDecMatch = /^(\+\+|--)\s*(\(.+\)\s*\.\s*([A-Za-z_]\w*))$/.exec(trimmed);
+  if (prefixMemberExprIncDecMatch) {
+    const target = parsePrimaryExpr(context, prefixMemberExprIncDecMatch[2], functionName, offset + trimmed.indexOf(prefixMemberExprIncDecMatch[2]));
+    if (target.kind !== "memberExprAccess") {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      kind: "memberExprAssign",
+      target: target.target,
+      field: target.field,
+      expr: {
+        kind: "binary",
+        left: { kind: "memberExprAccess", target: target.target, field: target.field },
+        op: prefixMemberExprIncDecMatch[1] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const prefixMemberIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  if (prefixMemberIncDecMatch) {
+    return {
+      kind: "memberAssign",
+      name: prefixMemberIncDecMatch[2],
+      field: prefixMemberIncDecMatch[3],
+      expr: {
+        kind: "binary",
+        left: { kind: "memberAccess", name: prefixMemberIncDecMatch[2], field: prefixMemberIncDecMatch[3] },
+        op: prefixMemberIncDecMatch[1] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
   const prefixArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
   if (prefixArrayIncDecMatch) {
     const index = parseExpression(context, prefixArrayIncDecMatch[3], functionName, offset + statementText.indexOf(prefixArrayIncDecMatch[3]));
@@ -1624,6 +1995,96 @@ function parseSimpleStatement(
         left: { kind: "ref", name: prefixIncDecMatch[2] },
         op: prefixIncDecMatch[1] === "++" ? "+" : "-",
         right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const pointerMemberCompoundAssignMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+  if (pointerMemberCompoundAssignMatch) {
+    const rhs = parseExpression(context, pointerMemberCompoundAssignMatch[4], functionName, offset + statementText.indexOf(pointerMemberCompoundAssignMatch[4]));
+    return {
+      kind: "pointerMemberAssign",
+      name: pointerMemberCompoundAssignMatch[1],
+      field: pointerMemberCompoundAssignMatch[2],
+      expr: {
+        kind: "binary",
+        left: { kind: "pointerMemberAccess", name: pointerMemberCompoundAssignMatch[1], field: pointerMemberCompoundAssignMatch[2] },
+        op: compoundAssignOpToBinaryOp(pointerMemberCompoundAssignMatch[3]),
+        right: rhs,
+      },
+    };
+  }
+  const pointerMemberExprCompoundAssign = findTopLevelCompoundAssignment(trimmed);
+  if (pointerMemberExprCompoundAssign) {
+    const lhs = pointerMemberExprCompoundAssign.leftText.trim();
+    const pointerMemberExprAccess = parseParenthesizedPointerMemberAccess(lhs);
+    if (pointerMemberExprAccess) {
+      const target = parseExpression(
+        context,
+        pointerMemberExprAccess.targetText,
+        functionName,
+        offset + statementText.indexOf(pointerMemberExprAccess.targetText),
+      );
+      const rhs = parseExpression(
+        context,
+        pointerMemberExprCompoundAssign.rightText,
+        functionName,
+        offset + statementText.indexOf(pointerMemberExprCompoundAssign.rightText),
+      );
+      return {
+        kind: "pointerMemberExprAssign",
+        target,
+        field: pointerMemberExprAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "pointerMemberExprAccess", target, field: pointerMemberExprAccess.field },
+          op: compoundAssignOpToBinaryOp(pointerMemberExprCompoundAssign.op),
+          right: rhs,
+        },
+      };
+    }
+  }
+  const memberExprCompoundAssign = findTopLevelCompoundAssignment(trimmed);
+  if (memberExprCompoundAssign) {
+    const lhs = memberExprCompoundAssign.leftText.trim();
+    const memberExprAccess = parseParenthesizedMemberAccess(lhs);
+    if (memberExprAccess) {
+      const target = parseExpression(
+        context,
+        memberExprAccess.targetText,
+        functionName,
+        offset + statementText.indexOf(memberExprAccess.targetText),
+      );
+      const rhs = parseExpression(
+        context,
+        memberExprCompoundAssign.rightText,
+        functionName,
+        offset + statementText.indexOf(memberExprCompoundAssign.rightText),
+      );
+      return {
+        kind: "memberExprAssign",
+        target,
+        field: memberExprAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "memberExprAccess", target, field: memberExprAccess.field },
+          op: compoundAssignOpToBinaryOp(memberExprCompoundAssign.op),
+          right: rhs,
+        },
+      };
+    }
+  }
+  const memberCompoundAssignMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+  if (memberCompoundAssignMatch) {
+    const rhs = parseExpression(context, memberCompoundAssignMatch[4], functionName, offset + statementText.indexOf(memberCompoundAssignMatch[4]));
+    return {
+      kind: "memberAssign",
+      name: memberCompoundAssignMatch[1],
+      field: memberCompoundAssignMatch[2],
+      expr: {
+        kind: "binary",
+        left: { kind: "memberAccess", name: memberCompoundAssignMatch[1], field: memberCompoundAssignMatch[2] },
+        op: compoundAssignOpToBinaryOp(memberCompoundAssignMatch[3]),
+        right: rhs,
       },
     };
   }
@@ -1657,6 +2118,73 @@ function parseSimpleStatement(
       },
     };
   }
+  const derefCompoundAssignMatch = /^(\*.+)\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+  if (derefCompoundAssignMatch) {
+    const target = parsePrimaryExpr(context, derefCompoundAssignMatch[1], functionName, offset + trimmed.indexOf(derefCompoundAssignMatch[1]));
+    const rhs = parseExpression(context, derefCompoundAssignMatch[3], functionName, offset + statementText.indexOf(derefCompoundAssignMatch[3]));
+    return {
+      kind: "expr",
+      expr: {
+        kind: "derefAssign",
+        target,
+        expr: {
+          kind: "binary",
+          left: target,
+          op: compoundAssignOpToBinaryOp(derefCompoundAssignMatch[2]),
+          right: rhs,
+        },
+      },
+    };
+  }
+  const pointerMemberIncDecMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (pointerMemberIncDecMatch) {
+    return {
+      kind: "pointerMemberAssign",
+      name: pointerMemberIncDecMatch[1],
+      field: pointerMemberIncDecMatch[2],
+      expr: {
+        kind: "binary",
+        left: { kind: "pointerMemberAccess", name: pointerMemberIncDecMatch[1], field: pointerMemberIncDecMatch[2] },
+        op: pointerMemberIncDecMatch[3] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const memberIncDecMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (memberIncDecMatch) {
+    return {
+      kind: "memberAssign",
+      name: memberIncDecMatch[1],
+      field: memberIncDecMatch[2],
+      expr: {
+        kind: "binary",
+        left: { kind: "memberAccess", name: memberIncDecMatch[1], field: memberIncDecMatch[2] },
+        op: memberIncDecMatch[3] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
+  const memberExprIncDecMatch = /^(\(.+\)\s*\.\s*[A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
+  if (memberExprIncDecMatch) {
+    const target = parsePrimaryExpr(context, memberExprIncDecMatch[1], functionName, offset + trimmed.indexOf(memberExprIncDecMatch[1]));
+    if (target.kind !== "memberExprAccess") {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      kind: "memberExprAssign",
+      target: target.target,
+      field: target.field,
+      expr: {
+        kind: "binary",
+        left: { kind: "memberExprAccess", target: target.target, field: target.field },
+        op: memberExprIncDecMatch[2] === "++" ? "+" : "-",
+        right: { kind: "const", value: 1 },
+      },
+    };
+  }
   const arrayIncDecMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
   if (arrayIncDecMatch) {
     const index = parseExpression(context, arrayIncDecMatch[2], functionName, offset + statementText.indexOf(arrayIncDecMatch[2]));
@@ -1685,6 +2213,17 @@ function parseSimpleStatement(
       },
     };
   }
+  const postfixDerefIncDecMatch = /^\((\*.+)\)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixDerefIncDecMatch) {
+    return {
+      kind: "expr",
+      expr: {
+        kind: "postDerefIncDec",
+        target: parsePrimaryExpr(context, postfixDerefIncDecMatch[1], functionName, offset + trimmed.indexOf(postfixDerefIncDecMatch[1])),
+        op: postfixDerefIncDecMatch[2] as "++" | "--",
+      },
+    };
+  }
   const arrayAssignMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*=\s*(.+)$/.exec(trimmed);
   if (arrayAssignMatch) {
     return {
@@ -1693,6 +2232,70 @@ function parseSimpleStatement(
       index: parseExpression(context, arrayAssignMatch[2], functionName, offset + statementText.indexOf(arrayAssignMatch[2])),
       expr: parseExpression(context, arrayAssignMatch[3], functionName, offset + statementText.indexOf(arrayAssignMatch[3])),
     };
+  }
+  const memberAssignMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(trimmed);
+  if (memberAssignMatch) {
+    return {
+      kind: "memberAssign",
+      name: memberAssignMatch[1],
+      field: memberAssignMatch[2],
+      expr: parseExpression(context, memberAssignMatch[3], functionName, offset + statementText.indexOf(memberAssignMatch[3])),
+    };
+  }
+  const memberExprAssign = findTopLevelAssignment(trimmed);
+  if (memberExprAssign) {
+    const lhs = memberExprAssign.leftText.trim();
+    const memberExprAccess = parseParenthesizedMemberAccess(lhs);
+    if (memberExprAccess) {
+      return {
+        kind: "memberExprAssign",
+        target: parseExpression(
+          context,
+          memberExprAccess.targetText,
+          functionName,
+          offset + statementText.indexOf(memberExprAccess.targetText),
+        ),
+        field: memberExprAccess.field,
+        expr: parseExpression(
+          context,
+          memberExprAssign.rightText,
+          functionName,
+          offset + statementText.indexOf(memberExprAssign.rightText),
+        ),
+      };
+    }
+  }
+  const pointerMemberAssignMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(trimmed);
+  if (pointerMemberAssignMatch) {
+    return {
+      kind: "pointerMemberAssign",
+      name: pointerMemberAssignMatch[1],
+      field: pointerMemberAssignMatch[2],
+      expr: parseExpression(context, pointerMemberAssignMatch[3], functionName, offset + statementText.indexOf(pointerMemberAssignMatch[3])),
+    };
+  }
+  const assignment = findTopLevelAssignment(trimmed);
+  if (assignment) {
+    const lhs = assignment.leftText.trim();
+    const pointerMemberExprAccess = parseParenthesizedPointerMemberAccess(lhs);
+    if (pointerMemberExprAccess) {
+      return {
+        kind: "pointerMemberExprAssign",
+        target: parseExpression(
+          context,
+          pointerMemberExprAccess.targetText,
+          functionName,
+          offset + statementText.indexOf(pointerMemberExprAccess.targetText),
+        ),
+        field: pointerMemberExprAccess.field,
+        expr: parseExpression(
+          context,
+          assignment.rightText,
+          functionName,
+          offset + statementText.indexOf(assignment.rightText),
+        ),
+      };
+    }
   }
   const assignMatch = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(trimmed);
   if (assignMatch) {
@@ -1884,6 +2487,66 @@ function parseArrayAccess(text: string): { name: string; indexText: string } | n
   return {
     name: match[1],
     indexText: match[2].trim(),
+  };
+}
+
+function parseMemberAccess(text: string): { name: string; field: string } | null {
+  const match = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)$/.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    name: match[1],
+    field: match[2],
+  };
+}
+
+function parsePointerMemberAccess(text: string): { name: string; field: string } | null {
+  const match = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)$/.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    name: match[1],
+    field: match[2],
+  };
+}
+
+function parseParenthesizedPointerMemberAccess(text: string): { targetText: string; field: string } | null {
+  if (!text.startsWith("(")) {
+    return null;
+  }
+  const closeIndex = findMatchingParenInText(text, 0);
+  if (closeIndex >= text.length - 1) {
+    return null;
+  }
+  const rest = text.slice(closeIndex + 1).trimStart();
+  const match = /^->\s*([A-Za-z_]\w*)$/.exec(rest);
+  if (!match) {
+    return null;
+  }
+  return {
+    targetText: text.slice(1, closeIndex),
+    field: match[1],
+  };
+}
+
+function parseParenthesizedMemberAccess(text: string): { targetText: string; field: string } | null {
+  if (!text.startsWith("(")) {
+    return null;
+  }
+  const closeIndex = findMatchingParenInText(text, 0);
+  if (closeIndex >= text.length - 1) {
+    return null;
+  }
+  const rest = text.slice(closeIndex + 1).trimStart();
+  const match = /^\.\s*([A-Za-z_]\w*)$/.exec(rest);
+  if (!match) {
+    return null;
+  }
+  return {
+    targetText: text.slice(1, closeIndex),
+    field: match[1],
   };
 }
 

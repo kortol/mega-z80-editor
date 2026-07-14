@@ -135,6 +135,30 @@ export type SourceStmt =
     expr: SourceExpr;
   }
   | {
+    kind: "memberAssign";
+    name: string;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "memberExprAssign";
+    target: SourceExpr;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "pointerMemberAssign";
+    name: string;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "pointerMemberExprAssign";
+    target: SourceExpr;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
     kind: "break";
   }
   | {
@@ -156,6 +180,30 @@ export type SourceSimpleStmt =
     name: string;
     index: SourceExpr;
     expr: SourceExpr;
+  }
+  | {
+    kind: "memberAssign";
+    name: string;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "memberExprAssign";
+    target: SourceExpr;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "pointerMemberAssign";
+    name: string;
+    field: string;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "pointerMemberExprAssign";
+    target: SourceExpr;
+    field: string;
+    expr: SourceExpr;
   };
 
 export type SourceForInit =
@@ -171,6 +219,10 @@ export type SourceExpr =
   | { kind: "const"; value: number }
   | { kind: "string"; value: string }
   | { kind: "ref"; name: string }
+  | { kind: "memberAccess"; name: string; field: string }
+  | { kind: "memberExprAccess"; target: SourceExpr; field: string }
+  | { kind: "pointerMemberAccess"; name: string; field: string }
+  | { kind: "pointerMemberExprAccess"; target: SourceExpr; field: string }
   | { kind: "addressOf"; name: string }
   | { kind: "addressOfExpr"; expr: SourceExpr }
   | { kind: "deref"; expr: SourceExpr }
@@ -180,8 +232,22 @@ export type SourceExpr =
   | { kind: "postIncDec"; name: string; op: "++" | "--" }
   | { kind: "preArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }
   | { kind: "postArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }
+  | { kind: "preDerefIncDec"; target: SourceExpr; op: "++" | "--" }
+  | { kind: "postDerefIncDec"; target: SourceExpr; op: "++" | "--" }
+  | { kind: "preMemberIncDec"; name: string; field: string; op: "++" | "--" }
+  | { kind: "postMemberIncDec"; name: string; field: string; op: "++" | "--" }
+  | { kind: "preMemberExprIncDec"; target: SourceExpr; field: string; op: "++" | "--" }
+  | { kind: "postMemberExprIncDec"; target: SourceExpr; field: string; op: "++" | "--" }
+  | { kind: "prePointerMemberIncDec"; name: string; field: string; op: "++" | "--" }
+  | { kind: "postPointerMemberIncDec"; name: string; field: string; op: "++" | "--" }
+  | { kind: "prePointerMemberExprIncDec"; target: SourceExpr; field: string; op: "++" | "--" }
+  | { kind: "postPointerMemberExprIncDec"; target: SourceExpr; field: string; op: "++" | "--" }
   | { kind: "assign"; name: string; expr: SourceExpr }
   | { kind: "arrayAssign"; name: string; index: SourceExpr; expr: SourceExpr }
+  | { kind: "memberAssign"; name: string; field: string; expr: SourceExpr }
+  | { kind: "memberExprAssign"; target: SourceExpr; field: string; expr: SourceExpr }
+  | { kind: "pointerMemberAssign"; name: string; field: string; expr: SourceExpr }
+  | { kind: "pointerMemberExprAssign"; target: SourceExpr; field: string; expr: SourceExpr }
   | { kind: "derefAssign"; target: SourceExpr; expr: SourceExpr }
   | { kind: "sizeofType"; type: SourceType }
   | { kind: "sizeofExpr"; expr: SourceExpr }

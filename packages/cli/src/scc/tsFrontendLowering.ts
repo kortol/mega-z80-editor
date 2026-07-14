@@ -380,6 +380,16 @@ function lowerExpr(
         kind: "localAddress",
         slot: expr.symbol.slot,
       };
+    case "aggregateFieldAccess":
+      return {
+        kind: expr.type.width === 1 ? "derefByte" : "derefWord",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", slot: expr.symbol.slot },
+          index: { kind: "const", value: expr.offset },
+          scale: 1,
+        },
+      };
     case "pointerAdd":
       return {
         kind: "pointerAdd",
@@ -486,6 +496,14 @@ function lowerExpr(
         index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, file),
         op: expr.op,
         mode: "postfix",
+      };
+    case "derefIncDec":
+      return {
+        kind: "incDecDeref",
+        pointer: lowerExpr(expr.pointer, externs, definedFunctions, sourceText, state, file),
+        width: expr.type.width,
+        op: expr.op,
+        mode: expr.mode,
       };
     case "assign":
       return {

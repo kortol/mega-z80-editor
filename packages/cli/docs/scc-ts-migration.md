@@ -180,6 +180,10 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
 - conditional operator
   - `a ? b : c`
   - `a || b ? c : d ? e : f`
+  - `*(c ? p : q)`
+  - `*(c ? p : 0)`
+  - `p = c ? p : q;`
+  - `return (p != 0) + ((c ? p : q) == p);`
 - `sizeof`
   - `sizeof(char)`
   - `sizeof(int)`
@@ -211,13 +215,24 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `p[1] = 66;`
   - `return *(p + 1);`
   - `return p[1];`
+  - `return (&*p == p) + *(&p[i]);`
   - `return *(p - 1);`
+  - `return (p < q) + (p <= q) + (q > p) + (q >= p);`
   - `p += 1;`
   - `p -= 1;`
   - `return *(++p);`
   - `return *(p++);`
   - `return *(--p);`
   - `return *(p--);`
+  - `return ++p[i] + p[i]--;`
+  - `return (p[i] = z) + (p[i] |= 3);`
+  - `return (*p += 2) + (++*p) + ((*p)--);`
+  - `++*p;`
+  - `*p += 2;`
+  - `(*p)--;`
+  - `for (; x < 3; ++*p) { break; }`
+  - `if (*p) while (*p) { (*p)--; }`
+  - `for (; *p; ++p) { break; }`
   - `return p[i];`
   - `return *(p + i);`
   - `p[i] = z;`
@@ -231,6 +246,24 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `int second(int *p){ return p[1]; }`
   - `return second(&x);`
   - `int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }`
+  - `return (c ? p : q) == p;` for `struct Foo *`
+  - `return (c ? p : q)->a + (c ? p : q)->b;`
+  - `first(&(c ? p : q)->a)`
+  - `second(&(c ? p : q)->b)`
+  - `(c ? p : q)->a = 1;`
+  - `(c ? p : q)->b += 2;`
+  - `++(c ? p : q)->a;`
+  - `(c ? p : q)->b--;`
+  - `return ((c ? p : q)->a = 4) + (++(c ? p : q)->b) + ((c ? p : q)->a--);`
+  - `return (*p).a + (*p).b;`
+  - `first(&(*p).a)`
+  - `second(&(*p).b)`
+  - `return ((*p).a = 4) + (++(*p).b) + ((*p).a--);`
+  - `return (*(c ? p : q)).a + first(&(*(c ? p : q)).a) + ((*(c ? p : q)).b = 3) + ((*(c ? p : q)).a--);`
+  - `(*(c ? p : q)).a = 1;`
+  - `(*(c ? p : q)).b += 2;`
+  - `++(*(c ? p : q)).a;`
+  - `(*(c ? p : q)).b--;`
   - `struct Foo { char a; int b; };`
   - `union Bar { char a; int b; };`
   - `return sizeof(struct Foo) + sizeof(union Bar);`
@@ -248,11 +281,37 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `if (&x) return &x != 0;`
   - `return sizeof x + (&x != 0);`
   - `return sizeof x + (&x ? 1 : 0);`
+  - `return x.a + x.b + u.a + u.b;`
+  - `x.a = 1;`
+  - `x.b = 2;`
+  - `u.a = 3;`
+  - `u.b = 4;`
+  - `p->a = 1;`
+  - `p->b = 2;`
+  - `return p->a + p->b + q->a + q->b;`
+  - `first(&x.a)`
+  - `second(&x.b)`
+  - `first(&p->a)`
+  - `second(&p->b)`
+  - `x.a += 1;`
+  - `x.b -= 2;`
+  - `++u.a;`
+  - `u.b--;`
+  - `p->a += 3;`
+  - `p->b -= 4;`
+  - `++q->a;`
+  - `q->b--;`
+  - `return (x.a += 3) + (++x.b) + (p->a = 4) + (p->b--);`
   - still rejected: `struct Foo **pp;`
   - still rejected: `union Bar **pp;`
   - still rejected: `&(&x)`
   - still rejected: `return x;` where `x` is `struct`/`union`
   - still rejected: `x = y;` where `x` and `y` are `struct`/`union`
+  - still rejected: `f(x)` where `x` is `struct`/`union`
+  - still rejected: `c ? x : y` where `x`/`y` are `struct`/`union`
+  - still rejected: `(x, y)` where `x`/`y` are `struct`/`union`
+  - still rejected: `if (x)` where `x` is `struct`/`union`
+  - still rejected: `x == 0` where `x` is `struct`/`union`
 - bitwise operators
   - `a & b`
   - `a ^ b`

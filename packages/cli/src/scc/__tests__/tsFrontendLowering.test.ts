@@ -104,6 +104,32 @@ describe("tsFrontendLowering", () => {
     expect(asm).toMatch(/\tjp\t\.\d+/);
   });
 
+  test("lowers pointer-valued ternary conditional expressions", () => {
+    const source = "int main(){ int x = 65; int y = 66; int c = 1; int *p = &x; int *q = &y; return *(c ? p : q) + *(c ? p : 0); }\n";
+    const parsed = parseProgram(source, "pointer-conditional.c");
+    const bound = analyzeProgram(parsed, source, "pointer-conditional.c");
+    const spec = lowerSourceProgram(bound, "pointer-conditional.i", source, "pointer-conditional.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\ta,h/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers pointer-valued conditional assignment and compare expressions", () => {
+    const source = "int main(){ int x = 65; int y = 66; int c = 1; int *p = &x; int *q = &y; p = c ? p : q; return (p != 0) + ((c ? p : q) == p); }\n";
+    const parsed = parseProgram(source, "pointer-conditional-assign.c");
+    const bound = analyzeProgram(parsed, source, "pointer-conditional-assign.c");
+    const spec = lowerSourceProgram(bound, "pointer-conditional-assign.i", source, "pointer-conditional-assign.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tcall\t.eq");
+    expect(asm).toContain("\tcall\t.ne");
+  });
+
   test("lowers sizeof expressions as integer constants after semantic folding", () => {
     const source = "int main(int a){ char buf[4]; return sizeof(char) + sizeof buf + sizeof a; }\n";
     const parsed = parseProgram(source, "sizeof.c");
@@ -164,6 +190,32 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\t(hl),d");
   });
 
+  test("lowers pointer-indexed prefix and postfix increment/decrement expressions", () => {
+    const source = "int main(){ int x = 1; int y = 2; int i = 1; int *p = &x; return ++p[i] + p[i]--; }\n";
+    const parsed = parseProgram(source, "pointer-index-incdec-expr.c");
+    const bound = analyzeProgram(parsed, source, "pointer-index-incdec-expr.c");
+    const spec = lowerSourceProgram(bound, "pointer-index-incdec-expr.i", source, "pointer-index-incdec-expr.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tpush\tde");
+    expect(asm).toContain("\tpop\thl");
+  });
+
+  test("lowers pointer-indexed assignment and compound assignment expressions", () => {
+    const source = "int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; return (p[i] = z) + (p[i] |= 3); }\n";
+    const parsed = parseProgram(source, "pointer-index-assign-expr.c");
+    const bound = analyzeProgram(parsed, source, "pointer-index-assign-expr.c");
+    const spec = lowerSourceProgram(bound, "pointer-index-assign-expr.i", source, "pointer-index-assign-expr.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tor\td");
+  });
+
   test("lowers comma expressions by evaluating left then returning right", () => {
     const source = "int main(){ int x = 0; return x = 1, x += 2, x; }\n";
     const parsed = parseProgram(source, "comma.c");
@@ -196,6 +248,19 @@ describe("tsFrontendLowering", () => {
 
     expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(asm).toContain("\tld\tl,(hl)");
+  });
+
+  test("lowers address-of dereference cancellation and pointer-index element address", () => {
+    const source = "int main(){ int x = 65; int y = 66; int i = 1; int *p = &x; return (&*p == p) + *(&p[i]); }\n";
+    const parsed = parseProgram(source, "pointer-address-cancel.c");
+    const bound = analyzeProgram(parsed, source, "pointer-address-cancel.c");
+    const spec = lowerSourceProgram(bound, "pointer-address-cancel.i", source, "pointer-address-cancel.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\t.eq");
+    expect((asm.match(/\tadd\thl,hl/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\ta,(hl)");
   });
 
   test("lowers pointer indexing writes and pointer arithmetic dereference through scaled pointer adds", () => {
@@ -333,6 +398,23 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tcall\t\.ne/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
+  test("lowers pointer relational compares through ordered helper calls", () => {
+    const source = "int main(){ int x = 65; int y = 66; int *p = &x; int *q = &y; return (p < q) + (p <= q) + (q > p) + (q >= p); }\n";
+    const parsed = parseProgram(source, "pointer-rel-compare.c");
+    const bound = analyzeProgram(parsed, source, "pointer-rel-compare.c");
+    const spec = lowerSourceProgram(bound, "pointer-rel-compare.i", source, "pointer-rel-compare.c");
+    const asm = emitProgram(spec);
+
+    expect(spec.externs).toContain(".lt");
+    expect(spec.externs).toContain(".le");
+    expect(spec.externs).toContain(".gt");
+    expect(spec.externs).toContain(".ge");
+    expect(asm).toContain("\tcall\t.lt");
+    expect(asm).toContain("\tcall\t.le");
+    expect(asm).toContain("\tcall\t.gt");
+    expect(asm).toContain("\tcall\t.ge");
+  });
+
   test("lowers pointer truthiness conditions through direct hl zero-tests", () => {
     const source = "int main(){ int x = 65; int *p = &x; if (p) return 1; if (!p) return 2; return 3; }\n";
     const parsed = parseProgram(source, "pointer-truthy.c");
@@ -343,6 +425,19 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\ta,h");
     expect((asm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers dereference truthiness in if/while/for conditions", () => {
+    const source = "int main(){ int x = 2; int *p = &x; if (*p) while (*p) { (*p)--; } for (; *p; ++p) { break; } return x; }\n";
+    const parsed = parseProgram(source, "deref-truthy.c");
+    const bound = analyzeProgram(parsed, source, "deref-truthy.c");
+    const spec = lowerSourceProgram(bound, "deref-truthy.i", source, "deref-truthy.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(asm).toContain("\tadd\thl,hl");
+    expect(asm).toContain("\tadd\thl,de");
   });
 
   test("lowers int pointer parameters and calls through pointer args and scaled callee indexing", () => {
@@ -370,6 +465,44 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\ta,h");
     expect(asm).toContain("\tcall\t.ne");
     expect(asm).toContain("\tcall\t.eq");
+  });
+
+  test("lowers aggregate-pointer-valued conditional expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return (c ? p : q) == p; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-conditional.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-conditional.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-conditional.i", source, "aggregate-pointer-conditional.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tcall\t.eq");
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers pointer-member access on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return (c ? p : q)->a + (c ? p : q)->b; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-member-conditional.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-member-conditional.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-member-conditional.i", source, "aggregate-pointer-member-conditional.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers address-of on pointer-member access from conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return first(&(c ? p : q)->a) + second(&(c ? p : q)->b); }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-member-conditional-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-member-conditional-address.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-member-conditional-address.i", source, "aggregate-pointer-member-conditional-address.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\tfirst");
+    expect(asm).toContain("\tcall\tsecond");
+    expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   test("lowers sizeof aggregate types as integer constants", () => {
@@ -515,6 +648,179 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\thl,#2");
     expect(asm).toContain("\tadd\thl,sp");
     expect(asm).toMatch(/\tjp\tz,\.\d+/);
+  });
+
+  test("lowers local struct and union member reads", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar u; return x.a + x.b + u.a + u.b; }\n";
+    const parsed = parseProgram(source, "aggregate-member-read.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-member-read.c");
+    const spec = lowerSourceProgram(bound, "aggregate-member-read.i", source, "aggregate-member-read.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(asm).toContain("\tld\tl,(hl)");
+    expect(asm).toContain("\tld\th,(hl)");
+  });
+
+  test("lowers local struct and union member writes", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar u; x.a = 1; x.b = 2; u.a = 3; u.b = 4; return x.a + x.b + u.a + u.b; }\n";
+    const parsed = parseProgram(source, "aggregate-member-write.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-member-write.c");
+    const spec = lowerSourceProgram(bound, "aggregate-member-write.i", source, "aggregate-member-write.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\t(hl),e");
+    expect(asm).toContain("\tinc\thl");
+    expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
+  });
+
+  test("lowers aggregate pointer member reads and writes", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(struct Foo *p, union Bar *q){ p->a = 1; p->b = 2; q->a = 3; q->b = 4; return p->a + p->b + q->a + q->b; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-member.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-member.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-member.i", source, "aggregate-pointer-member.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tinc\thl/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("lowers address-of on aggregate fields", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(struct Foo *p){ struct Foo x; return first(&x.a) + second(&x.b) + first(&p->a) + second(&p->b); }\n";
+    const parsed = parseProgram(source, "aggregate-field-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-field-address.c");
+    const spec = lowerSourceProgram(bound, "aggregate-field-address.i", source, "aggregate-field-address.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tfirst/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tsecond/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers dereferenced aggregate member reads and address-of", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(struct Foo *p){ return (*p).a + (*p).b + first(&(*p).a) + second(&(*p).b); }\n";
+    const parsed = parseProgram(source, "aggregate-deref-member-read.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-deref-member-read.c");
+    const spec = lowerSourceProgram(bound, "aggregate-deref-member-read.i", source, "aggregate-deref-member-read.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tfirst/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tsecond/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("lowers aggregate field compound assignments and incdec statements", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(struct Foo *p, union Bar *q){ struct Foo x; union Bar u; x.a += 1; x.b -= 2; ++u.a; u.b--; p->a += 3; p->b -= 4; ++q->a; q->b--; return x.a + x.b + u.a + u.b + p->a + p->b + q->a + q->b; }\n";
+    const parsed = parseProgram(source, "aggregate-field-ops.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-field-ops.c");
+    const spec = lowerSourceProgram(bound, "aggregate-field-ops.i", source, "aggregate-field-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("lowers aggregate field assignment expressions and incdec expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(struct Foo *p){ struct Foo x; return (x.a += 3) + (++x.b) + (p->a = 4) + (p->b--); }\n";
+    const parsed = parseProgram(source, "aggregate-field-expr-ops.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-field-expr-ops.c");
+    const spec = lowerSourceProgram(bound, "aggregate-field-expr-ops.i", source, "aggregate-field-expr-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tpush\tde");
+    expect(asm).toContain("\tpop\thl");
+  });
+
+  test("lowers pointer-member writes on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (c ? p : q)->a = 1; (c ? p : q)->b += 2; return x.a + x.b + y.a + y.b; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-member-conditional-write.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-member-conditional-write.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-member-conditional-write.i", source, "aggregate-pointer-member-conditional-write.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers pointer-member incdec on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; ++(c ? p : q)->a; (c ? p : q)->b--; return x.a + x.b + y.a + y.b; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-member-conditional-incdec.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-member-conditional-incdec.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-member-conditional-incdec.i", source, "aggregate-pointer-member-conditional-incdec.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("lowers pointer-member assignment and incdec expressions on conditional pointer expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return ((c ? p : q)->a = 4) + (++(c ? p : q)->b) + ((c ? p : q)->a--); }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-member-conditional-expr-ops.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-member-conditional-expr-ops.c");
+    const spec = lowerSourceProgram(bound, "aggregate-pointer-member-conditional-expr-ops.i", source, "aggregate-pointer-member-conditional-expr-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tpush\tde");
+    expect(asm).toContain("\tpop\thl");
+  });
+
+  test("lowers dereferenced aggregate member assignment and incdec expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(struct Foo *p){ return ((*p).a = 4) + (++(*p).b) + ((*p).a--); }\n";
+    const parsed = parseProgram(source, "aggregate-deref-member-expr-ops.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-deref-member-expr-ops.c");
+    const spec = lowerSourceProgram(bound, "aggregate-deref-member-expr-ops.i", source, "aggregate-deref-member-expr-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tpush\tde");
+  });
+
+  test("lowers dereferenced conditional aggregate pointer member operations", () => {
+    const source = "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; return (*(c ? p : q)).a + first(&(*(c ? p : q)).a) + ((*(c ? p : q)).b = 3) + ((*(c ? p : q)).a--); }\n";
+    const parsed = parseProgram(source, "aggregate-deref-conditional-member-ops.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-deref-conditional-member-ops.c");
+    const spec = lowerSourceProgram(bound, "aggregate-deref-conditional-member-ops.i", source, "aggregate-deref-conditional-member-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tcall\tfirst");
+  });
+
+  test("lowers dereferenced conditional aggregate pointer member statements", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (*(c ? p : q)).a = 1; (*(c ? p : q)).b += 2; ++(*(c ? p : q)).a; (*(c ? p : q)).b--; return x.a + x.b + y.a + y.b; }\n";
+    const parsed = parseProgram(source, "aggregate-deref-conditional-member-stmt.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-deref-conditional-member-stmt.c");
+    const spec = lowerSourceProgram(bound, "aggregate-deref-conditional-member-stmt.i", source, "aggregate-deref-conditional-member-stmt.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers dereference compound assignment and incdec expressions", () => {
+    const source = "int main(){ int x = 1; int *p = &x; return (*p += 2) + (++*p) + ((*p)--); }\n";
+    const parsed = parseProgram(source, "pointer-deref-ops.c");
+    const bound = analyzeProgram(parsed, source, "pointer-deref-ops.c");
+    const spec = lowerSourceProgram(bound, "pointer-deref-ops.i", source, "pointer-deref-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(asm).toContain("\tpush\tde");
+    expect(asm).toContain("\tpop\thl");
   });
 
   test("lowers bitwise expressions into inline bytewise ops", () => {
