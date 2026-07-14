@@ -967,14 +967,19 @@ describe("tsFrontendSemantic", () => {
         pattern: /does not yet support aggregate object values/,
       },
       {
-        source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; struct Foo y; x = y; return 0; }\n",
-        file: "aggregate-assign-value.c",
-        pattern: /Expected scalar or pointer semantic type|does not yet support aggregate object values/,
-      },
-      {
         source: "struct Foo { char a; int b; };\nint take(int n){ return n; }\nint main(){ struct Foo x; return take(x); }\n",
         file: "aggregate-call-value.c",
         pattern: /does not yet support aggregate object values/,
+      },
+      {
+        source: "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar y; x = y; return 0; }\n",
+        file: "aggregate-assign-mismatch-kind.c",
+        pattern: /only supports aggregate assignment between matching struct types|matching union types/,
+      },
+      {
+        source: "struct Foo { char a; int b; };\nstruct Bar { char a; int b; };\nint main(){ struct Foo x; struct Bar y; x = y; return 0; }\n",
+        file: "aggregate-assign-mismatch-name.c",
+        pattern: /only supports aggregate assignment between matching struct types/,
       },
       {
         source: "struct Foo { char a; int b; };\nint main(int c){ struct Foo x; struct Foo y; return c ? x : y; }\n",
@@ -1045,6 +1050,22 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(fourthStmt.expr.type).toEqual({ kind: "scalar", name: "int", width: 2 });
+  });
+
+  test("binds local aggregate assignment statements", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; struct Foo y; union Bar u; union Bar v; x = y; u = v; return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-assign-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-value.c");
+    expect(bound.functions[0].body.statements[0]).toEqual({
+      kind: "aggregateAssign",
+      target: bound.functions[0].locals[0],
+      source: bound.functions[0].locals[1],
+    });
+    expect(bound.functions[0].body.statements[1]).toEqual({
+      kind: "aggregateAssign",
+      target: bound.functions[0].locals[2],
+      source: bound.functions[0].locals[3],
+    });
   });
 
   test("binds aggregate pointer member reads and writes", () => {

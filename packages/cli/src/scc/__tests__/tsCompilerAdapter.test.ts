@@ -1332,6 +1332,21 @@ describe("TsSccCompilerAdapter", () => {
     expect((sccAsm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 
+  test("source mode supports local aggregate assignment statements in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-assign-"));
+    const inputFile = path.join(tempDir, "aggregate-assign-value.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; struct Foo y; union Bar u; union Bar v; x = y; u = v; return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((sccAsm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
+  });
+
   test("source mode supports aggregate pointer member reads and writes in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-member-"));
@@ -2246,6 +2261,18 @@ describe("TsSccCompilerAdapter", () => {
     })).toThrow(/does not support local 'a' shadowing a parameter in same\(\)/);
   });
 
+  test("source mode rejects aggregate assignment between mismatched aggregate types in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-assign-mismatch-"));
+    const inputFile = path.join(tempDir, "aggregate-assign-mismatch.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nstruct Bar { char a; int b; };\nint main(){ struct Foo x; struct Bar y; x = y; return 0; }\n", "utf8");
+
+    expect(() => adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    })).toThrow(/only supports aggregate assignment between matching struct types/);
+  });
+
   test("source mode can link with CP/M runtime and execute a helper-backed .COM image", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-cpm-run-"));
@@ -2627,6 +2654,56 @@ describe("TsSccCompilerAdapter", () => {
       "int main(){ int i = 0; char buf[3]; do { buf[i] = 65; buf[i] += i; outchar(buf[i]); i += 1; } while (i < 3); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-compound-assign", programRel, [helperRelPath], 4000)).toBe("ABC");
+  });
+
+  test("source mode conditional aggregate member paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-member-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-member-source.c",
+      "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (*(c ? p : q)).a = 65; (*(c ? p : q)).b = 66; outchar((*(c ? p : q)).a); outchar((*(c ? p : q)).b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-member", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode conditional pointer-member paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-pointer-member-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-pointer-member-source.c",
+      "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (c ? p : q)->a = 65; (c ? p : q)->b = 66; outchar((c ? p : q)->a); outchar((c ? p : q)->b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-pointer-member", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode conditional aggregate member address-of paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-member-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-member-address-source.c",
+      "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (*(c ? p : q)).a = 65; (*(c ? p : q)).b = 66; outchar(first(&(*(c ? p : q)).a)); outchar(second(&(*(c ? p : q)).b)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-member-address", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode conditional pointer-member address-of paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-pointer-member-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-pointer-member-address-source.c",
+      "struct Foo { char a; int b; };\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; (c ? p : q)->a = 65; (c ? p : q)->b = 66; outchar(first(&(c ? p : q)->a)); outchar(second(&(c ? p : q)->b)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-pointer-member-address", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode local aggregate assignment statements link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-assign-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-assign-source.c",
+      "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; struct Foo y; union Bar u; union Bar v; y.a = 65; y.b = 66; v.a = 67; x = y; u = v; outchar(x.a); outchar(x.b); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-assign", programRel, [], 4000)).toBe("ABC");
   });
 
   test("source mode char argument reads a stack argument and returns it", () => {

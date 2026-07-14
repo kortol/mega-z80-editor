@@ -674,6 +674,17 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 
+  test("lowers local aggregate assignment statements", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; struct Foo y; union Bar u; union Bar v; x = y; u = v; return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-assign-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-value.c");
+    const spec = lowerSourceProgram(bound, "aggregate-assign-value.i", source, "aggregate-assign-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
+  });
+
   test("lowers aggregate pointer member reads and writes", () => {
     const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(struct Foo *p, union Bar *q){ p->a = 1; p->b = 2; q->a = 3; q->b = 4; return p->a + p->b + q->a + q->b; }\n";
     const parsed = parseProgram(source, "aggregate-pointer-member.c");

@@ -133,6 +133,13 @@ function lowerStmt(
         expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
       };
     }
+    case "aggregateAssign":
+      return {
+        kind: "ifExprZero",
+        expr: { kind: "const", value: 1 },
+        thenBody: lowerAggregateAssignStmt(stmt.target, stmt.source),
+        elseBody: [],
+      };
     case "arrayAssign":
       if (stmt.target.kind === "param") {
         return lowerParamArrayAssign(stmt, externs, definedFunctions, sourceText, state, file);
@@ -239,6 +246,14 @@ function lowerSimpleStmt(
   if (stmt.kind === "expr") {
     return { kind: "evalExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file) };
   }
+  if (stmt.kind === "aggregateAssign") {
+    return {
+      kind: "ifExprZero",
+      expr: { kind: "const", value: 1 },
+      thenBody: lowerAggregateAssignStmt(stmt.target, stmt.source),
+      elseBody: [],
+    };
+  }
   if (stmt.kind === "arrayAssign") {
     if (stmt.target.kind === "param") {
       return lowerParamArrayAssign(stmt, externs, definedFunctions, sourceText, state, file);
@@ -284,6 +299,46 @@ function lowerSimpleStmt(
     width: getLocalValueWidth(stmt.local),
     expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, file),
   };
+}
+
+function lowerAggregateAssignStmt(target: BoundLocalSymbol, source: BoundLocalSymbol): StmtIRHigh[] {
+  const aggregateType = target.type;
+  if (aggregateType.kind !== "aggregate" || source.type.kind !== "aggregate") {
+    throw new Error("Internal lowering error: aggregate assignment expected aggregate locals.");
+  }
+  const fields = getAggregateFieldStores(aggregateType);
+  return fields.map((field) => ({
+    kind: "evalExpr",
+    expr: {
+      kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
+      pointer: {
+        kind: "pointerAdd",
+        pointer: { kind: "localAddress", slot: target.slot },
+        index: { kind: "const", value: field.offset },
+        scale: 1,
+      },
+      expr: {
+        kind: field.width === 1 ? "derefByte" : "derefWord",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", slot: source.slot },
+          index: { kind: "const", value: field.offset },
+          scale: 1,
+        },
+      },
+    },
+  }));
+}
+
+function getAggregateFieldStores(type: BoundLocalSymbol["type"]): Array<{ offset: number; width: 1 | 2 }> {
+  if (type.kind !== "aggregate") {
+    throw new Error("Internal lowering error: expected aggregate type.");
+  }
+  const key = `${type.aggregateKind}:${type.name}`;
+  switch (key) {
+    default:
+      return Array.from({ length: type.size }, (_, index) => ({ offset: index, width: 1 as const }));
+  }
 }
 
 function tryLowerDecLocalByte(stmt: Extract<BoundStmt, { kind: "assign" }> | BoundSimpleStmt & { kind: "assign" }): StmtIRHigh | null {

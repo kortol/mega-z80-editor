@@ -107,6 +107,7 @@ export type BoundStmt =
   | { kind: "for"; initializer?: BoundForInit; condition?: BoundExpr; step?: BoundSimpleStmt; body: BoundBlock }
   | { kind: "switch"; expr: BoundExpr; cases: BoundSwitchCase[]; defaultCase?: BoundBlock }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
+  | { kind: "aggregateAssign"; target: BoundLocalSymbol; source: BoundLocalSymbol }
   | { kind: "arrayAssign"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr }
   | { kind: "break" }
   | { kind: "continue" };
@@ -114,6 +115,7 @@ export type BoundStmt =
 export type BoundSimpleStmt =
   | { kind: "expr"; expr: BoundExpr }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
+  | { kind: "aggregateAssign"; target: BoundLocalSymbol; source: BoundLocalSymbol }
   | { kind: "arrayAssign"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr };
 
 export type BoundForInit =
@@ -357,6 +359,9 @@ function analyzeStmt(
           offset: 0,
         });
       }
+      if (symbol.type.kind === "aggregate") {
+        return analyzeAggregateAssignStmt(symbol as BoundLocalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+      }
       return {
         kind: "assign",
         local: symbol,
@@ -451,11 +456,82 @@ function analyzeSimpleStmt(
       offset: 0,
     });
   }
+  if (symbol.type.kind === "aggregate") {
+    return analyzeAggregateAssignSimpleStmt(symbol as BoundLocalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+  }
   return {
     kind: "assign",
     local: symbol,
     expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
   };
+}
+
+function analyzeAggregateAssignStmt(
+  target: BoundLocalSymbol & { type: SemanticAggregateType },
+  expr: SourceExpr,
+  scope: Scope,
+  _functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundStmt, { kind: "aggregateAssign" }> {
+  const source = getAggregateAssignSourceSymbol(expr, scope, target.type, functionName, sourceText, file);
+  return {
+    kind: "aggregateAssign",
+    target,
+    source,
+  };
+}
+
+function analyzeAggregateAssignSimpleStmt(
+  target: BoundLocalSymbol & { type: SemanticAggregateType },
+  expr: SourceExpr,
+  scope: Scope,
+  _functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): Extract<BoundSimpleStmt, { kind: "aggregateAssign" }> {
+  const source = getAggregateAssignSourceSymbol(expr, scope, target.type, functionName, sourceText, file);
+  return {
+    kind: "aggregateAssign",
+    target,
+    source,
+  };
+}
+
+function getAggregateAssignSourceSymbol(
+  expr: SourceExpr,
+  scope: Scope,
+  targetType: SemanticAggregateType,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundLocalSymbol {
+  if (expr.kind !== "ref") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment from local aggregate symbols in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  const symbol = lookupVisible(scope, expr.name);
+  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment from local aggregate symbols in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  if (
+    symbol.type.aggregateKind !== targetType.aggregateKind
+    || symbol.type.name !== targetType.name
+    || symbol.type.size !== targetType.size
+  ) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment between matching ${targetType.aggregateKind} types in ${functionName}().`, {
+      file,
+      offset: 0,
+    });
+  }
+  return symbol;
 }
 
 function analyzeArrayAssignStmt(
