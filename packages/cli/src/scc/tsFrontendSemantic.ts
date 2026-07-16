@@ -52,7 +52,7 @@ export type SemanticType = SemanticScalarType | SemanticArrayType | SemanticPoin
 export type BoundFunctionSymbol = {
   kind: "function";
   name: string;
-  returnType: SemanticScalarType;
+  returnType: SemanticType;
   params: SemanticType[];
 };
 
@@ -81,7 +81,7 @@ export type BoundProgram = {
 export type BoundFunction = {
   kind: "boundFunction";
   name: string;
-  returnType: SemanticScalarType;
+  returnType: SemanticType;
   params: BoundParamSymbol[];
   locals: BoundLocalSymbol[];
   body: BoundBlock;
@@ -98,8 +98,16 @@ export type BoundSwitchCase = {
   body: BoundBlock;
 };
 
+export type BoundAggregateValueExpr =
+  | { kind: "aggregateRef"; symbol: (BoundLocalSymbol | BoundParamSymbol) & { type: SemanticAggregateType }; type: SemanticAggregateType }
+  | { kind: "call"; target: BoundFunctionSymbol; args: BoundCallArg[]; type: SemanticAggregateType }
+  | { kind: "comma"; left: BoundExpr; right: BoundAggregateValueExpr; type: SemanticAggregateType }
+  | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundAggregateValueExpr; elseExpr: BoundAggregateValueExpr; type: SemanticAggregateType };
+
+export type BoundCallArg = BoundExpr | BoundAggregateValueExpr;
+
 export type BoundStmt =
-  | { kind: "return"; expr: BoundExpr }
+  | { kind: "return"; expr: BoundExpr | BoundAggregateValueExpr }
   | { kind: "expr"; expr: BoundExpr }
   | { kind: "if"; condition: BoundExpr; thenBlock: BoundBlock; elseBlock?: BoundBlock }
   | { kind: "while"; condition: BoundExpr; body: BoundBlock }
@@ -107,7 +115,7 @@ export type BoundStmt =
   | { kind: "for"; initializer?: BoundForInit; condition?: BoundExpr; step?: BoundSimpleStmt; body: BoundBlock }
   | { kind: "switch"; expr: BoundExpr; cases: BoundSwitchCase[]; defaultCase?: BoundBlock }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
-  | { kind: "aggregateAssign"; target: BoundLocalSymbol; source: BoundLocalSymbol }
+  | { kind: "aggregateAssign"; target: BoundLocalSymbol; source: BoundAggregateValueExpr }
   | { kind: "arrayAssign"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr }
   | { kind: "break" }
   | { kind: "continue" };
@@ -115,7 +123,7 @@ export type BoundStmt =
 export type BoundSimpleStmt =
   | { kind: "expr"; expr: BoundExpr }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr }
-  | { kind: "aggregateAssign"; target: BoundLocalSymbol; source: BoundLocalSymbol }
+  | { kind: "aggregateAssign"; target: BoundLocalSymbol; source: BoundAggregateValueExpr }
   | { kind: "arrayAssign"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr };
 
 export type BoundForInit =
@@ -127,13 +135,14 @@ export type BoundExpr =
   | { kind: "string"; value: string; type: SemanticScalarType }
   | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType | SemanticPointerType }
   | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticPointerType }
-  | { kind: "aggregateFieldAccess"; symbol: BoundLocalSymbol; offset: number; type: SemanticScalarType }
+  | { kind: "aggregateFieldAccess"; symbol: BoundLocalSymbol | BoundParamSymbol; offset: number; type: SemanticScalarType }
+  | { kind: "aggregateValueFieldAccess"; source: BoundAggregateValueExpr; offset: number; type: SemanticScalarType }
   | { kind: "pointerAdd"; pointer: BoundExpr; index: BoundExpr; pointee: ScalarType; type: SemanticPointerType }
   | { kind: "localArrayElement"; symbol: BoundLocalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "paramArrayElement"; symbol: BoundParamSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "deref"; pointer: BoundExpr; type: SemanticScalarType }
   | { kind: "derefAssign"; pointer: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
-  | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundExpr[]; type: SemanticScalarType }
+  | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "postIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
@@ -179,7 +188,7 @@ export function analyzeProgram(program: SourceProgram, sourceText: string, file?
     functionSymbols.set(fn.name, {
       kind: "function",
       name: fn.name,
-      returnType: toSemanticScalarType(getScalarSourceType(fn.returnType).name),
+      returnType: toSemanticType(fn.returnType),
       params: fn.params.map((param) => toSemanticType(param.type)),
     });
   }
@@ -221,7 +230,7 @@ function analyzeFunction(
   return {
     kind: "boundFunction",
     name: fn.name,
-    returnType: toSemanticScalarType(getScalarSourceType(fn.returnType).name),
+    returnType: toSemanticType(fn.returnType),
     params,
     locals: localList,
     body,
@@ -289,7 +298,18 @@ function analyzeStmt(
 ): BoundStmt {
   switch (stmt.kind) {
     case "return":
-      return { kind: "return", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
+      {
+        const fnSymbol = functionSymbols.get(functionName);
+        if (!fnSymbol) {
+          throw new Error(`Unknown function symbol '${functionName}'.`);
+        }
+        return {
+          kind: "return",
+          expr: fnSymbol.returnType.kind === "aggregate"
+            ? analyzeAggregateValueExpr(stmt.expr, scope, functionSymbols, fnSymbol.returnType, functionName, sourceText, file)
+            : analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+        };
+      }
     case "expr":
       return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
     case "if":
@@ -470,12 +490,12 @@ function analyzeAggregateAssignStmt(
   target: BoundLocalSymbol & { type: SemanticAggregateType },
   expr: SourceExpr,
   scope: Scope,
-  _functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
   functionName: string,
   sourceText: string,
   file?: string,
 ): Extract<BoundStmt, { kind: "aggregateAssign" }> {
-  const source = getAggregateAssignSourceSymbol(expr, scope, target.type, functionName, sourceText, file);
+  const source = analyzeAggregateValueExpr(expr, scope, functionSymbols, target.type, functionName, sourceText, file);
   return {
     kind: "aggregateAssign",
     target,
@@ -487,12 +507,12 @@ function analyzeAggregateAssignSimpleStmt(
   target: BoundLocalSymbol & { type: SemanticAggregateType },
   expr: SourceExpr,
   scope: Scope,
-  _functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
   functionName: string,
   sourceText: string,
   file?: string,
 ): Extract<BoundSimpleStmt, { kind: "aggregateAssign" }> {
-  const source = getAggregateAssignSourceSymbol(expr, scope, target.type, functionName, sourceText, file);
+  const source = analyzeAggregateValueExpr(expr, scope, functionSymbols, target.type, functionName, sourceText, file);
   return {
     kind: "aggregateAssign",
     target,
@@ -500,38 +520,111 @@ function analyzeAggregateAssignSimpleStmt(
   };
 }
 
-function getAggregateAssignSourceSymbol(
+function analyzeAggregateValueExpr(
   expr: SourceExpr,
   scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  targetType: SemanticAggregateType | undefined,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundAggregateValueExpr {
+  switch (expr.kind) {
+    case "ref": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate value expressions from local/parameter aggregate symbols in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      const aggregateSymbol = symbol as (BoundLocalSymbol | BoundParamSymbol) & { type: SemanticAggregateType };
+      if (targetType) {
+        assertMatchingAggregateType(aggregateSymbol.type, targetType, functionName, sourceText, file);
+      }
+      return {
+        kind: "aggregateRef",
+        symbol: aggregateSymbol,
+        type: aggregateSymbol.type,
+      };
+    }
+    case "comma":
+      {
+      const right = analyzeAggregateValueExpr(expr.right, scope, functionSymbols, targetType, functionName, sourceText, file);
+      return {
+        kind: "comma",
+        left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+        right,
+        type: right.type,
+      };
+      }
+    case "conditional": {
+      const thenExpr = analyzeAggregateValueExpr(expr.thenExpr, scope, functionSymbols, targetType, functionName, sourceText, file);
+      const elseExpr = analyzeAggregateValueExpr(expr.elseExpr, scope, functionSymbols, thenExpr.type, functionName, sourceText, file);
+      assertMatchingAggregateType(thenExpr.type, elseExpr.type, functionName, sourceText, file);
+      return {
+        kind: "conditional",
+        condition: analyzeExpr(expr.condition, scope, functionSymbols, functionName, sourceText, file),
+        thenExpr,
+        elseExpr,
+        type: thenExpr.type,
+      };
+    }
+    case "call": {
+      const target = functionSymbols.get(expr.target);
+      if (!target || target.returnType.kind !== "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate value calls to defined aggregate-returning functions in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      if (target.params.length !== expr.args.length) {
+        throwDiagnostic(
+          sourceText,
+          `TsSccCompilerAdapter Phase C subset expected ${target.params.length} argument(s) for ${expr.target}(), got ${expr.args.length}.`,
+          { file, offset: 0 },
+        );
+      }
+      if (targetType) {
+        assertMatchingAggregateType(target.returnType, targetType, functionName, sourceText, file);
+      }
+      return {
+        kind: "call",
+        target,
+        args: expr.args.map((arg, index) => {
+          const paramType = target.params[index];
+          return paramType.kind === "aggregate"
+            ? analyzeAggregateValueExpr(arg, scope, functionSymbols, paramType, functionName, sourceText, file)
+            : analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file);
+        }),
+        type: target.returnType,
+      };
+    }
+    default:
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate value expressions from local/parameter aggregate symbols in ${functionName}().`, {
+        file,
+        offset: 0,
+      });
+  }
+}
+
+function assertMatchingAggregateType(
+  sourceType: SemanticAggregateType,
   targetType: SemanticAggregateType,
   functionName: string,
   sourceText: string,
   file?: string,
-): BoundLocalSymbol {
-  if (expr.kind !== "ref") {
-    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment from local aggregate symbols in ${functionName}().`, {
-      file,
-      offset: 0,
-    });
-  }
-  const symbol = lookupVisible(scope, expr.name);
-  if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
-    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment from local aggregate symbols in ${functionName}().`, {
-      file,
-      offset: 0,
-    });
-  }
+): void {
   if (
-    symbol.type.aggregateKind !== targetType.aggregateKind
-    || symbol.type.name !== targetType.name
-    || symbol.type.size !== targetType.size
+    sourceType.aggregateKind !== targetType.aggregateKind
+    || sourceType.name !== targetType.name
+    || sourceType.size !== targetType.size
   ) {
     throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment between matching ${targetType.aggregateKind} types in ${functionName}().`, {
       file,
       offset: 0,
     });
   }
-  return symbol;
 }
 
 function analyzeArrayAssignStmt(
@@ -836,6 +929,58 @@ function getAggregateFieldPointerFromTargetExpr(
   });
 }
 
+function getAggregateFieldReadFromTargetExpr(
+  targetExpr: SourceExpr,
+  fieldName: string,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): { kind: "pointer"; pointer: BoundExpr; type: SemanticScalarType } | { kind: "value"; expr: BoundExpr } {
+  if (targetExpr.kind === "ref" || targetExpr.kind === "deref") {
+    const target = getAggregateFieldPointerFromTargetExpr(targetExpr, fieldName, scope, functionSymbols, functionName, sourceText, file);
+    return {
+      kind: "pointer",
+      pointer: target.pointer,
+      type: target.type,
+    };
+  }
+  return {
+    kind: "value",
+    expr: analyzeAggregateValueFieldReadExpr(targetExpr, fieldName, scope, functionSymbols, functionName, sourceText, file),
+  };
+}
+
+function analyzeAggregateValueFieldReadExpr(
+  targetExpr: SourceExpr,
+  fieldName: string,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundExpr {
+  const aggregateValue = analyzeAggregateValueExpr(targetExpr, scope, functionSymbols, undefined, functionName, sourceText, file);
+  return lowerAggregateValueFieldReadExpr(aggregateValue, fieldName, functionName, sourceText, file);
+}
+
+function lowerAggregateValueFieldReadExpr(
+  expr: BoundAggregateValueExpr,
+  fieldName: string,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundExpr {
+  const field = getAggregateFieldLayout(expr.type, fieldName, functionName, sourceText, file);
+  return {
+    kind: "aggregateValueFieldAccess",
+    source: expr,
+    offset: field.offset,
+    type: toSemanticScalarType(field.type),
+  };
+}
+
 function analyzeForInitializer(
   init: SourceForInit,
   scope: Scope,
@@ -948,15 +1093,25 @@ function analyzeExpr(
         const aggregateType = target.symbol.type as SemanticAggregateType;
         return {
           kind: "pointerAdd",
-          pointer: {
-            kind: "localAddress",
-            symbol: target.symbol,
-            type: toSemanticPointerType({
-              kind: "aggregate",
-              aggregateKind: aggregateType.aggregateKind,
-              name: aggregateType.name,
-            }),
-          },
+          pointer: target.symbol.kind === "local"
+            ? {
+              kind: "localAddress",
+              symbol: target.symbol,
+              type: toSemanticPointerType({
+                kind: "aggregate",
+                aggregateKind: aggregateType.aggregateKind,
+                name: aggregateType.name,
+              }),
+            }
+            : {
+              kind: "ref",
+              symbol: target.symbol,
+              type: toSemanticPointerType({
+                kind: "aggregate",
+                aggregateKind: aggregateType.aggregateKind,
+                name: aggregateType.name,
+              }),
+            },
           index: { kind: "const", value: target.offset, type: toSemanticScalarType("int") },
           pointee: "char",
           type: toSemanticPointerType(target.type.name),
@@ -996,8 +1151,8 @@ function analyzeExpr(
     }
     case "memberAccess": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports member access on local struct/union objects, got '${expr.name}.${expr.field}'.`, {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports member access on local/parameter struct/union objects, got '${expr.name}.${expr.field}'.`, {
           file,
           offset: 0,
         });
@@ -1011,7 +1166,10 @@ function analyzeExpr(
       };
     }
     case "memberExprAccess": {
-      const target = getAggregateFieldPointerFromTargetExpr(expr.target, expr.field, scope, functionSymbols, functionName, sourceText, file);
+      const target = getAggregateFieldReadFromTargetExpr(expr.target, expr.field, scope, functionSymbols, functionName, sourceText, file);
+      if (target.kind === "value") {
+        return target.expr;
+      }
       return {
         kind: "deref",
         pointer: target.pointer,
@@ -1116,11 +1274,23 @@ function analyzeExpr(
           { file, offset: 0 },
         );
       }
+      if (target?.returnType.kind === "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not yet support aggregate-returning calls in scalar expression position in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
       return {
         kind: "call",
         target: target ?? { kind: "extern", name: expr.target },
-        args: expr.args.map((arg) => analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file)),
-        type: target?.returnType ?? toSemanticScalarType("int"),
+        args: expr.args.map((arg, index) => {
+          const paramType = target?.params[index];
+          if (paramType?.kind === "aggregate") {
+            return analyzeAggregateValueExpr(arg, scope, functionSymbols, paramType, functionName, sourceText, file);
+          }
+          return analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file);
+        }),
+        type: (target?.returnType as SemanticScalarType | SemanticPointerType | undefined) ?? toSemanticScalarType("int"),
       };
     }
     case "preIncDec":
@@ -1541,6 +1711,7 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
       return expr.type.width;
     case "localAddress":
     case "aggregateFieldAccess":
+    case "aggregateValueFieldAccess":
     case "pointerAdd":
     case "deref":
     case "derefAssign":

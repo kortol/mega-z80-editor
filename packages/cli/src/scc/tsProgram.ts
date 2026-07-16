@@ -9,6 +9,16 @@ export type ProgramSpec = {
   includeBss?: boolean;
 };
 
+export type AggregateValueSpec =
+  | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
+  | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
+  | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
+  | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
+
+export type CallArgSpec =
+  | { kind: "expr"; expr: ExprSpec }
+  | { kind: "aggregateAddress"; source: AggregateValueSpec; tempOffset: number };
+
 export type ExprSpec =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
@@ -22,7 +32,7 @@ export type ExprSpec =
   | { kind: "assignDerefByte"; pointer: ExprSpec; expr: ExprSpec }
   | { kind: "assignDerefWord"; pointer: ExprSpec; expr: ExprSpec }
   | { kind: "incDecDeref"; pointer: ExprSpec; width: ValueWidth; op: "++" | "--"; mode: "prefix" | "postfix" }
-  | { kind: "call"; target: string; args?: ExprSpec[] }
+  | { kind: "call"; target: string; args?: CallArgSpec[] }
   | { kind: "incDecLocal"; offset: number; width: ValueWidth; step: 1 | 2; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecLocalArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecArgArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
@@ -37,6 +47,7 @@ export type ExprSpec =
   | { kind: "divmod"; left: ExprSpec; right: ExprSpec; result: "quotient" | "remainder" }
   | { kind: "compare"; left: ExprSpec; right: ExprSpec; helper: string }
   | { kind: "additive"; left: ExprSpec; right: ExprSpec; op: "+" | "-" }
+  | { kind: "aggregateValueFieldAccess"; source: AggregateValueSpec; tempOffset: number; offset: number; width: ValueWidth }
   | { kind: "localChar"; offset: number }
   | { kind: "localInt"; offset: number }
   | { kind: "argChar"; offset: number }
@@ -59,6 +70,16 @@ export type RefIR = {
   width: ValueWidth;
   slot: number;
 };
+
+export type AggregateValueIR =
+  | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
+  | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
+  | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
+  | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
+
+export type CallArgIR =
+  | { kind: "expr"; expr: ExprIR }
+  | { kind: "aggregateAddress"; source: AggregateValueIR; tempSlot: number };
 
 export type ExprIR =
   | { kind: "const"; value: number }
@@ -87,7 +108,8 @@ export type ExprIR =
   | { kind: "divmod"; left: ExprIR; right: ExprIR; result: "quotient" | "remainder" }
   | { kind: "compare"; left: ExprIR; right: ExprIR; helper: string }
   | { kind: "additive"; left: ExprIR; right: ExprIR; op: "+" | "-" }
-  | { kind: "call"; target: string; args?: ExprIR[] };
+  | { kind: "aggregateValueFieldAccess"; source: AggregateValueIR; tempSlot: number; offset: number; width: ValueWidth }
+  | { kind: "call"; target: string; args?: CallArgIR[] };
 
 export type FunctionIR = {
   name: string;
@@ -483,11 +505,19 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         right: lowerExprIR(expr.right, layout),
         op: expr.op,
       };
+    case "aggregateValueFieldAccess":
+      return {
+        kind: "aggregateValueFieldAccess",
+        source: lowerAggregateValueIR(expr.source, layout),
+        tempOffset: getLocalOffset(layout, expr.tempSlot),
+        offset: expr.offset,
+        width: expr.width,
+      };
     case "call":
       return {
         kind: "call",
         target: expr.target,
-        args: expr.args?.map((arg) => lowerExprIR(arg, layout)),
+        args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
       };
     case "ref":
       return lowerRefIR(expr, layout);
@@ -502,6 +532,57 @@ function lowerRefIR(ref: RefIR, layout: FunctionLayout): ExprSpec {
     return ref.width === 1 ? { kind: "localChar", offset } : { kind: "localInt", offset };
   }
   return ref.width === 1 ? { kind: "argChar", offset } : { kind: "argInt", offset };
+}
+
+function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): AggregateValueSpec {
+  switch (expr.kind) {
+    case "aggregateRef":
+      return {
+        kind: "aggregateRef",
+        scope: expr.scope,
+        offset: expr.scope === "local" ? getLocalOffset(layout, expr.slot) : getParamOffset(layout, expr.slot),
+        size: expr.size,
+      };
+    case "call":
+      return {
+        kind: "call",
+        target: expr.target,
+        args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
+        size: expr.size,
+      };
+    case "comma":
+      return {
+        kind: "comma",
+        left: lowerExprIR(expr.left, layout),
+        right: lowerAggregateValueIR(expr.right, layout),
+        size: expr.size,
+      };
+    case "conditional":
+      return {
+        kind: "conditional",
+        condition: lowerExprIR(expr.condition, layout),
+        thenExpr: lowerAggregateValueIR(expr.thenExpr, layout),
+        elseExpr: lowerAggregateValueIR(expr.elseExpr, layout),
+        size: expr.size,
+      };
+    default:
+      return assertNever(expr);
+  }
+}
+
+function lowerCallArgIR(arg: CallArgIR, layout: FunctionLayout): CallArgSpec {
+  switch (arg.kind) {
+    case "expr":
+      return { kind: "expr", expr: lowerExprIR(arg.expr, layout) };
+    case "aggregateAddress":
+      return {
+        kind: "aggregateAddress",
+        source: lowerAggregateValueIR(arg.source, layout),
+        tempOffset: getLocalOffset(layout, arg.tempSlot),
+      };
+    default:
+      return assertNever(arg);
+  }
 }
 
 function layoutFunction(fn: FunctionIR): FunctionLayout {
@@ -555,7 +636,7 @@ function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[]
     case "loadExprHl":
       return emitExprToHl(statement.expr, ctx);
     case "pushExprArg":
-      return emitPushArgs([statement.expr], ctx);
+      return emitPushArgs([{ kind: "expr", expr: statement.expr }], ctx);
     case "pushHlArg":
       return ["\tpush\thl"];
     case "popBc":
@@ -667,6 +748,8 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return emitHelperCompare(expr.left, expr.right, expr.helper, ctx);
     case "additive":
       return emitAdditiveExpr(expr.left, expr.right, expr.op, ctx);
+    case "aggregateValueFieldAccess":
+      return emitAggregateValueFieldAccessExpr(expr.source, expr.tempOffset, expr.offset, expr.width, ctx);
     case "localChar":
     case "argChar":
       return emitLoadStackByteToHl(expr.offset, ctx);
@@ -678,18 +761,23 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
   }
 }
 
-function emitCallExpr(target: string, args: ExprSpec[], ctx: EmitExprContext): string[] {
+function emitCallExpr(target: string, args: CallArgSpec[], ctx: EmitExprContext): string[] {
   if (args.length === 0) {
     return [`\tcall\t${target}`];
   }
   return [...emitPushArgs(args, ctx), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 
-function emitPushArgs(args: ExprSpec[], ctx: EmitExprContext): string[] {
+function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
   const lines: string[] = [];
   let stackDelta = ctx.stackDelta;
-  for (const expr of args) {
-    lines.push(...emitExprToHl(expr, { ...ctx, stackDelta }));
+  for (const arg of args) {
+    if (arg.kind === "expr") {
+      lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
+    } else {
+      lines.push(...emitAggregateValueToLocal(arg.source, arg.tempOffset, { ...ctx, stackDelta }));
+      lines.push(...emitExprToHl({ kind: "localAddress", offset: arg.tempOffset }, { ...ctx, stackDelta }));
+    }
     lines.push("\tpush\thl");
     stackDelta += 2;
   }
@@ -1016,6 +1104,113 @@ function emitAdditiveExpr(left: ExprSpec, right: ExprSpec, op: "+" | "-", ctx: E
     return [...lines, "\tadd\thl,de"];
   }
   return [...lines, "\tex\tde,hl", "\tor\ta", "\tsbc\thl,de"];
+}
+
+function emitAggregateValueFieldAccessExpr(
+  source: AggregateValueSpec,
+  tempOffset: number,
+  fieldOffset: number,
+  width: ValueWidth,
+  ctx: EmitExprContext,
+): string[] {
+  const loadExpr: ExprSpec = width === 1
+    ? { kind: "localChar", offset: tempOffset + fieldOffset }
+    : { kind: "localInt", offset: tempOffset + fieldOffset };
+  return [
+    ...emitAggregateValueToLocal(source, tempOffset, ctx),
+    ...emitExprToHl(loadExpr, ctx),
+  ];
+}
+
+function emitAggregateValueToLocal(source: AggregateValueSpec, targetOffset: number, ctx: EmitExprContext): string[] {
+  switch (source.kind) {
+    case "aggregateRef":
+      return source.scope === "local"
+        ? emitAggregateCopyFromLocal(source.offset, targetOffset, source.size, ctx)
+        : emitAggregateCopyFromArgAddress(source.offset, targetOffset, source.size, ctx);
+    case "call":
+      return [
+        ...emitPushArgs([{ kind: "expr", expr: { kind: "localAddress", offset: targetOffset } }, ...(source.args ?? [])], ctx),
+        `\tcall\t${source.target}`,
+        ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
+      ];
+    case "comma":
+      return [
+        ...emitExprToHl(source.left, ctx),
+        ...emitAggregateValueToLocal(source.right, targetOffset, ctx),
+      ];
+    case "conditional": {
+      const elseLabel = allocateExprLabel(ctx);
+      const endLabel = allocateExprLabel(ctx);
+      return [
+        ...emitExprToHl(source.condition, ctx),
+        "\tld\ta,h",
+        "\tor\tl",
+        `\tjp\tz,${elseLabel}`,
+        ...emitAggregateValueToLocal(source.thenExpr, targetOffset, ctx),
+        `\tjp\t${endLabel}`,
+        `${elseLabel}:`,
+        ...emitAggregateValueToLocal(source.elseExpr, targetOffset, ctx),
+        `${endLabel}:`,
+      ];
+    }
+    default:
+      return assertNever(source);
+  }
+}
+
+function emitAggregateCopyFromLocal(sourceOffset: number, targetOffset: number, size: number, ctx: EmitExprContext): string[] {
+  const lines: string[] = [];
+  for (let index = 0; index < size; index += 1) {
+    lines.push(
+      ...emitAssignDerefByteExpr(
+        {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", offset: targetOffset },
+          index: { kind: "const", value: index },
+          scale: 1,
+        },
+        {
+          kind: "derefByte",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: { kind: "localAddress", offset: sourceOffset },
+            index: { kind: "const", value: index },
+            scale: 1,
+          },
+        },
+        ctx,
+      ),
+    );
+  }
+  return lines;
+}
+
+function emitAggregateCopyFromArgAddress(sourceOffset: number, targetOffset: number, size: number, ctx: EmitExprContext): string[] {
+  const lines: string[] = [];
+  for (let index = 0; index < size; index += 1) {
+    lines.push(
+      ...emitAssignDerefByteExpr(
+        {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", offset: targetOffset },
+          index: { kind: "const", value: index },
+          scale: 1,
+        },
+        {
+          kind: "derefByte",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: { kind: "argInt", offset: sourceOffset },
+            index: { kind: "const", value: index },
+            scale: 1,
+          },
+        },
+        ctx,
+      ),
+    );
+  }
+  return lines;
 }
 
 function emitLogicalExpr(left: ExprSpec, right: ExprSpec, op: "&&" | "||", ctx: EmitExprContext): string[] {

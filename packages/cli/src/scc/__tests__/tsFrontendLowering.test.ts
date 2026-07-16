@@ -685,6 +685,93 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 
+  test("lowers conditional and comma aggregate assignment expressions", () => {
+    const source = "struct Foo { char a; int b; };\nint main(int c){ int side = 1; struct Foo x; struct Foo y; struct Foo z; x = c ? y : z; x = (side = 2, y); return x.a + x.b + side; }\n";
+    const parsed = parseProgram(source, "aggregate-assign-expr.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-expr.c");
+    const spec = lowerSourceProgram(bound, "aggregate-assign-expr.i", source, "aggregate-assign-expr.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tjp\tz,\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect(asm).toContain("\tld\thl,#2\n\tpush\thl");
+  });
+
+  test("lowers member reads from conditional and comma aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nint main(int c){ int side = 0; struct Foo x; struct Foo y; return (c ? x : y).a + ((side = 1), y).b; }\n";
+    const parsed = parseProgram(source, "aggregate-value-member-read.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-value-member-read.c");
+    const spec = lowerSourceProgram(bound, "aggregate-value-member-read.i", source, "aggregate-value-member-read.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tjp\tz,\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\tl,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers aggregate call arguments via temporary address passing", () => {
+    const source = "struct Foo { char a; int b; };\nint take(struct Foo a){ return a.a + a.b; }\nint main(){ struct Foo x; return take(x); }\n";
+    const parsed = parseProgram(source, "aggregate-call-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-call-value.c");
+    const spec = lowerSourceProgram(bound, "aggregate-call-value.i", source, "aggregate-call-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("lowers aggregate return statements and aggregate-returning value paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ struct Foo y; y = make(); return make().a; }\n";
+    const parsed = parseProgram(source, "aggregate-return-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-return-value.c");
+    const spec = lowerSourceProgram(bound, "aggregate-return-value.i", source, "aggregate-return-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("lowers aggregate declaration initializers and nested aggregate-returning calls", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ struct Foo y = make(); return take(make()) + id(make()).a + y.b; }\n";
+    const parsed = parseProgram(source, "aggregate-return-nested.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-return-nested.c");
+    const spec = lowerSourceProgram(bound, "aggregate-return-nested.i", source, "aggregate-return-nested.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("lowers conditional and comma aggregate-returning call value paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nint main(int c){ int side = 0; struct Foo y = c ? make() : id(make()); return take(c ? make() : y) + ((side = 1), make()).b + side; }\n";
+    const parsed = parseProgram(source, "aggregate-return-conditional-comma.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-return-conditional-comma.c");
+    const spec = lowerSourceProgram(bound, "aggregate-return-conditional-comma.i", source, "aggregate-return-conditional-comma.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers branch-local aggregate declaration initializers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(int c){ if (c) { struct Foo y = make(); return y.a; } else { struct Foo z = make(); return z.b; } }\n";
+    const parsed = parseProgram(source, "aggregate-branch-local-init.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-branch-local-init.c");
+    const spec = lowerSourceProgram(bound, "aggregate-branch-local-init.i", source, "aggregate-branch-local-init.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
   test("lowers aggregate pointer member reads and writes", () => {
     const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(struct Foo *p, union Bar *q){ p->a = 1; p->b = 2; q->a = 3; q->b = 4; return p->a + p->b + q->a + q->b; }\n";
     const parsed = parseProgram(source, "aggregate-pointer-member.c");

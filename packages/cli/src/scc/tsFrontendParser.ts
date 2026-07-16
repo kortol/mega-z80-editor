@@ -50,7 +50,7 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
   const context: ParseContext = { file, normalized };
   const aggregates = parseAggregateDefs(context);
   const functions: SourceFunction[] = [];
-  const headerPattern = /\b(int|char)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
+  const headerPattern = /\b((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
   let match: RegExpExecArray | null;
   while ((match = headerPattern.exec(normalized)) !== null) {
     const bodyStart = headerPattern.lastIndex;
@@ -59,7 +59,7 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
     functions.push({
       kind: "function",
       name: match[2],
-      returnType: makeScalarType(match[1] as ScalarType),
+      returnType: parseNamedType(match[1]) ?? makeScalarType("int"),
       params: parseParams(context, match[3], match[2], match.index),
       body: parseBodyAsBlock(context, bodyText, match[2], bodyStart),
     });
@@ -789,6 +789,19 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       field: parenthesizedMemberAccess.field,
     };
   }
+  const expressionMemberAccess = parseExpressionMemberAccess(trimmed);
+  if (expressionMemberAccess) {
+    return {
+      kind: "memberExprAccess",
+      target: parseExpression(
+        context,
+        expressionMemberAccess.targetText,
+        functionName,
+        offset + trimmed.indexOf(expressionMemberAccess.targetText),
+      ),
+      field: expressionMemberAccess.field,
+    };
+  }
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
   }
@@ -1109,17 +1122,27 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
     };
   }
   const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(trimmed);
-  if (!match) {
+  if (match) {
+    return {
+      kind: "param",
+      type: makeScalarType(match[1] as ScalarType),
+      name: match[2],
+    };
+  }
+  const aggregateMatch = /^((?:struct|union)\s+[A-Za-z_]\w*)\s+([A-Za-z_]\w*)$/.exec(trimmed);
+  if (aggregateMatch) {
+    return {
+      kind: "param",
+      type: parseNamedType(aggregateMatch[1]) as AggregateTypeRef,
+      name: aggregateMatch[2],
+    };
+  }
+  {
     throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support parameter '${paramText.trim()}' in ${functionName}().`, {
       file: context.file,
       offset,
     });
   }
-  return {
-    kind: "param",
-    type: makeScalarType(match[1] as ScalarType),
-    name: match[2],
-  };
 }
 
 function parseDeclaration(statementText: string):
@@ -2547,6 +2570,21 @@ function parseParenthesizedMemberAccess(text: string): { targetText: string; fie
   return {
     targetText: text.slice(1, closeIndex),
     field: match[1],
+  };
+}
+
+function parseExpressionMemberAccess(text: string): { targetText: string; field: string } | null {
+  const match = /^([A-Za-z_]\w*\s*\(.*\))\.\s*([A-Za-z_]\w*)$/.exec(text);
+  if (!match) {
+    return null;
+  }
+  const targetText = match[1].trim();
+  if (targetText.length === 0) {
+    return null;
+  }
+  return {
+    targetText,
+    field: match[2],
   };
 }
 
