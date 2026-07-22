@@ -100,6 +100,7 @@ export type BoundSwitchCase = {
 
 export type BoundAggregateValueExpr =
   | { kind: "aggregateRef"; symbol: (BoundLocalSymbol | BoundParamSymbol) & { type: SemanticAggregateType }; type: SemanticAggregateType }
+  | { kind: "aggregateAssignExpr"; target: BoundLocalSymbol & { type: SemanticAggregateType }; source: BoundAggregateValueExpr; type: SemanticAggregateType }
   | { kind: "call"; target: BoundFunctionSymbol; args: BoundCallArg[]; type: SemanticAggregateType }
   | { kind: "comma"; left: BoundExpr; right: BoundAggregateValueExpr; type: SemanticAggregateType }
   | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundAggregateValueExpr; elseExpr: BoundAggregateValueExpr; type: SemanticAggregateType };
@@ -137,6 +138,7 @@ export type BoundExpr =
   | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticPointerType }
   | { kind: "aggregateFieldAccess"; symbol: BoundLocalSymbol | BoundParamSymbol; offset: number; type: SemanticScalarType }
   | { kind: "aggregateValueFieldAccess"; source: BoundAggregateValueExpr; offset: number; type: SemanticScalarType }
+  | { kind: "aggregateValueFieldAddress"; source: BoundAggregateValueExpr; offset: number; type: SemanticPointerType }
   | { kind: "pointerAdd"; pointer: BoundExpr; index: BoundExpr; pointee: ScalarType; type: SemanticPointerType }
   | { kind: "localArrayElement"; symbol: BoundLocalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "paramArrayElement"; symbol: BoundParamSymbol; index: BoundExpr; type: SemanticScalarType }
@@ -546,6 +548,26 @@ function analyzeAggregateValueExpr(
         kind: "aggregateRef",
         symbol: aggregateSymbol,
         type: aggregateSymbol.type,
+      };
+    }
+    case "assign": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || symbol.kind !== "local" || symbol.type.kind !== "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports aggregate assignment expressions to local struct/union objects in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      const aggregateTarget = symbol as BoundLocalSymbol & { type: SemanticAggregateType };
+      const source = analyzeAggregateValueExpr(expr.expr, scope, functionSymbols, aggregateTarget.type, functionName, sourceText, file);
+      if (targetType) {
+        assertMatchingAggregateType(aggregateTarget.type, targetType, functionName, sourceText, file);
+      }
+      return {
+        kind: "aggregateAssignExpr",
+        target: aggregateTarget,
+        source,
+        type: aggregateTarget.type,
       };
     }
     case "comma":
@@ -1047,27 +1069,10 @@ function analyzeExpr(
           offset: 0,
         });
       }
-      if (symbol.type.kind === "pointer") {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support pointer-to-pointer address-of for '${expr.name}' in ${functionName}().`, {
-          file,
-          offset: 0,
-        });
-      }
       if (symbol.type.kind === "array") {
         return { kind: "localAddress", symbol, type: toSemanticPointerType("char") };
       }
-      if (symbol.type.kind === "aggregate") {
-        return {
-          kind: "localAddress",
-          symbol,
-          type: toSemanticPointerType({
-            kind: "aggregate",
-            aggregateKind: symbol.type.aggregateKind,
-            name: symbol.type.name,
-          }),
-        };
-      }
-      return { kind: "localAddress", symbol, type: toSemanticPointerType(symbol.type.name) };
+      return { kind: "localAddress", symbol, type: toSemanticPointerType(toPointerPointee(symbol.type)) };
     }
     case "addressOfExpr": {
       const target = analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file);
@@ -1114,6 +1119,14 @@ function analyzeExpr(
             },
           index: { kind: "const", value: target.offset, type: toSemanticScalarType("int") },
           pointee: "char",
+          type: toSemanticPointerType(target.type.name),
+        };
+      }
+      if (target.kind === "aggregateValueFieldAccess") {
+        return {
+          kind: "aggregateValueFieldAddress",
+          source: target.source,
+          offset: target.offset,
           type: toSemanticPointerType(target.type.name),
         };
       }
@@ -1672,6 +1685,28 @@ function toSemanticPointerType(pointee: PointerPointee): SemanticPointerType {
   };
 }
 
+function toPointerPointee(type: SemanticType): PointerPointee {
+  switch (type.kind) {
+    case "scalar":
+      return type.name;
+    case "aggregate":
+      return {
+        kind: "aggregate",
+        aggregateKind: type.aggregateKind,
+        name: type.name,
+      };
+    case "pointer":
+      return {
+        kind: "pointer",
+        pointee: type.pointee,
+      };
+    case "array":
+      throw new Error(`Expected non-array type for pointer pointee conversion, got ${JSON.stringify(type)}`);
+    default:
+      return assertNever(type);
+  }
+}
+
 function getTypeStorageBytes(type: SourceType): number {
   if (type.kind === "scalar") {
     return type.name === "char" ? 1 : 2;
@@ -1712,6 +1747,7 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
     case "localAddress":
     case "aggregateFieldAccess":
     case "aggregateValueFieldAccess":
+    case "aggregateValueFieldAddress":
     case "pointerAdd":
     case "deref":
     case "derefAssign":
@@ -1802,10 +1838,20 @@ function getConditionalResultType(
 }
 
 function samePointerType(left: SemanticPointerType, right: SemanticPointerType): boolean {
-  if (typeof left.pointee === "string" || typeof right.pointee === "string") {
-    return left.pointee === right.pointee;
+  return samePointerPointee(left.pointee, right.pointee);
+}
+
+function samePointerPointee(left: PointerPointee, right: PointerPointee): boolean {
+  if (typeof left === "string" || typeof right === "string") {
+    return left === right;
   }
-  return left.pointee.aggregateKind === right.pointee.aggregateKind && left.pointee.name === right.pointee.name;
+  if (left.kind === "aggregate" || right.kind === "aggregate") {
+    return left.kind === "aggregate"
+      && right.kind === "aggregate"
+      && left.aggregateKind === right.aggregateKind
+      && left.name === right.name;
+  }
+  return samePointerPointee(left.pointee, right.pointee);
 }
 
 function isZeroConstantExpr(expr: BoundExpr): boolean {
@@ -1823,13 +1869,16 @@ function getScalarPointerPointee(
   }
   throwDiagnostic(
     sourceText,
-    `TsSccCompilerAdapter Phase C subset does not yet support ${formatAggregateTypeRef(type.pointee)} pointee layout operations in ${functionName}().`,
+    `TsSccCompilerAdapter Phase C subset does not yet support ${formatPointerPointee(type.pointee)} pointee layout operations in ${functionName}().`,
     { file, offset: 0 },
   );
 }
 
-function formatAggregateTypeRef(type: AggregateTypeRef): string {
-  return `${type.aggregateKind} ${type.name}`;
+function formatPointerPointee(type: Exclude<PointerPointee, ScalarType>): string {
+  if (type.kind === "aggregate") {
+    return `${type.aggregateKind} ${type.name}`;
+  }
+  return `${formatPointerPointee(type.pointee as Exclude<PointerPointee, ScalarType>)} *`;
 }
 
 function buildAggregateLayouts(
@@ -1910,19 +1959,20 @@ function getPointerAggregateFieldTarget(
   field: { offset: number; type: ScalarType };
 } {
   const symbol = lookupVisible(scope, name);
-  if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "pointer" || typeof symbol.type.pointee === "string") {
+  if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "pointer") {
     throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '->' on struct/union pointers, got '${name}->${fieldName}' in ${functionName}().`, {
       file,
       offset: 0,
     });
   }
-  const layout = currentAggregateLayouts.get(`${symbol.type.pointee.aggregateKind}:${symbol.type.pointee.name}`);
+  const aggregatePointee = getAggregatePointerPointee(symbol.type, functionName, sourceText, file);
+  const layout = currentAggregateLayouts.get(`${aggregatePointee.aggregateKind}:${aggregatePointee.name}`);
   if (!layout) {
-    throw new Error(`Unknown aggregate type '${symbol.type.pointee.aggregateKind} ${symbol.type.pointee.name}'.`);
+    throw new Error(`Unknown aggregate type '${aggregatePointee.aggregateKind} ${aggregatePointee.name}'.`);
   }
   const field = layout.fields.get(fieldName);
   if (!field) {
-    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support unknown field '${fieldName}' on ${symbol.type.pointee.aggregateKind} ${symbol.type.pointee.name} in ${functionName}().`, {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support unknown field '${fieldName}' on ${aggregatePointee.aggregateKind} ${aggregatePointee.name} in ${functionName}().`, {
       file,
       offset: 0,
     });
@@ -1940,27 +1990,43 @@ function getPointerAggregateFieldFromExpr(
   sourceText: string,
   file?: string,
 ): { field: { offset: number; type: ScalarType } } {
-  if (pointer.type.kind !== "pointer" || typeof pointer.type.pointee === "string") {
+  if (pointer.type.kind !== "pointer") {
     throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '->' on struct/union pointer expressions in ${functionName}().`, {
       file,
       offset: 0,
     });
   }
-  const layout = currentAggregateLayouts.get(`${pointer.type.pointee.aggregateKind}:${pointer.type.pointee.name}`);
+  const aggregatePointee = getAggregatePointerPointee(pointer.type, functionName, sourceText, file);
+  const layout = currentAggregateLayouts.get(`${aggregatePointee.aggregateKind}:${aggregatePointee.name}`);
   if (!layout) {
-    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know ${formatAggregateTypeRef(pointer.type.pointee)} for pointer-member access in ${functionName}().`, {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know ${aggregatePointee.aggregateKind} ${aggregatePointee.name} for pointer-member access in ${functionName}().`, {
       file,
       offset: 0,
     });
   }
   const field = layout.fields.get(fieldName);
   if (!field) {
-    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know field '${fieldName}' on ${formatAggregateTypeRef(pointer.type.pointee)} in ${functionName}().`, {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know field '${fieldName}' on ${aggregatePointee.aggregateKind} ${aggregatePointee.name} in ${functionName}().`, {
       file,
       offset: 0,
     });
   }
   return { field };
+}
+
+function getAggregatePointerPointee(
+  type: SemanticPointerType,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): AggregateTypeRef {
+  if (typeof type.pointee !== "string" && type.pointee.kind === "aggregate") {
+    return type.pointee;
+  }
+  throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '->' on struct/union pointers in ${functionName}().`, {
+    file,
+    offset: 0,
+  });
 }
 
 function getSizedArrayLength(type: SemanticArrayType): number {

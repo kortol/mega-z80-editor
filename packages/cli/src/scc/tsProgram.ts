@@ -11,6 +11,7 @@ export type ProgramSpec = {
 
 export type AggregateValueSpec =
   | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
+  | { kind: "aggregateAssignExpr"; targetOffset: number; source: AggregateValueSpec; size: number }
   | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
   | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
@@ -48,6 +49,7 @@ export type ExprSpec =
   | { kind: "compare"; left: ExprSpec; right: ExprSpec; helper: string }
   | { kind: "additive"; left: ExprSpec; right: ExprSpec; op: "+" | "-" }
   | { kind: "aggregateValueFieldAccess"; source: AggregateValueSpec; tempOffset: number; offset: number; width: ValueWidth }
+  | { kind: "aggregateValueFieldAddress"; source: AggregateValueSpec; tempOffset: number; offset: number }
   | { kind: "localChar"; offset: number }
   | { kind: "localInt"; offset: number }
   | { kind: "argChar"; offset: number }
@@ -73,6 +75,7 @@ export type RefIR = {
 
 export type AggregateValueIR =
   | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
+  | { kind: "aggregateAssignExpr"; targetSlot: number; source: AggregateValueIR; size: number }
   | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
   | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
   | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
@@ -109,6 +112,7 @@ export type ExprIR =
   | { kind: "compare"; left: ExprIR; right: ExprIR; helper: string }
   | { kind: "additive"; left: ExprIR; right: ExprIR; op: "+" | "-" }
   | { kind: "aggregateValueFieldAccess"; source: AggregateValueIR; tempSlot: number; offset: number; width: ValueWidth }
+  | { kind: "aggregateValueFieldAddress"; source: AggregateValueIR; tempSlot: number; offset: number }
   | { kind: "call"; target: string; args?: CallArgIR[] };
 
 export type FunctionIR = {
@@ -119,6 +123,7 @@ export type FunctionIR = {
 };
 
 export type StmtIRHigh =
+  | { kind: "materializeAggregateValue"; targetSlot: number; source: AggregateValueIR }
   | { kind: "assignLocalConst"; slot: number; width: ValueWidth; value: number }
   | { kind: "assignLocalExpr"; slot: number; width: ValueWidth; expr: ExprIR }
   | { kind: "assignLocalArrayConst"; slot: number; index: number; value: number }
@@ -156,6 +161,7 @@ type LoopContext = {
 };
 
 type StatementSpec =
+  | { kind: "materializeAggregateValue"; targetOffset: number; source: AggregateValueSpec }
   | { kind: "call"; target: string }
   | { kind: "loadConstHl"; value: number }
   | { kind: "loadDataAddressHl"; label: string }
@@ -232,6 +238,12 @@ export function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
 
 function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState, loop?: LoopContext): StatementSpec[] {
   switch (stmt.kind) {
+    case "materializeAggregateValue":
+      return [{
+        kind: "materializeAggregateValue",
+        targetOffset: getLocalOffset(layout, stmt.targetSlot),
+        source: lowerAggregateValueIR(stmt.source, layout),
+      }];
     case "assignLocalConst": {
       const offset = getLocalOffset(layout, stmt.slot);
       return stmt.width === 1
@@ -513,6 +525,13 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         offset: expr.offset,
         width: expr.width,
       };
+    case "aggregateValueFieldAddress":
+      return {
+        kind: "aggregateValueFieldAddress",
+        source: lowerAggregateValueIR(expr.source, layout),
+        tempOffset: getLocalOffset(layout, expr.tempSlot),
+        offset: expr.offset,
+      };
     case "call":
       return {
         kind: "call",
@@ -541,6 +560,13 @@ function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): 
         kind: "aggregateRef",
         scope: expr.scope,
         offset: expr.scope === "local" ? getLocalOffset(layout, expr.slot) : getParamOffset(layout, expr.slot),
+        size: expr.size,
+      };
+    case "aggregateAssignExpr":
+      return {
+        kind: "aggregateAssignExpr",
+        targetOffset: getLocalOffset(layout, expr.targetSlot),
+        source: lowerAggregateValueIR(expr.source, layout),
         size: expr.size,
       };
     case "call":
@@ -627,6 +653,8 @@ function emitFunction(fn: FunctionSpec): string[] {
 
 function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[] {
   switch (statement.kind) {
+    case "materializeAggregateValue":
+      return emitAggregateValueToLocal(statement.source, statement.targetOffset, ctx);
     case "call":
       return [`\tcall\t${statement.target}`];
     case "loadConstHl":
@@ -750,6 +778,8 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return emitAdditiveExpr(expr.left, expr.right, expr.op, ctx);
     case "aggregateValueFieldAccess":
       return emitAggregateValueFieldAccessExpr(expr.source, expr.tempOffset, expr.offset, expr.width, ctx);
+    case "aggregateValueFieldAddress":
+      return emitAggregateValueFieldAddressExpr(expr.source, expr.tempOffset, expr.offset, ctx);
     case "localChar":
     case "argChar":
       return emitLoadStackByteToHl(expr.offset, ctx);
@@ -1122,12 +1152,29 @@ function emitAggregateValueFieldAccessExpr(
   ];
 }
 
+function emitAggregateValueFieldAddressExpr(
+  source: AggregateValueSpec,
+  tempOffset: number,
+  fieldOffset: number,
+  ctx: EmitExprContext,
+): string[] {
+  return [
+    ...emitAggregateValueToLocal(source, tempOffset, ctx),
+    ...emitLoadStackAddrToHl(tempOffset + fieldOffset, ctx),
+  ];
+}
+
 function emitAggregateValueToLocal(source: AggregateValueSpec, targetOffset: number, ctx: EmitExprContext): string[] {
   switch (source.kind) {
     case "aggregateRef":
       return source.scope === "local"
         ? emitAggregateCopyFromLocal(source.offset, targetOffset, source.size, ctx)
         : emitAggregateCopyFromArgAddress(source.offset, targetOffset, source.size, ctx);
+    case "aggregateAssignExpr":
+      return [
+        ...emitAggregateValueToLocal(source.source, source.targetOffset, ctx),
+        ...(source.targetOffset === targetOffset ? [] : emitAggregateCopyFromLocal(source.targetOffset, targetOffset, source.size, ctx)),
+      ];
     case "call":
       return [
         ...emitPushArgs([{ kind: "expr", expr: { kind: "localAddress", offset: targetOffset } }, ...(source.args ?? [])], ctx),

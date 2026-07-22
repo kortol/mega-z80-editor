@@ -947,16 +947,6 @@ describe("tsFrontendSemantic", () => {
   test("rejects aggregate subset boundary cases in semantic analysis", () => {
     const rejectCases = [
       {
-        source: "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n",
-        file: "aggregate-pointer-pointer.c",
-        pattern: /does not support/,
-      },
-      {
-        source: "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n",
-        file: "union-pointer-pointer.c",
-        pattern: /does not support/,
-      },
-      {
         source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; return &(&x) != 0; }\n",
         file: "aggregate-double-address.c",
         pattern: /only supports address-of on locals, array elements, or dereference/,
@@ -996,6 +986,16 @@ describe("tsFrontendSemantic", () => {
         file: "aggregate-compare-value.c",
         pattern: /does not yet support aggregate object values/,
       },
+      {
+        source: "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ if (make()) return 1; return 0; }\n",
+        file: "aggregate-return-truthiness-value.c",
+        pattern: /aggregate-returning calls in scalar expression position|aggregate object values/,
+      },
+      {
+        source: "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ return make() == 0; }\n",
+        file: "aggregate-return-compare-value.c",
+        pattern: /aggregate-returning calls in scalar expression position|aggregate object values/,
+      },
     ] satisfies Array<{ source: string; file: string; pattern: RegExp }>;
 
     for (const { source, file, pattern } of rejectCases) {
@@ -1004,6 +1004,37 @@ describe("tsFrontendSemantic", () => {
         analyzeProgram(parsed, source, file);
       }).toThrow(pattern);
     }
+  });
+
+  test("binds aggregate pointer-pointer declarations, assignment, compare, and truthiness", () => {
+    const source = "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar y; struct Foo *p = &x; union Bar *q = &y; struct Foo **pp = &p; union Bar **qq = &q; if (pp) return (pp != 0) + (qq != 0); return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-pointer-pointer.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-pointer-pointer.c");
+    expect(bound.functions[0].locals[4]?.type).toEqual({
+      kind: "pointer",
+      pointee: {
+        kind: "pointer",
+        pointee: {
+          kind: "aggregate",
+          aggregateKind: "struct",
+          name: "Foo",
+        },
+      },
+      width: 2,
+    });
+    const stmt = bound.functions[0].body.statements.find((candidate) => candidate.kind === "if");
+    expect(stmt?.kind).toBe("if");
+    if (stmt?.kind !== "if") {
+      return;
+    }
+    expect(stmt.condition.type.kind).toBe("pointer");
+    const thenStmt = stmt.thenBlock.statements[0];
+    expect(thenStmt.kind).toBe("return");
+    if (thenStmt.kind !== "return" || thenStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(thenStmt.expr.left.kind).toBe("compare");
+    expect(thenStmt.expr.right.kind).toBe("compare");
   });
 
   test("binds local struct and union member reads", () => {
@@ -1117,6 +1148,44 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.right.source.left.kind).toBe("assign");
+  });
+
+  test("binds address-of on fields from conditional, comma, and assign-expression aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(int c){ int side = 0; struct Foo x; struct Foo y; return first(&(c ? x : y).a) + second(&((side = 1), y).b) + first(&((x = make()).a)); }\n";
+    const parsed = parseProgram(source, "aggregate-value-field-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-value-field-address.c");
+    const stmt = bound.functions[3].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("call");
+    if (stmt.expr.left.left.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.args[0]?.kind).toBe("aggregateValueFieldAddress");
+    if (stmt.expr.left.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.left.left.args[0].source.kind).toBe("conditional");
+    expect(stmt.expr.left.right.kind).toBe("call");
+    if (stmt.expr.left.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.right.args[0]?.kind).toBe("aggregateValueFieldAddress");
+    if (stmt.expr.left.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.left.right.args[0].source.kind).toBe("comma");
+    expect(stmt.expr.right.kind).toBe("call");
+    if (stmt.expr.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateValueFieldAddress");
+    if (stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
   });
 
   test("binds aggregate call arguments and aggregate parameter member reads", () => {
@@ -1249,6 +1318,121 @@ describe("tsFrontendSemantic", () => {
     if (elseReturn.kind !== "return" || elseReturn.expr.kind !== "aggregateFieldAccess") {
       return;
     }
+  });
+
+  test("binds aggregate assignment expression results", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ struct Foo x; return (x = make()).a + take(x = make()); }\n";
+    const parsed = parseProgram(source, "aggregate-assign-expr-result.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-expr-result.c");
+    const stmt = bound.functions[2].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.source.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateAssignExpr");
+  });
+
+  test("binds loop-local aggregate declaration initializers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ int i = 0; while (i == 0) { struct Foo y = make(); i = y.a; } for (; i == 65; i = 66) { struct Foo z = make(); i = z.b; } do { struct Foo w = make(); i = w.a; } while (0); return i; }\n";
+    const parsed = parseProgram(source, "aggregate-loop-local-init.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-loop-local-init.c");
+    const whileStmt = bound.functions[1].body.statements[1];
+    expect(whileStmt.kind).toBe("while");
+    if (whileStmt.kind !== "while") {
+      return;
+    }
+    expect(whileStmt.body.statements[0]?.kind).toBe("aggregateAssign");
+    const forStmt = bound.functions[1].body.statements[2];
+    expect(forStmt.kind).toBe("for");
+    if (forStmt.kind !== "for") {
+      return;
+    }
+    expect(forStmt.body.statements[0]?.kind).toBe("aggregateAssign");
+    const doStmt = bound.functions[1].body.statements[3];
+    expect(doStmt.kind).toBe("doWhile");
+    if (doStmt.kind !== "doWhile") {
+      return;
+    }
+    expect(doStmt.body.statements[0]?.kind).toBe("aggregateAssign");
+  });
+
+  test("binds chained aggregate value call paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nint main(int c){ return id(id(make())).a + take(id(make())) + (c ? id(make()) : make()).b; }\n";
+    const parsed = parseProgram(source, "aggregate-chained-value-paths.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-chained-value-paths.c");
+    const stmt = bound.functions[3].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.source.kind).toBe("call");
+    if (stmt.expr.left.left.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.source.args[0]?.kind).toBe("call");
+    expect(stmt.expr.left.right.kind).toBe("call");
+    if (stmt.expr.left.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.right.args[0]?.kind).toBe("call");
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.right.source.kind).toBe("conditional");
+    if (stmt.expr.right.source.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.expr.right.source.thenExpr.kind).toBe("call");
+    expect(stmt.expr.right.source.elseExpr.kind).toBe("call");
+  });
+
+  test("binds aggregate return pass-through for conditional, comma, and assign-expression values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); return ((side = 1), y); }\nstruct Foo passthroughAssign(){ struct Foo z; return (z = makeB()); }\nint main(){ struct Foo x = pick(0); struct Foo y = passthroughComma(); struct Foo z = passthroughAssign(); return x.a + y.a + z.a; }\n";
+    const parsed = parseProgram(source, "aggregate-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-return-pass-through.c");
+
+    const pickReturn = bound.functions[2].body.statements[2];
+    expect(pickReturn.kind).toBe("return");
+    if (pickReturn.kind !== "return") {
+      return;
+    }
+    expect(pickReturn.expr.kind).toBe("conditional");
+
+    const commaReturn = bound.functions[3].body.statements[2];
+    expect(commaReturn.kind).toBe("return");
+    if (commaReturn.kind !== "return") {
+      return;
+    }
+    expect(commaReturn.expr.kind).toBe("comma");
+
+    const assignReturn = bound.functions[4].body.statements[0];
+    expect(assignReturn.kind).toBe("return");
+    if (assignReturn.kind !== "return") {
+      return;
+    }
+    expect(assignReturn.expr.kind).toBe("aggregateAssignExpr");
+
+    const mainInit = bound.functions[5].body.statements[0];
+    expect(mainInit.kind).toBe("aggregateAssign");
+    if (mainInit.kind !== "aggregateAssign") {
+      return;
+    }
+    expect(mainInit.source.kind).toBe("call");
+    const mainReturn = bound.functions[5].body.statements[3];
+    expect(mainReturn.kind).toBe("return");
   });
 
   test("binds aggregate pointer member reads and writes", () => {
@@ -1494,6 +1678,51 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(body.statements[1].expr.kind).toBe("localArrayElement");
+  });
+
+  test("binds char array string literal initializers with inferred and explicit lengths", () => {
+    const inferredSource = "int main(){ char buf[] = \"AB\"; return buf[1]; }\n";
+    const inferredParsed = parseProgram(inferredSource, "array-string-init-inferred.c");
+    const inferredBound = analyzeProgram(inferredParsed, inferredSource, "array-string-init-inferred.c");
+    expect(inferredBound.functions[0].locals[0]?.type).toEqual({ kind: "array", elementType: "char", length: 3 });
+    expect(inferredBound.functions[0].body.statements[0]?.kind).toBe("arrayAssign");
+    expect(inferredBound.functions[0].body.statements[2]).toEqual({
+      kind: "arrayAssign",
+      target: inferredBound.functions[0].locals[0],
+      index: { kind: "const", value: 2, type: { kind: "scalar", name: "int", width: 2 } },
+      expr: { kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } },
+    });
+
+    const explicitSource = "int main(){ char buf[4] = \"AB\"; return buf[3]; }\n";
+    const explicitParsed = parseProgram(explicitSource, "array-string-init-explicit.c");
+    const explicitBound = analyzeProgram(explicitParsed, explicitSource, "array-string-init-explicit.c");
+    expect(explicitBound.functions[0].locals[0]?.type).toEqual({ kind: "array", elementType: "char", length: 4 });
+    expect(explicitBound.functions[0].body.statements[3]).toEqual({
+      kind: "arrayAssign",
+      target: explicitBound.functions[0].locals[0],
+      index: { kind: "const", value: 3, type: { kind: "scalar", name: "int", width: 2 } },
+      expr: { kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } },
+    });
+  });
+
+  test("binds exact-fit char array string literal initializers without trailing zero fill", () => {
+    const source = "int main(){ char buf[2] = \"AB\"; return buf[1]; }\n";
+    const parsed = parseProgram(source, "array-string-init-exact-fit.c");
+    const bound = analyzeProgram(parsed, source, "array-string-init-exact-fit.c");
+    expect(bound.functions[0].locals[0]?.type).toEqual({ kind: "array", elementType: "char", length: 2 });
+    expect(bound.functions[0].body.statements[0]).toEqual({
+      kind: "arrayAssign",
+      target: bound.functions[0].locals[0],
+      index: { kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } },
+      expr: { kind: "const", value: 65, type: { kind: "scalar", name: "int", width: 2 } },
+    });
+    expect(bound.functions[0].body.statements[1]).toEqual({
+      kind: "arrayAssign",
+      target: bound.functions[0].locals[0],
+      index: { kind: "const", value: 1, type: { kind: "scalar", name: "int", width: 2 } },
+      expr: { kind: "const", value: 66, type: { kind: "scalar", name: "int", width: 2 } },
+    });
+    expect(bound.functions[0].body.statements).toHaveLength(3);
   });
 
   test("binds local char array constant index assignments", () => {

@@ -736,25 +736,45 @@ describe("tsFrontendParser", () => {
   });
 
   test("keeps aggregate subset parse boundaries explicit", () => {
-    const rejectCases = [
-      {
-        source: "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n",
-        file: "aggregate-pointer-pointer.c",
-      },
-      {
-        source: "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n",
-        file: "union-pointer-pointer.c",
-      },
-    ];
-    for (const { source, file } of rejectCases) {
-      expect(() => parseProgram(source, file)).toThrow(/does not support expression|does not support statement|does not support parameter/);
-    }
-
     const parseThroughCases: Array<{
       source: string;
       file: string;
       assert(program: ReturnType<typeof parseProgram>): void;
     }> = [
+      {
+        source: "struct Foo { char a; int b; };\nint main(){ struct Foo **pp; return 0; }\n",
+        file: "aggregate-pointer-pointer.c",
+        assert(program) {
+          expect(program.functions[0].body.declarations[0]?.type).toEqual({
+            kind: "pointer",
+            pointee: {
+              kind: "pointer",
+              pointee: {
+                kind: "aggregate",
+                aggregateKind: "struct",
+                name: "Foo",
+              },
+            },
+          });
+        },
+      },
+      {
+        source: "union Bar { char a; int b; };\nint main(){ union Bar **pp; return 0; }\n",
+        file: "union-pointer-pointer.c",
+        assert(program) {
+          expect(program.functions[0].body.declarations[0]?.type).toEqual({
+            kind: "pointer",
+            pointee: {
+              kind: "pointer",
+              pointee: {
+                kind: "aggregate",
+                aggregateKind: "union",
+                name: "Bar",
+              },
+            },
+          });
+        },
+      },
       {
         source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; return &(&x) != 0; }\n",
         file: "aggregate-double-address.c",
@@ -1475,6 +1495,60 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(stmt.expr).toEqual({ kind: "arrayIndex", name: "buf", index: { kind: "const", value: 3 } });
+  });
+
+  test("parses char array string literal initializers with inferred and explicit lengths", () => {
+    const inferred = parseProgram("int main(){ char buf[] = \"AB\"; return buf[1]; }\n", "array-string-init-inferred.c");
+    expect(inferred.functions[0].body.declarations[0]?.type).toEqual({ kind: "array", elementType: "char", length: 3 });
+    expect(inferred.functions[0].body.statements[0]).toEqual({
+      kind: "arrayAssign",
+      name: "buf",
+      index: { kind: "const", value: 0 },
+      expr: { kind: "const", value: 65 },
+    });
+    expect(inferred.functions[0].body.statements[2]).toEqual({
+      kind: "arrayAssign",
+      name: "buf",
+      index: { kind: "const", value: 2 },
+      expr: { kind: "const", value: 0 },
+    });
+
+    const explicit = parseProgram("int main(){ char buf[4] = \"AB\"; return buf[3]; }\n", "array-string-init-explicit.c");
+    expect(explicit.functions[0].body.declarations[0]?.type).toEqual({ kind: "array", elementType: "char", length: 4 });
+    expect(explicit.functions[0].body.statements[2]).toEqual({
+      kind: "arrayAssign",
+      name: "buf",
+      index: { kind: "const", value: 2 },
+      expr: { kind: "const", value: 0 },
+    });
+    expect(explicit.functions[0].body.statements[3]).toEqual({
+      kind: "arrayAssign",
+      name: "buf",
+      index: { kind: "const", value: 3 },
+      expr: { kind: "const", value: 0 },
+    });
+  });
+
+  test("parses exact-fit char array string literal initializers without trailing zero fill", () => {
+    const program = parseProgram("int main(){ char buf[2] = \"AB\"; return buf[1]; }\n", "array-string-init-exact-fit.c");
+    expect(program.functions[0].body.declarations[0]?.type).toEqual({ kind: "array", elementType: "char", length: 2 });
+    expect(program.functions[0].body.statements[0]).toEqual({
+      kind: "arrayAssign",
+      name: "buf",
+      index: { kind: "const", value: 0 },
+      expr: { kind: "const", value: 65 },
+    });
+    expect(program.functions[0].body.statements[1]).toEqual({
+      kind: "arrayAssign",
+      name: "buf",
+      index: { kind: "const", value: 1 },
+      expr: { kind: "const", value: 66 },
+    });
+    expect(program.functions[0].body.statements).toHaveLength(3);
+  });
+
+  test("rejects overflowing char array string literal initializers", () => {
+    expect(() => parseProgram("int main(){ char buf[2] = \"ABC\"; return 0; }\n", "array-string-init-overflow.c")).toThrow(/does not fit in length 2/);
   });
 
   test("parses local char array constant index assignments", () => {

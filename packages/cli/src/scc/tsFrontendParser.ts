@@ -148,6 +148,9 @@ function parseStatementSequence(
     const parsed = parseStatement(context, text, functionName, offset);
     if (parsed.kind === "decl") {
       declarations.push(parsed.declaration);
+      if (parsed.extraStatements) {
+        statements.push(...parsed.extraStatements);
+      }
       if (parsed.declaration.initializer) {
         statements.push({
           kind: "assign",
@@ -177,7 +180,7 @@ function parseStatement(
   statementText: string,
   functionName: string,
   offset: number,
-): { kind: "stmt"; statement: SourceStmt } | { kind: "decl"; declaration: SourceLocalDecl } {
+): { kind: "stmt"; statement: SourceStmt } | { kind: "decl"; declaration: SourceLocalDecl; extraStatements?: SourceStmt[] } {
   if (/^if\b/.test(statementText)) {
     return { kind: "stmt", statement: parseIfStmt(context, statementText, functionName, offset) };
   }
@@ -201,13 +204,31 @@ function parseStatement(
   }
   const declaration = parseDeclaration(statementText);
   if (declaration) {
+    if (declaration.type === "charArray") {
+      const { declaration: sizedDeclaration, initStatements } = buildCharArrayDeclaration(
+        declaration,
+        context,
+        functionName,
+        offset,
+        statementText,
+      );
+      return {
+        kind: "decl",
+        declaration: {
+          kind: "localDecl",
+          name: sizedDeclaration.name,
+          type: makeCharArrayType(sizedDeclaration.length),
+        },
+        extraStatements: initStatements,
+      };
+    }
     return {
       kind: "decl",
       declaration: {
         kind: "localDecl",
         name: declaration.name,
         type: declarationToSourceType(declaration),
-        initializer: declaration.type !== "charArray" && declaration.initializer
+        initializer: declaration.initializer
           ? parseExpression(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
           : undefined,
       },
@@ -1113,12 +1134,12 @@ function parseParam(context: ParseContext, paramText: string, functionName: stri
       name: charArrayMatch[1],
     };
   }
-  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))\s*\*\s*([A-Za-z_]\w*)$/.exec(trimmed);
+  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))((?:\s*\*)+)\s*([A-Za-z_]\w*)$/.exec(trimmed);
   if (pointerMatch) {
     return {
       kind: "param",
-      type: { kind: "pointer", pointee: parsePointerPointee(pointerMatch[1]) },
-      name: pointerMatch[2],
+      type: buildPointerType(pointerMatch[1], pointerMatch[2]),
+      name: pointerMatch[3],
     };
   }
   const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(trimmed);
@@ -1149,23 +1170,24 @@ function parseDeclaration(statementText: string):
   | { type: ScalarType; name: string; initializer?: string }
   | { type: AggregateTypeRef; name: string; initializer?: string }
   | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
-  | { type: "charArray"; name: string; length: number }
+  | { type: "charArray"; name: string; length?: number; initializer?: string }
   | null {
-  const arrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*(\d+)\s*\]$/.exec(statementText);
+  const arrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*(\d*)\s*\](?:\s*=\s*(.+))?$/.exec(statementText);
   if (arrayMatch) {
     return {
       type: "charArray",
       name: arrayMatch[1],
-      length: Number.parseInt(arrayMatch[2], 10),
+      length: arrayMatch[2] ? Number.parseInt(arrayMatch[2], 10) : undefined,
+      initializer: arrayMatch[3],
     };
   }
-  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))\s*\*\s*([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
+  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))((?:\s*\*)+)\s*([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
   if (pointerMatch) {
     return {
       type: "pointer",
-      pointee: parsePointerPointee(pointerMatch[1]),
-      name: pointerMatch[2],
-      initializer: pointerMatch[3],
+      pointee: buildPointerType(pointerMatch[1], pointerMatch[2]).pointee,
+      name: pointerMatch[3],
+      initializer: pointerMatch[4],
     };
   }
   const aggregateMatch = /^((?:struct|union)\s+[A-Za-z_]\w*)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
@@ -1867,14 +1889,37 @@ function parseNamedType(text: string): SourceType | null {
 }
 
 function parsePointerPointee(text: string): PointerPointee {
-  if (text === "int" || text === "char") {
-    return text;
+  const trimmed = text.trim();
+  if (trimmed === "int" || trimmed === "char") {
+    return trimmed;
   }
-  const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(text);
+  const pointerMatch = /^(.*?)(?:\s*\*)$/.exec(trimmed);
+  if (pointerMatch) {
+    return {
+      kind: "pointer",
+      pointee: parsePointerPointee(pointerMatch[1]),
+    };
+  }
+  const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(trimmed);
   if (!aggregateMatch) {
     throw new Error(`Internal parser error: unsupported pointer pointee '${text}'.`);
   }
   return makeAggregateTypeRef(aggregateMatch[1] as AggregateKind, aggregateMatch[2]);
+}
+
+function buildPointerType(baseText: string, starsText: string): Extract<SourceType, { kind: "pointer" }> {
+  const depth = (starsText.match(/\*/g) ?? []).length;
+  let pointee = parsePointerPointee(baseText);
+  for (let index = 1; index < depth; index += 1) {
+    pointee = {
+      kind: "pointer",
+      pointee,
+    };
+  }
+  return {
+    kind: "pointer",
+    pointee,
+  };
 }
 
 function makeAggregateTypeRef(aggregateKind: AggregateKind, name: string): AggregateTypeRef {
@@ -2425,11 +2470,23 @@ function parseForInitializer(
 ): SourceForInit | null {
   const declaration = parseDeclaration(initText);
   if (declaration) {
+    if (declaration.type === "charArray" && declaration.initializer) {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support char array string initializers in for-loop declarations in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    if (declaration.type === "charArray" && declaration.length === undefined) {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized local char array declaration here in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
     return {
       kind: "localDecl",
       name: declaration.name,
       type: declarationToSourceType(declaration),
-      initializer: declaration.type !== "charArray" && declaration.initializer
+      initializer: declaration.initializer
         ? parseExpression(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
         : undefined,
     };
@@ -2437,14 +2494,83 @@ function parseForInitializer(
   return parseSimpleStatement(context, initText, functionName, offset);
 }
 
+function buildCharArrayDeclaration(
+  declaration: { type: "charArray"; name: string; length?: number; initializer?: string },
+  context: ParseContext,
+  functionName: string,
+  offset: number,
+  statementText: string,
+): { declaration: { name: string; length: number }; initStatements: SourceStmt[] } {
+  if (!declaration.initializer) {
+    if (declaration.length === undefined) {
+      throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized local char array declaration in ${functionName}().`, {
+        file: context.file,
+        offset,
+      });
+    }
+    return {
+      declaration: {
+        name: declaration.name,
+        length: declaration.length,
+      },
+      initStatements: [],
+    };
+  }
+  const initializer = declaration.initializer.trim();
+  if (!/^".*"$/.test(initializer)) {
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset only supports char array string literal initializers in ${functionName}().`, {
+      file: context.file,
+      offset: offset + statementText.indexOf(declaration.initializer),
+    });
+  }
+  const decoded = decodeStringLiteral(
+    initializer,
+    context,
+    offset + statementText.indexOf(declaration.initializer),
+    functionName,
+  );
+  const values = Array.from(decoded, (ch) => ch.charCodeAt(0));
+  const hasExplicitLength = declaration.length !== undefined;
+  const requiredLength = hasExplicitLength ? values.length : values.length + 1;
+  const length = declaration.length ?? requiredLength;
+  if (length < requiredLength) {
+    throwDiagnostic(
+      context.normalized,
+      `TsSccCompilerAdapter Phase C subset char array initializer '${declaration.name}' does not fit in length ${length} in ${functionName}().`,
+      { file: context.file, offset },
+    );
+  }
+  if (!hasExplicitLength || length > values.length) {
+    values.push(0);
+  }
+  while (values.length < length) {
+    values.push(0);
+  }
+  return {
+    declaration: {
+      name: declaration.name,
+      length,
+    },
+    initStatements: values.map((value, index) => ({
+      kind: "arrayAssign",
+      name: declaration.name,
+      index: { kind: "const", value: index },
+      expr: { kind: "const", value },
+    })),
+  };
+}
+
 function declarationToSourceType(
   declaration:
     | { type: ScalarType; name: string; initializer?: string }
     | { type: AggregateTypeRef; name: string; initializer?: string }
     | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
-    | { type: "charArray"; name: string; length: number },
+    | { type: "charArray"; name: string; length?: number; initializer?: string },
 ): SourceType {
   if (declaration.type === "charArray") {
+    if (declaration.length === undefined) {
+      throw new Error(`Expected sized char array declaration, got ${JSON.stringify(declaration)}`);
+    }
     return makeCharArrayType(declaration.length);
   }
   if (declaration.type === "pointer") {

@@ -1061,6 +1061,21 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tcall\t.eq");
   });
 
+  test("source mode supports aggregate pointer-pointer declarations in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-pointer-"));
+    const inputFile = path.join(tempDir, "aggregate-pointer-pointer.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nunion Bar { char a; int b; };\nint main(){ struct Foo x; union Bar y; struct Foo *p = &x; union Bar *q = &y; struct Foo **pp = &p; union Bar **qq = &q; if (pp) return (pp != 0) + (qq != 0); return 0; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\t.ne/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
   test("source mode supports aggregate-pointer-valued conditional expressions in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-conditional-"));
@@ -1607,6 +1622,39 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tcall\tgets");
     expect(sccAsm).toContain("\tld\thl,#2");
     expect(sccAsm).toContain("\tld\tl,(hl)");
+  });
+
+  test("source mode supports char array string literal initializers in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-string-init-"));
+    const inputFile = path.join(tempDir, "array-string-init.c");
+    fs.writeFileSync(inputFile, "int main(){ char buf[] = \"AB\"; return buf[1]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\t(hl),#65");
+    expect(sccAsm).toContain("\tld\t(hl),#66");
+    expect(sccAsm).toContain("\tld\t(hl),#0");
+    expect(sccAsm).toContain("\tld\thl,#1");
+  });
+
+  test("source mode supports exact-fit char array string literal initializers in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-array-string-init-exact-fit-"));
+    const inputFile = path.join(tempDir, "array-string-init-exact-fit.c");
+    fs.writeFileSync(inputFile, "int main(){ char buf[2] = \"AB\"; return buf[1]; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect(sccAsm).toContain("\tld\t(hl),#65");
+    expect(sccAsm).toContain("\tld\t(hl),#66");
+    expect(sccAsm).not.toContain("\tld\t(hl),#0");
   });
 
   test("source mode supports unsized char array parameters in the Phase C subset", () => {
@@ -2582,6 +2630,26 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-array-assign", programRel)).toBe("AB");
   });
 
+  test("source mode char array string literal initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-array-string-init-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-array-string-init-source.c",
+      "int main(){ char buf[] = \"AB$\"; outstr(buf); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-array-string-init", programRel)).toBe("AB");
+  });
+
+  test("source mode exact-fit char array string literal initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-array-string-init-exact-fit-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-array-string-init-exact-fit-source.c",
+      "int main(){ char buf[2] = \"AB\"; outchar(buf[0]); outchar(buf[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-array-string-init-exact-fit", programRel)).toBe("AB");
+  });
+
   test("source mode unsized char array parameters link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-param-array-link-"));
     const programRel = compileSourceRel(
@@ -2726,6 +2794,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-value-member-read", programRel, [], 4000)).toBe("CD1");
   });
 
+  test("source mode address-of on fields from conditional, comma, and assign-expression aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-value-field-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-value-field-address-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 69; x.b = 70; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 0; int side = 0; struct Foo x; struct Foo y; x.a = 65; x.b = 66; y.a = 67; y.b = 68; outchar(first(&(c ? x : y).a)); outchar(second(&((side = 1), y).b)); outchar(first(&((x = make()).a))); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-value-field-address", programRel, [], 4000)).toBe("CDE");
+  });
+
   test("source mode aggregate call arguments link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-call-link-"));
     const programRel = compileSourceRel(
@@ -2766,6 +2844,54 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-return-conditional-comma", programRel, [], 4000)).toBe("ABA");
   });
 
+  test("source mode supports aggregate return pass-through for conditional, comma, and assign-expression values in the Phase C subset", () => {
+    const adapter = new TsSccCompilerAdapter();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-return-pass-through-"));
+    const inputFile = path.join(tempDir, "aggregate-return-pass-through.c");
+    fs.writeFileSync(inputFile, "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 2; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); return ((side = 1), y); }\nstruct Foo passthroughAssign(){ struct Foo z; return (z = makeB()); }\nint main(){ struct Foo x = pick(0); struct Foo y = passthroughComma(); struct Foo z = passthroughAssign(); return x.a + y.a + z.a; }\n", "utf8");
+    const built = adapter.compileToRel(createLogger("quiet"), {
+      inputFile,
+      tempDir,
+    });
+
+    const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
+    expect((sccAsm.match(/\tcall\tpick/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((sccAsm.match(/\tcall\tpassthroughComma/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((sccAsm.match(/\tcall\tpassthroughAssign/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((sccAsm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode aggregate conditional return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-return-pass-through-conditional-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-return-pass-through-conditional-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 2; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nint main(){ struct Foo z = pick(0); outchar(z.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-conditional", programRel, [], 4000)).toBe("B");
+  });
+
+  test("source mode aggregate comma return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-return-pass-through-comma-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-return-pass-through-comma-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); return ((side = 1), y); }\nint main(){ struct Foo z = passthroughComma(); outchar(z.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-comma", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode aggregate assign-expression return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-return-pass-through-assign-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-return-pass-through-assign-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 2; return x; }\nstruct Foo passthroughAssign(){ struct Foo z; return (z = makeB()); }\nint main(){ struct Foo z = passthroughAssign(); outchar(z.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-assign", programRel, [], 4000)).toBe("B");
+  });
+
   test("source mode branch-local aggregate declaration initializers link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-branch-local-init-link-"));
     const trueRel = compileSourceRel(
@@ -2780,6 +2906,37 @@ describe("TsSccCompilerAdapter", () => {
     );
     expect(linkAndRunCom(tempDir, "stmt-aggregate-branch-local-init-true", trueRel, [], 4000)).toBe("A");
     expect(linkAndRunCom(tempDir, "stmt-aggregate-branch-local-init-false", falseRel, [], 4000)).toBe("B");
+  });
+
+  test("source mode aggregate assignment expression results link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-assign-expr-result-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-assign-expr-result-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ struct Foo x; outchar((x = make()).a); outchar(take(x = make())); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-assign-expr-result", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode loop-local aggregate declaration initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-loop-local-init-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-loop-local-init-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nint main(){ int i = 0; while (i == 0) { struct Foo y = make(); outchar(y.a); i = y.a; } for (; i == 65; i = 66) { struct Foo z = make(); outchar(z.b); } do { struct Foo w = make(); outchar(w.a); } while (0); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-loop-local-init", programRel, [helperRelPath], 4000)).toBe("ABA");
+  });
+
+  test("source mode chained aggregate value call paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-chained-value-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-chained-value-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nint main(int c){ outchar(id(id(make())).a); outchar(take(id(make()))); outchar((c ? id(make()) : make()).b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-chained-value", programRel, [], 4000)).toBe("AAB");
   });
 
   test("source mode char argument reads a stack argument and returns it", () => {

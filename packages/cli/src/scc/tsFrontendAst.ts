@@ -7,7 +7,12 @@ export type AggregateTypeRef = {
   name: string;
 };
 
-export type PointerPointee = ScalarType | AggregateTypeRef;
+export type PointerTypeRef = {
+  kind: "pointer";
+  pointee: PointerPointee;
+};
+
+export type PointerPointee = ScalarType | AggregateTypeRef | PointerTypeRef;
 
 export type SourceType =
   | {
@@ -15,10 +20,7 @@ export type SourceType =
     name: ScalarType;
   }
   | AggregateTypeRef
-  | {
-    kind: "pointer";
-    pointee: PointerPointee;
-  }
+  | PointerTypeRef
   | {
     kind: "array";
     elementType: "char";
