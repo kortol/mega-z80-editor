@@ -12,6 +12,8 @@
   - Small-C compiler を TypeScript 化するための adapter / fixture / helper 棚卸しメモ
 - `scc-ts-full-c-coverage-phase0.md`
   - `TsSccCompiler` の Full C coverage 現状調査と次タスク整理
+- `scc-ts-full-c-coverage-phase0b.md`
+  - Phase 0 の追加証跡。pipeline / fallback / ABI / runtime failure を含む詳細調査
 
 ## Rule
 

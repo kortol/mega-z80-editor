@@ -157,7 +157,12 @@ Phase 0 の調査結果としては、次の結論になります。
 ## Related Files
 
 - `packages/cli/docs/scc-ts-migration.md`
+- `packages/cli/docs/scc-ts-full-c-coverage-phase0b.md`
 - `packages/cli/src/scc/tsFrontendSemantic.ts`
 - `packages/cli/src/scc/tsFrontendLowering.ts`
 - `packages/cli/src/scc/tsProgram.ts`
 - `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts`
+
+## Phase 0B
+
+追加の証跡と matrix / ABI / fallback 棚卸しは `packages/cli/docs/scc-ts-full-c-coverage-phase0b.md` を参照。
