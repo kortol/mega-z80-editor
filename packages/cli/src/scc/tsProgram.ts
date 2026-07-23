@@ -153,6 +153,7 @@ type FunctionLayout = {
 
 type LoweringState = {
   nextLabelId: number;
+  labelPrefix: string;
 };
 
 type LoopContext = {
@@ -194,6 +195,7 @@ type EmitExprContext = {
   stackDelta: number;
   labels: {
     nextLogicalLabelId: number;
+    labelPrefix: string;
   };
 };
 
@@ -225,7 +227,7 @@ export function emitProgram(spec: ProgramSpec): string {
 
 export function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
   const layout = layoutFunction(fn);
-  const state: LoweringState = { nextLabelId: 2 };
+  const state: LoweringState = { nextLabelId: 2, labelPrefix: fn.name };
   const statements: StatementSpec[] = [];
   if (layout.localBytes > 0) {
     statements.push({ kind: "reserveBytes", count: layout.localBytes });
@@ -422,7 +424,7 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
 }
 
 function allocateNumericLabel(state: LoweringState): string {
-  const label = `.${state.nextLabelId}`;
+  const label = `.${state.labelPrefix}_${state.nextLabelId}`;
   state.nextLabelId += 1;
   return label;
 }
@@ -644,7 +646,13 @@ function getParamOffset(layout: FunctionLayout, slot: number): number {
 
 function emitFunction(fn: FunctionSpec): string[] {
   const lines = [`${fn.name}:`];
-  const ctx: EmitExprContext = { stackDelta: 0, labels: { nextLogicalLabelId: 2000 } };
+  const ctx: EmitExprContext = {
+    stackDelta: 0,
+    labels: {
+      nextLogicalLabelId: 2000,
+      labelPrefix: fn.name,
+    },
+  };
   for (const statement of fn.statements) {
     lines.push(...emitStatement(statement, ctx));
   }
@@ -1360,7 +1368,7 @@ function emitDivmodExpr(left: ExprSpec, right: ExprSpec, result: "quotient" | "r
 }
 
 function allocateExprLabel(ctx: EmitExprContext): string {
-  const label = `.${ctx.labels.nextLogicalLabelId}`;
+  const label = `.${ctx.labels.labelPrefix}_${ctx.labels.nextLogicalLabelId}`;
   ctx.labels.nextLogicalLabelId += 1;
   return label;
 }

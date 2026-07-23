@@ -523,20 +523,27 @@ function lowerAggregateReturnToReturnSlot(
         },
       }];
     case "comma":
-      return [
-        { kind: "evalExpr", expr: lowerExpr(source.left, externs, definedFunctions, sourceText, state, functionState, file) },
-        ...lowerAggregateReturnToReturnSlot(source.right, externs, definedFunctions, sourceText, state, functionState, file),
-      ];
     case "conditional":
-      return [{
-        kind: "ifExprZero",
-        expr: lowerExpr(source.condition, externs, definedFunctions, sourceText, state, functionState, file),
-        thenBody: lowerAggregateReturnToReturnSlot(source.thenExpr, externs, definedFunctions, sourceText, state, functionState, file),
-        elseBody: lowerAggregateReturnToReturnSlot(source.elseExpr, externs, definedFunctions, sourceText, state, functionState, file),
-      }];
+      return lowerAggregateReturnViaTempLocal(source, externs, definedFunctions, sourceText, state, functionState, file);
     default:
       return assertNever(source);
   }
+}
+
+function lowerAggregateReturnViaTempLocal(
+  source: BoundAggregateValueExpr,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh[] {
+  const tempSlot = allocateTempLocal(functionState, source.type.size);
+  return [
+    ...lowerAggregateAssignToLocalSlot(tempSlot, source.type, source, externs, definedFunctions, sourceText, state, functionState, file),
+    ...lowerAggregateCopyLocalToReturnSlot(tempSlot, source.type.size),
+  ];
 }
 
 function getAggregateFieldStores(type: BoundLocalSymbol["type"]): Array<{ offset: number; width: 1 | 2 }> {

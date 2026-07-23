@@ -169,7 +169,7 @@ Evidence convention:
 | pointer | runtime-pass | runtime: conditional pointer-member, pointer compare, address/deref tests | runtime pass | function-pointer class excluded |
 | array / multidimensional array | runtime-pass-with-limitations | runtime: `stmt-array-assign`, `stmt-array-string-init`, `stmt-array-dynamic`, param-array tests | 1-D char-array runtime pass | multidimensional arrays unverified |
 | function type / function pointer | unsupported | no parser/runtime evidence | none | unsupported |
-| struct | runtime-pass-with-limitations | runtime: aggregate member, argument, return, chained value tests | runtime pass on many source paths | aggregate return pass-through still broken for conditional/comma |
+| struct | runtime-pass-with-limitations | runtime: aggregate member, argument, return, chained value tests | runtime pass on many source paths, including conditional/comma aggregate return pass-through | union aggregate-return runtime proof remains separate |
 | union | runtime-pass-with-limitations | runtime: `stmt-aggregate-assign` includes `union Bar`; semantic supports union tags/fields | union storage/runtime evidence exists | no dedicated union aggregate-return runtime proof |
 | enum | unsupported | no evidence | none | unsupported |
 | typedef | unsupported | no evidence | none | unsupported |
@@ -194,9 +194,9 @@ Evidence convention:
 | relational / equality | runtime-pass | runtime: compare helper tests across local/arg/int/pointer cases | runtime pass | aggregate compare intentionally absent |
 | bitwise | runtime-pass | runtime: `stmt-bitwise`, `stmt-bitnot` | runtime pass | scalar subset only |
 | logical and/or | runtime-pass | runtime: `stmt-logical` | runtime pass with short-circuit behavior | aggregate truthiness excluded |
-| conditional | runtime-pass-with-limitations | runtime: scalar/pointer cases pass; aggregate call/assignment/member cases pass; aggregate return pass-through conditional fails | mixed result | hidden return ABI failure for aggregate-returning functions |
+| conditional | runtime-pass | runtime: scalar/pointer cases pass; aggregate call/assignment/member cases pass; aggregate return pass-through conditional passes after P0 | runtime pass | union aggregate-return analog still not separately evidenced |
 | assignment / compound assignment | runtime-pass-with-limitations | runtime: `stmt-compound-assign`, `stmt-aggregate-assign`, `stmt-aggregate-assign-expr-result` | runtime pass for scalar and many aggregate paths | general aggregate initializer/value model still partial |
-| comma | runtime-pass-with-limitations | runtime: aggregate call-value comma path passes; aggregate return pass-through comma fails | mixed result | hidden return ABI failure for aggregate-returning functions |
+| comma | runtime-pass | runtime: aggregate call-value comma path passes; aggregate return pass-through comma passes after P0 | runtime pass | union aggregate-return analog still not separately evidenced |
 
 ### 4.3 Statements
 
@@ -208,7 +208,7 @@ Evidence convention:
 | while / do / for | runtime-pass | runtime: `stmt-loop`, `stmt-do-while`, `stmt-for`, `stmt-for-decl` | runtime pass | control nesting has explicit cap |
 | break / continue | runtime-pass | runtime: `stmt-for` | runtime pass | restricted to valid loop/switch contexts |
 | goto / label | unsupported | no evidence | none | unsupported |
-| return | runtime-pass-with-limitations | scalar return and many aggregate returns pass; two aggregate return pass-through tests fail | mixed result | aggregate conditional/comma pass-through broken |
+| return | runtime-pass-with-limitations | scalar return and struct aggregate return pass across direct/call/assign/conditional/comma pass-through paths | runtime pass for current struct evidence | union aggregate-return runtime proof still pending |
 
 ### 4.4 Declarations / Initializers
 
@@ -233,7 +233,7 @@ Evidence convention:
 | aggregate argument | runtime-pass | runtime: `stmt-aggregate-call`, `stmt-aggregate-return-nested` | runtime pass | same hidden-return risks when nested in failing forms |
 | scalar return | runtime-pass | many scalar-return runtime tests | runtime pass | none on covered subset |
 | pointer return | unknown | pointer use is covered, but dedicated pointer-return runtime test not located | unknown | no direct evidence |
-| aggregate return | runtime-pass-with-limitations | runtime: `stmt-aggregate-return`, `stmt-aggregate-return-nested`, `stmt-aggregate-return-pass-through-assign` pass; conditional/comma pass-through fail | mixed result | hidden return ABI unstable for two forms |
+| aggregate return | runtime-pass-with-limitations | runtime: `stmt-aggregate-return`, `stmt-aggregate-return-nested`, `stmt-aggregate-return-pass-through-assign`, `...-conditional`, `...-comma` pass | struct aggregate runtime pass | union aggregate-return runtime proof still pending |
 | direct call | runtime-pass | pervasive runtime evidence | runtime pass | none on covered subset |
 | indirect call | unsupported | no function-pointer call path | none | unsupported |
 | nested call | runtime-pass | runtime: `stmt-aggregate-return-nested`, chained value tests | runtime pass | none on covered subset |
@@ -296,8 +296,8 @@ Shared emitter facts:
 | --- | --- | --- | --- | --- |
 | `return x;` | aggregate ref | `aggregateRef -> lowerAggregateCopy(Local|Arg)ToReturnSlot()` | copy bytes directly into hidden destination | pass for struct; union return unverified |
 | `return f();` | aggregate call | `call -> evalExpr(call target, first arg = hidden destination)` | destination-passing call, no local copy required | pass for struct; union return unverified |
-| `return c ? x : y;` | aggregate conditional | `conditional -> ifExprZero -> branch-local copy to hidden destination` | each branch copies to same hidden destination | runtime fail (`warm boot`) |
-| `return (x, y);` | aggregate comma | `comma -> eval left expr -> recurse on right aggregate expr` | left side effect first, then copy right result to hidden destination | runtime fail (corrupted result byte) |
+| `return c ? x : y;` | aggregate conditional | `conditional -> ifExprZero -> branch-local copy to hidden destination` | each branch copies to same hidden destination | runtime pass after P0 |
+| `return (x, y);` | aggregate comma | `comma -> eval left expr -> recurse on right aggregate expr` | left side effect first, then copy right result to hidden destination | runtime pass after P0 |
 
 ### 6.3 Direct observations
 
@@ -306,27 +306,26 @@ Confirmed facts:
 - Struct `return x;` works at runtime through byte-copy to arg slot `0`.
 - Struct `return f();` works at runtime through direct destination-passing call.
 - Struct `return (z = makeB());` works at runtime; this proves hidden return destination itself is not universally broken.
-- Struct `return c ? x : y;` reaches warm boot instead of `BDOS 0: terminate`.
-- Struct `return ((side = 1), y);` returns the wrong byte (`NUL` instead of `A`).
+- Pre-fix, Struct `return c ? x : y;` reached warm boot instead of `BDOS 0: terminate`.
+- Pre-fix, Struct `return ((side = 1), y);` returned the wrong byte (`NUL` instead of `A`).
 - The same lowering/emission helpers are aggregate-size based and do not branch on `struct` vs `union`; therefore union return likely shares the same risk surface, but dedicated runtime proof is absent.
 
-High-confidence cause candidates:
+High-confidence root cause after P0:
 
-- The hidden return destination protocol itself is valid, but the `conditional` and `comma` aggregate-return paths corrupt the caller/callee stack discipline around nested control-flow materialization.
-- `return f();` and `return x;` succeed because they use a straight-line destination path. `conditional` and `comma` insert extra expression evaluation and branch scaffolding before or between copies.
-- The emitter has two different aggregate-copy routes: direct `return slot 0` copies in `tsFrontendLowering.ts`, and general-purpose `emitAggregateValueToLocal()` in `tsProgram.ts`. The failing forms are the ones that rely on more recursive aggregate-value materialization logic.
+- The hidden return destination protocol itself was not the direct failure.
+- The direct cause was function-local numeric labels being reused per function in `.scc.asm` and then flattened to global translated asm labels, so multiple functions emitted the same translated labels such as `__scc_local_5`.
+- Aggregate return `conditional` / `comma` made this visible because they emit extra intra-function jump targets around branch/copy materialization; some jumps could therefore resolve into another function's local continuation block after translation.
+- The P0 fix had two parts:
+  - route aggregate-return `conditional` / `comma` through explicit temp-local materialization before the final hidden-return copy
+  - scope emitted local labels by function name in `tsProgram.ts`, so translated asm no longer aliases branch targets across functions
 
 Low-confidence hypotheses:
 
-- The `ifExprZero` branch shape used for aggregate return may interact badly with stack delta assumptions in nested expression emission.
-- The comma path may preserve the side-effect result in `HL` but overwrite or misaddress the hidden destination during the subsequent copy.
-- A local/temp offset miscalculation may only be observable when aggregate-return logic is nested under branch/comma recursion.
+- Union aggregate return may still expose a distinct ABI bug that this struct-only P0 does not cover.
 
 Unverified items:
 
-- exact register-clobber point causing warm boot
 - whether union conditional/comma aggregate return fails identically at runtime
-- whether the first wrong write occurs during copy source address formation or during final byte store
 
 ### 6.4 Assembly / stack perspective
 
@@ -337,7 +336,7 @@ Relevant code points:
 - aggregate materialization emitter: `packages/cli/src/scc/tsProgram.ts:1167-1211`
 - failing runtime assertions: `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts:2865-2882`
 
-This is sufficient to say the blocker is inside the aggregate-value return ABI path, but not sufficient to claim a single exact instruction bug yet.
+The decisive assembly symptom was that translated asm contained duplicate global labels such as `__scc_local_4` / `__scc_local_5` across multiple functions, and branch instructions inside `passthroughComma` / `pick` could resolve to the later duplicate block near another function instead of their own local continuation.
 
 Root cause confidence: medium.
 
@@ -378,25 +377,21 @@ Examples confirmed in `tsCompilerAdapter.test.ts`:
 
 | command | exit code | pass | fail | skip |
 | --- | --- | --- | --- | --- |
-| `pnpm test -- tsFrontendParser.test.ts tsFrontendSemantic.test.ts tsCompilerAdapter.test.ts` | `1` | `367` | `2` | `0` |
-
-Failing tests:
-
-- `source mode aggregate conditional return pass-through links and produces CP/M output`
-- `source mode aggregate comma return pass-through links and produces CP/M output`
+| `pnpm test -- tsFrontendParser.test.ts tsFrontendSemantic.test.ts tsCompilerAdapter.test.ts` | `0` | `369` | `0` | `0` |
 
 Passing suites:
 
 - `tsFrontendParser.test.ts`
 - `tsFrontendSemantic.test.ts`
+- `tsCompilerAdapter.test.ts`
 
 ## 8. Documentation Drift
 
 ### 8.1 Overstated or mixed-status items
 
 - `packages/cli/docs/scc-ts-migration.md` grouped coverage as `S / P / N`, which hid the distinction between compile-only, link-pass, and runtime-pass.
-- The migration doc correctly called out aggregate return ABI instability, but the matrix still made several partially-proven paths look flatter than they are.
-- `aggregate value return value` was described as partial; Phase 0B confirms that the partiality is specifically runtime ABI failure in conditional/comma pass-through, not parser/semantic absence.
+- The migration doc correctly called out aggregate return ABI instability at the time of investigation.
+- P0 now promotes struct aggregate return pass-through for `conditional` / `comma` from runtime-failing to runtime-pass, while leaving union runtime proof explicitly open.
 
 ### 8.2 Implemented but under-specified
 
@@ -435,7 +430,7 @@ The migration document had unrelated text injected into the Phase 8 checklist re
 
 | target | dependencies | layer | required tests | recommended PR split |
 | --- | --- | --- | --- | --- |
-| hidden aggregate return ABI for `conditional` / `comma` pass-through | none beyond current source-path aggregate value stack | `tsFrontendLowering.ts`, `tsProgram.ts`, runtime tests | existing failing runtime tests at `2865-2882`, plus union analogs after fix | PR1: runtime ABI fix only |
+| hidden aggregate return ABI for `conditional` / `comma` pass-through | completed on 2026-07-23 | `tsFrontendLowering.ts`, `tsProgram.ts`, runtime tests | existing failing runtime tests now pass; next step is union analog coverage | PR1 completed |
 | union aggregate-return runtime proof | P0 fix above | runtime tests only, maybe no compiler changes if already covered | add union `return x/f()/cond/comma` runtime tests | PR2: union ABI proof |
 
 ### P1

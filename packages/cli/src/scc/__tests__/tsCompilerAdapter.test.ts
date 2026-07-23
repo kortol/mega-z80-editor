@@ -576,8 +576,8 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect(sccAsm).toContain("\tjp\tz,.200");
-    expect(sccAsm).toContain("\tjp\tnz,.200");
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
+    expect(sccAsm).toMatch(/\tjp\tnz,\.[A-Za-z0-9_]+/);
     expect(sccAsm).toContain("\tld\thl,#1");
   });
 
@@ -592,8 +592,8 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
-    expect(sccAsm).toMatch(/\tjp\t\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
+    expect(sccAsm).toMatch(/\tjp\t\.[A-Za-z0-9_]+/);
   });
 
   test("source mode supports pointer-valued ternary conditional expressions in the Phase C subset", () => {
@@ -610,7 +610,7 @@ describe("TsSccCompilerAdapter", () => {
     expect((sccAsm.match(/\tld\ta,h/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((sccAsm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("source mode supports pointer-valued conditional assignment and compare expressions in the Phase C subset", () => {
@@ -1008,7 +1008,7 @@ describe("TsSccCompilerAdapter", () => {
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tld\ta,h");
     expect((sccAsm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("source mode supports dereference truthiness in if/while/for conditions in the Phase C subset", () => {
@@ -1090,7 +1090,7 @@ describe("TsSccCompilerAdapter", () => {
     expect((sccAsm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(sccAsm).toContain("\tcall\t.eq");
-    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("source mode supports pointer-member access on conditional pointer expressions in the Phase C subset", () => {
@@ -1107,7 +1107,7 @@ describe("TsSccCompilerAdapter", () => {
     expect((sccAsm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(1);
-    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("source mode supports address-of on pointer-member access from conditional pointer expressions in the Phase C subset", () => {
@@ -1312,7 +1312,7 @@ describe("TsSccCompilerAdapter", () => {
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tld\thl,#2");
     expect(sccAsm).toContain("\tadd\thl,sp");
-    expect(sccAsm).toMatch(/\tjp\tz,\.\d+/);
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("source mode supports local struct and union member reads in the Phase C subset", () => {
@@ -1456,7 +1456,7 @@ describe("TsSccCompilerAdapter", () => {
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect((sccAsm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
-    expect((sccAsm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   test("source mode supports pointer-member incdec on conditional pointer expressions in the Phase C subset", () => {
@@ -1519,7 +1519,7 @@ describe("TsSccCompilerAdapter", () => {
     });
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
-    expect((sccAsm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(sccAsm).toContain("\tcall\tfirst");
@@ -1539,7 +1539,7 @@ describe("TsSccCompilerAdapter", () => {
     expect((sccAsm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect((sccAsm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((sccAsm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((sccAsm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   test("source mode supports dereference compound assignment and incdec expressions in the Phase C subset", () => {
@@ -1928,7 +1928,7 @@ describe("TsSccCompilerAdapter", () => {
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tcall\t.eq");
-    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
     expect(sccAsm).toContain("\tld\thl,#1");
     expect(sccAsm).toContain("\tld\thl,#0");
   });
@@ -1945,7 +1945,7 @@ describe("TsSccCompilerAdapter", () => {
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tcall\t.gt");
-    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
     expect(sccAsm).toContain("\tld\thl,#1");
     expect(sccAsm).toContain("\tld\thl,#0");
   });
@@ -1962,7 +1962,7 @@ describe("TsSccCompilerAdapter", () => {
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tcall\t.gt");
-    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
     expect(sccAsm).toContain("\tld\thl,#1");
     expect(sccAsm).toContain("\tld\thl,#0");
   });
@@ -1979,7 +1979,7 @@ describe("TsSccCompilerAdapter", () => {
 
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tcall\t.eq");
-    expect(sccAsm).toContain("\tjp\tz,.2");
+    expect(sccAsm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
     expect(sccAsm).toContain("\tld\thl,#1");
     expect(sccAsm).toContain("\tld\thl,#0");
   });
@@ -2867,9 +2867,9 @@ describe("TsSccCompilerAdapter", () => {
     const programRel = compileSourceRel(
       tempDir,
       "stmt-aggregate-return-pass-through-conditional-source.c",
-      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 2; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nint main(){ struct Foo z = pick(0); outchar(z.a); return 0; }\n",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 2; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nint main(){ struct Foo z = pick(0); struct Foo w = pick(1); outchar(z.a); outchar(w.a); return 0; }\n",
     );
-    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-conditional", programRel, [], 4000)).toBe("B");
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-conditional", programRel, [], 4000)).toBe("BA");
   });
 
   test("source mode aggregate comma return pass-through links and produces CP/M output", () => {
@@ -2877,9 +2877,9 @@ describe("TsSccCompilerAdapter", () => {
     const programRel = compileSourceRel(
       tempDir,
       "stmt-aggregate-return-pass-through-comma-source.c",
-      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); return ((side = 1), y); }\nint main(){ struct Foo z = passthroughComma(); outchar(z.a); return 0; }\n",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 1; return x; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); outchar(side + 48); return ((side = 1), y); }\nint main(){ struct Foo z = passthroughComma(); outchar(z.a); return 0; }\n",
     );
-    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-comma", programRel, [], 4000)).toBe("A");
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-comma", programRel, [], 4000)).toBe("0A");
   });
 
   test("source mode aggregate assign-expression return pass-through links and produces CP/M output", () => {
