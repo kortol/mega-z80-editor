@@ -169,10 +169,10 @@ Evidence convention:
 | pointer | runtime-pass | runtime: conditional pointer-member, pointer compare, address/deref tests | runtime pass | function-pointer class excluded |
 | array / multidimensional array | runtime-pass-with-limitations | runtime: `stmt-array-assign`, `stmt-array-string-init`, `stmt-array-dynamic`, param-array tests | 1-D char-array runtime pass | multidimensional arrays unverified |
 | function type / function pointer | unsupported | no parser/runtime evidence | none | unsupported |
-| struct | runtime-pass-with-limitations | runtime: aggregate member, argument, return, chained value tests | runtime pass on many source paths, including conditional/comma aggregate return pass-through | union aggregate-return runtime proof remains separate |
-| union | runtime-pass-with-limitations | runtime: `stmt-aggregate-assign` includes `union Bar`; semantic supports union tags/fields | union storage/runtime evidence exists | no dedicated union aggregate-return runtime proof |
-| enum | unsupported | no evidence | none | unsupported |
-| typedef | unsupported | no evidence | none | unsupported |
+| struct | runtime-pass | runtime: aggregate member, argument, return, chained value tests | runtime pass on many source paths, including conditional/comma aggregate return pass-through | none on covered subset |
+| union | runtime-pass | runtime: assignment, temporary aggregate value, direct return, nested return, and conditional/comma/assign pass-through tests | union runtime pass on current source-path coverage | compare/truthiness remain intentional reject |
+| enum | runtime-pass-with-limitations | runtime: `stmt-typedef-enum-cast`; parser/semantic typedef+enum tests | enum constants and `enum Name` type aliases lower to current `int` model and pass runtime | richer enum constant expressions and enum object layout semantics remain minimal |
+| typedef | runtime-pass-with-limitations | runtime: `stmt-typedef-enum-cast`; parser/semantic typedef tests | scalar/pointer typedef aliases pass through parser/semantic/runtime | storage-class `typedef` only; array/function-pointer typedef surface still absent |
 | qualifier | unsupported | no evidence | none | unsupported |
 | incomplete type / forward declaration | runtime-pass-with-limitations | runtime: `stmt-extern-two-arg-int-call` proves external function declaration; no aggregate forward-decl evidence | function forward declaration path works | incomplete aggregate types unverified |
 
@@ -186,17 +186,17 @@ Evidence convention:
 | member / pointer member | runtime-pass | runtime: `stmt-aggregate-member`, `stmt-pointer-member` | runtime pass | aggregate value member path still limited by return ABI edge cases |
 | prefix/postfix increment/decrement | runtime-pass | runtime: `stmt-inc-dec`, `stmt-prefix-inc-dec` | runtime pass | covered subset only |
 | address / dereference | runtime-pass | runtime: pointer-member address and field-address tests | runtime pass | address-of restricted to locals / array elements / deref path |
-| unary operators | runtime-pass-with-limitations | runtime: `stmt-not`, `stmt-bitnot`; parser supports unary minus via other runtime tests | runtime pass for `!`, `~`, unary `-` | casts and richer unary forms absent |
+| unary operators | runtime-pass-with-limitations | runtime: `stmt-not`, `stmt-bitnot`, `stmt-typedef-enum-cast`; parser supports unary minus via other runtime tests | runtime pass for `!`, `~`, unary `-`, and basic scalar/pointer cast forms | richer unary forms still absent |
 | `sizeof` | runtime-pass-with-limitations | adapter compile tests include mixed `sizeof`; semantic handles sizes | compile/runtime evidence exists in subset | incomplete coverage across all type classes absent |
-| cast | unsupported | no evidence | none | unsupported |
+| cast | runtime-pass-with-limitations | runtime: `stmt-typedef-enum-cast`; parser/semantic cast tests | scalar/pointer casts pass on current subset, including byte truncation via runtime path | aggregate casts and richer conversion rules remain unsupported |
 | arithmetic | runtime-pass | runtime: `stmt-additive`, helper-op tests | runtime pass | limited to current scalar widths |
 | shift | runtime-pass | runtime: helper-op tests covering `<<` / `>>` | runtime pass | helper-backed only |
 | relational / equality | runtime-pass | runtime: compare helper tests across local/arg/int/pointer cases | runtime pass | aggregate compare intentionally absent |
 | bitwise | runtime-pass | runtime: `stmt-bitwise`, `stmt-bitnot` | runtime pass | scalar subset only |
 | logical and/or | runtime-pass | runtime: `stmt-logical` | runtime pass with short-circuit behavior | aggregate truthiness excluded |
-| conditional | runtime-pass | runtime: scalar/pointer cases pass; aggregate call/assignment/member cases pass; aggregate return pass-through conditional passes after P0 | runtime pass | union aggregate-return analog still not separately evidenced |
+| conditional | runtime-pass | runtime: scalar/pointer cases pass; aggregate call/assignment/member cases pass; struct/union aggregate return pass-through conditional passes | runtime pass | none on covered subset |
 | assignment / compound assignment | runtime-pass-with-limitations | runtime: `stmt-compound-assign`, `stmt-aggregate-assign`, `stmt-aggregate-assign-expr-result` | runtime pass for scalar and many aggregate paths | general aggregate initializer/value model still partial |
-| comma | runtime-pass | runtime: aggregate call-value comma path passes; aggregate return pass-through comma passes after P0 | runtime pass | union aggregate-return analog still not separately evidenced |
+| comma | runtime-pass | runtime: aggregate call-value comma path passes; struct/union aggregate return pass-through comma passes | runtime pass | none on covered subset |
 
 ### 4.3 Statements
 
@@ -208,7 +208,7 @@ Evidence convention:
 | while / do / for | runtime-pass | runtime: `stmt-loop`, `stmt-do-while`, `stmt-for`, `stmt-for-decl` | runtime pass | control nesting has explicit cap |
 | break / continue | runtime-pass | runtime: `stmt-for` | runtime pass | restricted to valid loop/switch contexts |
 | goto / label | unsupported | no evidence | none | unsupported |
-| return | runtime-pass-with-limitations | scalar return and struct aggregate return pass across direct/call/assign/conditional/comma pass-through paths | runtime pass for current struct evidence | union aggregate-return runtime proof still pending |
+| return | runtime-pass | scalar return and struct/union aggregate return pass across direct/call/assign/conditional/comma pass-through paths | runtime pass | none on covered subset |
 
 ### 4.4 Declarations / Initializers
 
@@ -216,7 +216,7 @@ Evidence convention:
 | --- | --- | --- | --- | --- |
 | global / local / parameter | runtime-pass-with-limitations | locals and parameters heavily covered; global data declarations not directly runtime-covered | locals/params runtime pass | global variable support not evidenced |
 | prototype / definition | runtime-pass | runtime: `stmt-extern-two-arg-int-call`, ordinary function definitions throughout | runtime pass | none for covered subset |
-| extern / static / typedef | runtime-pass-with-limitations | `extern` function declaration evidenced by runtime test | partial | `static` / `typedef` not evidenced |
+| extern / static / typedef | runtime-pass-with-limitations | `extern` function declaration evidenced by runtime test; `typedef` evidenced by `stmt-typedef-enum-cast` | `extern` and basic scalar/pointer typedef aliases pass | `static` still unverified |
 | scalar initializer | runtime-pass | runtime: local scalar init tests | runtime pass | covered subset only |
 | aggregate initializer | unsupported | no evidence for brace aggregate initializers | none | unsupported |
 | nested / partial initializer | unsupported | no evidence | none | unsupported |
@@ -233,7 +233,7 @@ Evidence convention:
 | aggregate argument | runtime-pass | runtime: `stmt-aggregate-call`, `stmt-aggregate-return-nested` | runtime pass | same hidden-return risks when nested in failing forms |
 | scalar return | runtime-pass | many scalar-return runtime tests | runtime pass | none on covered subset |
 | pointer return | unknown | pointer use is covered, but dedicated pointer-return runtime test not located | unknown | no direct evidence |
-| aggregate return | runtime-pass-with-limitations | runtime: `stmt-aggregate-return`, `stmt-aggregate-return-nested`, `stmt-aggregate-return-pass-through-assign`, `...-conditional`, `...-comma` pass | struct aggregate runtime pass | union aggregate-return runtime proof still pending |
+| aggregate return | runtime-pass | runtime: `stmt-aggregate-return`, `stmt-aggregate-return-nested`, `stmt-aggregate-return-pass-through-assign`, `...-conditional`, `...-comma`, and union analogs pass | struct/union aggregate runtime pass | pointer return / recursion still separate |
 | direct call | runtime-pass | pervasive runtime evidence | runtime pass | none on covered subset |
 | indirect call | unsupported | no function-pointer call path | none | unsupported |
 | nested call | runtime-pass | runtime: `stmt-aggregate-return-nested`, chained value tests | runtime pass | none on covered subset |
@@ -294,8 +294,8 @@ Shared emitter facts:
 
 | C form | semantic result | lowering path | materialization style | runtime status |
 | --- | --- | --- | --- | --- |
-| `return x;` | aggregate ref | `aggregateRef -> lowerAggregateCopy(Local|Arg)ToReturnSlot()` | copy bytes directly into hidden destination | pass for struct; union return unverified |
-| `return f();` | aggregate call | `call -> evalExpr(call target, first arg = hidden destination)` | destination-passing call, no local copy required | pass for struct; union return unverified |
+| `return x;` | aggregate ref | `aggregateRef -> lowerAggregateCopy(Local|Arg)ToReturnSlot()` | copy bytes directly into hidden destination | pass for struct and union |
+| `return f();` | aggregate call | `call -> evalExpr(call target, first arg = hidden destination)` | destination-passing call, no local copy required | pass for struct and union |
 | `return c ? x : y;` | aggregate conditional | `conditional -> ifExprZero -> branch-local copy to hidden destination` | each branch copies to same hidden destination | runtime pass after P0 |
 | `return (x, y);` | aggregate comma | `comma -> eval left expr -> recurse on right aggregate expr` | left side effect first, then copy right result to hidden destination | runtime pass after P0 |
 
@@ -308,7 +308,7 @@ Confirmed facts:
 - Struct `return (z = makeB());` works at runtime; this proves hidden return destination itself is not universally broken.
 - Pre-fix, Struct `return c ? x : y;` reached warm boot instead of `BDOS 0: terminate`.
 - Pre-fix, Struct `return ((side = 1), y);` returned the wrong byte (`NUL` instead of `A`).
-- The same lowering/emission helpers are aggregate-size based and do not branch on `struct` vs `union`; therefore union return likely shares the same risk surface, but dedicated runtime proof is absent.
+- The same lowering/emission helpers are aggregate-size based and do not branch on `struct` vs `union`; dedicated runtime tests now confirm that the current return/value paths also work for union.
 
 High-confidence root cause after P0:
 
@@ -319,13 +319,10 @@ High-confidence root cause after P0:
   - route aggregate-return `conditional` / `comma` through explicit temp-local materialization before the final hidden-return copy
   - scope emitted local labels by function name in `tsProgram.ts`, so translated asm no longer aliases branch targets across functions
 
-Low-confidence hypotheses:
+Remaining unverified items:
 
-- Union aggregate return may still expose a distinct ABI bug that this struct-only P0 does not cover.
-
-Unverified items:
-
-- whether union conditional/comma aggregate return fails identically at runtime
+- pointer return runtime proof
+- recursion over aggregate return ABI
 
 ### 6.4 Assembly / stack perspective
 
@@ -377,7 +374,7 @@ Examples confirmed in `tsCompilerAdapter.test.ts`:
 
 | command | exit code | pass | fail | skip |
 | --- | --- | --- | --- | --- |
-| `pnpm test -- tsFrontendParser.test.ts tsFrontendSemantic.test.ts tsCompilerAdapter.test.ts` | `0` | `369` | `0` | `0` |
+| `pnpm test -- tsFrontendParser.test.ts tsFrontendSemantic.test.ts tsCompilerAdapter.test.ts` | `0` | `377` | `0` | `0` |
 
 Passing suites:
 
@@ -391,7 +388,7 @@ Passing suites:
 
 - `packages/cli/docs/scc-ts-migration.md` grouped coverage as `S / P / N`, which hid the distinction between compile-only, link-pass, and runtime-pass.
 - The migration doc correctly called out aggregate return ABI instability at the time of investigation.
-- P0 now promotes struct aggregate return pass-through for `conditional` / `comma` from runtime-failing to runtime-pass, while leaving union runtime proof explicitly open.
+- P0 and its follow-up runtime extension now promote struct/union aggregate return pass-through for `conditional` / `comma` to runtime-pass.
 
 ### 8.2 Implemented but under-specified
 
@@ -404,7 +401,9 @@ Passing suites:
 ### 8.3 Reject vs unsupported
 
 - Aggregate compare / truthiness are design-level rejects, not “not yet implemented”.
-- Cast / typedef / enum / goto are currently unsupported because no implementation evidence exists.
+- `goto` remains unsupported.
+- Aggregate compare / truthiness remain reject-by-design.
+- `typedef` / `enum` / `cast` now have parser+semantic+runtime evidence on the current scalar/pointer subset.
 
 ### 8.4 Legacy / fixture drift
 
@@ -417,7 +416,7 @@ Still open relative to `packages/cli/docs/scc-ts-migration.md`:
 
 - `return c ? x : y;` runtime green
 - `return (x, y);` runtime green
-- broader type surface (`typedef`, `enum`, casts, multidimensional arrays, function pointers)
+- broader remaining type surface (multidimensional arrays, function pointers, richer enum/cast rules)
 - explicit ABI evidence for pointer return / recursion / register preservation
 
 ### 8.6 Concrete drift fix in this doc update
@@ -430,8 +429,8 @@ The migration document had unrelated text injected into the Phase 8 checklist re
 
 | target | dependencies | layer | required tests | recommended PR split |
 | --- | --- | --- | --- | --- |
-| hidden aggregate return ABI for `conditional` / `comma` pass-through | completed on 2026-07-23 | `tsFrontendLowering.ts`, `tsProgram.ts`, runtime tests | existing failing runtime tests now pass; next step is union analog coverage | PR1 completed |
-| union aggregate-return runtime proof | P0 fix above | runtime tests only, maybe no compiler changes if already covered | add union `return x/f()/cond/comma` runtime tests | PR2: union ABI proof |
+| hidden aggregate return ABI for `conditional` / `comma` pass-through | completed on 2026-07-23 | `tsFrontendLowering.ts`, `tsProgram.ts`, runtime tests | existing failing runtime tests now pass; union analogs also confirmed at runtime | PR1 completed |
+| union aggregate-return runtime proof | completed on 2026-08-05 | runtime tests | direct/nested/value/pass-through union return tests added in `tsCompilerAdapter.test.ts` | PR2 completed |
 
 ### P1
 
@@ -444,7 +443,7 @@ The migration document had unrelated text injected into the Phase 8 checklist re
 
 | target | dependencies | layer | required tests | recommended PR split |
 | --- | --- | --- | --- | --- |
-| unsupported surface expansion (`typedef`, `enum`, casts, multidim arrays, function pointers) | P0/P1 complete | parser, semantic, lowering, emitter | parser+semantic+runtime slices per feature family | one PR per feature family |
+| unsupported surface expansion (multidim arrays, function pointers, richer enum/cast/type-alias rules) | P0/P1 complete | parser, semantic, lowering, emitter | parser+semantic+runtime slices per feature family | one PR per feature family |
 | formal ABI documentation for registers/alignment | more direct tests or emulator tracing | docs + targeted tests | register preservation / pointer return / recursion tests | separate ABI-proof PR |
 
 ## Final Working Tree

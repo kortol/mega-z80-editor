@@ -130,6 +130,31 @@ describe("tsFrontendSemantic", () => {
     expect(stmt.expr.right).toEqual({ kind: "const", value: 2, type: { kind: "scalar", name: "int", width: 2 } });
   });
 
+  test("binds typedef aliases, enum constants, and cast expressions", () => {
+    const source = [
+      "typedef int WORD;",
+      "typedef char *TEXT;",
+      "enum Mode { MODE_A = 65, MODE_B };",
+      "WORD main(TEXT text){ WORD x = (WORD)text[0]; return x + (char)MODE_B; }",
+      "",
+    ].join("\n");
+    const parsed = parseProgram(source, "typedef-enum-cast.c");
+    const bound = analyzeProgram(parsed, source, "typedef-enum-cast.c");
+    expect(bound.functions[0].params[0]?.type).toEqual({ kind: "pointer", pointee: "char", width: 2 });
+    const assignStmt = bound.functions[0].body.statements[0];
+    expect(assignStmt.kind).toBe("assign");
+    if (assignStmt.kind !== "assign") {
+      return;
+    }
+    expect(assignStmt.expr.kind).toBe("cast");
+    const returnStmt = bound.functions[0].body.statements[1];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.right).toEqual({ kind: "const", value: 66, type: { kind: "scalar", name: "char", width: 1 } });
+  });
+
   test("binds assignment expressions on local scalars", () => {
     const source = "int main(){ int x; int y; return x = y = 3; }\n";
     const parsed = parseProgram(source, "assign-expr.c");

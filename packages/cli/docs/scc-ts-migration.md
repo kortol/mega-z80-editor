@@ -189,6 +189,13 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `sizeof(int)`
   - `sizeof buf`
   - `sizeof(a)`
+- `typedef` / `enum` / cast subset
+  - `typedef int WORD;`
+  - `typedef char *TEXT;`
+  - `enum Mode { MODE_A = 65, MODE_B = 66 };`
+  - `WORD echo(TEXT text){ WORD x = (WORD)text[0]; return x; }`
+  - `outchar((char)MODE_B);`
+  - `outchar(echo((TEXT)buf));`
 - assignment expression
   - `return x = 66;`
   - `return x = y = 3;`
@@ -320,15 +327,15 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - still rejected: `struct Foo **pp;`
   - still rejected: `union Bar **pp;`
   - still rejected: `&(&x)`
-  - still rejected: `return x;` where `x` is `struct`/`union`
+  - `return x;` where `x` is `struct`/`union`
   - `x = y;` where `x` and `y` are matching local `struct`/`union`
   - `x = c ? y : z;` where `x`, `y`, `z` are matching local `struct`/`union`
   - `x = (expr, y);` where `x` and `y` are matching local `struct`/`union`
   - `(c ? x : y).field` where `x` and `y` are matching local `struct`/`union`
   - `((expr, y)).field` where `y` is a local `struct`/`union`
-  - still rejected: `f(x)` where `x` is `struct`/`union`
-  - still rejected: `c ? x : y` where `x`/`y` are `struct`/`union`
-  - still rejected: `(x, y)` where `x`/`y` are `struct`/`union`
+  - `f(x)` where `x` is `struct`/`union`
+  - `c ? x : y` where `x`/`y` are `struct`/`union`
+  - `(x, y)` where `x`/`y` are `struct`/`union`
   - still rejected: `if (x)` where `x` is `struct`/`union`
   - still rejected: `x == 0` where `x` is `struct`/`union`
 - bitwise operators
@@ -598,10 +605,11 @@ source-driven compile path の最初の slice はかなり限定しています�
   - local / param / array / pointer / aggregate member の参照、代入、inc/dec はかなり入っている
   - local aggregate 同士の `x = y;` statement copy も入った
 - `Aggregate value path`
-  - ここが大きく未実装
-  - `struct/union` を「式の値」として運べない
+  - `call / conditional / comma / assign-expression result / field-read / field-address / return pass-through` は source path 済み
+  - `struct/union` を scalar expression と同列に汎化した一般値モデルはまだ未着手
 - `IR / ABI path`
-  - scalar / pointer 前提のままで、aggregate temporary / argument / return の搬送経路がない
+  - aggregate temporary / argument / return の搬送経路は導入済み
+  - ただし aggregate value 専用経路が増えており、一般値モデルへの統合は未着手
 
 ### Current Coverage Matrix
 
@@ -629,12 +637,12 @@ source-driven compile path の最初の slice はかなり限定しています�
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
 `compare` と `logical truthiness` の aggregate 列は未実装ではなく、`struct/union` を scalar のように比較・条件評価しない方針として `N` を維持する。
 
-2026-07-22 時点の aggregate value 補足:
+2026-08-05 時点の aggregate value 補足:
 
 - compile / lowering path
   - `call / conditional / comma / assign-expression result / field-read / field-address / return pass-through` まで source path で生成できる
 - runtime coverage
-  - `take(x)`、`take(make())`、`return make().a`、`return (x = make()).a + take(x = make())`、`assign-expression` / `conditional` / `comma` 経由の aggregate return pass-through は CP/M 実行まで確認済み
+  - `take(x)`、`take(make())`、`return make().a`、`return (x = make()).a + take(x = make())`、`assign-expression` / `conditional` / `comma` 経由の aggregate return pass-through は `struct/union` ともに CP/M 実行まで確認済み
   - したがって matrix 上の aggregate value `return value` は `P` のまま維持する
 
 ### Root Blockers
@@ -650,8 +658,7 @@ source-driven compile path の最初の slice はかなり限定しています�
 - `tsFrontendLowering.ts`
   - local aggregate copy, aggregate-valued member read, aggregate call / return ABI は lower 済み
   - branch / conditional / comma / assign-expression result / return pass-through をまたぐ aggregate temporary path は source path で通る
-  - aggregate-returning function の `conditional` / `comma` は P0 で runtime ABI を安定化し、CP/M 実行確認済み
-  - 現状の最小切り分けでは `assign-expression` return pass-through は runtime で通る一方、`conditional` / `comma` は CP/M 実行で不整合が残る
+  - aggregate-returning function の `conditional` / `comma` は P0 で runtime ABI を安定化し、`struct/union` ともに CP/M 実行確認済み
 
 ### Implementation Order
 

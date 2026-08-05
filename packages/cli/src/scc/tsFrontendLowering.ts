@@ -822,6 +822,26 @@ function lowerExpr(
         index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
         expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
       };
+    case "cast":
+      if (expr.type.kind === "scalar" && expr.type.width === 1) {
+        const tempSlot = allocateTempLocal(functionState, 1);
+        return {
+          kind: "comma",
+          left: {
+            kind: "assignLocal",
+            slot: tempSlot,
+            width: 1,
+            expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
+          },
+          right: {
+            kind: "ref",
+            scope: "local",
+            width: 1,
+            slot: tempSlot,
+          },
+        };
+      }
+      return lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file);
     case "comma":
       return {
         kind: "comma",

@@ -253,6 +253,7 @@ export type SourceExpr =
   | { kind: "derefAssign"; target: SourceExpr; expr: SourceExpr }
   | { kind: "sizeofType"; type: SourceType }
   | { kind: "sizeofExpr"; expr: SourceExpr }
+  | { kind: "cast"; type: SourceType; expr: SourceExpr }
   | { kind: "comma"; left: SourceExpr; right: SourceExpr }
   | { kind: "conditional"; condition: SourceExpr; thenExpr: SourceExpr; elseExpr: SourceExpr }
   | { kind: "binary"; left: SourceExpr; right: SourceExpr; op: BinaryOp };

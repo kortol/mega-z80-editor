@@ -2650,6 +2650,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-array-string-init-exact-fit", programRel)).toBe("AB");
   });
 
+  test("source mode typedef aliases, enum constants, and casts link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-typedef-enum-cast-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-typedef-enum-cast-source.c",
+      "typedef int WORD;\ntypedef char *TEXT;\nenum Mode { MODE_A = 65, MODE_B = 66 };\nWORD echo(TEXT text){ WORD x = (WORD)text[0]; return x; }\nint main(){ char buf[] = \"AZ$\"; outchar(echo((TEXT)buf)); outchar((char)MODE_B); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-typedef-enum-cast", programRel)).toBe("AB");
+  });
+
   test("source mode unsized char array parameters link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-param-array-link-"));
     const programRel = compileSourceRel(
@@ -2890,6 +2900,56 @@ describe("TsSccCompilerAdapter", () => {
       "struct Foo { char a; int b; };\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 2; return x; }\nstruct Foo passthroughAssign(){ struct Foo z; return (z = makeB()); }\nint main(){ struct Foo z = passthroughAssign(); outchar(z.a); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-aggregate-return-pass-through-assign", programRel, [], 4000)).toBe("B");
+  });
+
+  test("source mode union aggregate return values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-aggregate-return-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-aggregate-return-source.c",
+      "union Bar { char a; int b; };\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 66; return x; }\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nint main(){ union Bar y = makeA(); outchar(y.a); outchar(id(makeB()).a); outchar(take(makeA())); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-aggregate-return", programRel, [], 4000)).toBe("ABA");
+  });
+
+  test("source mode union aggregate value conditional and comma paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-aggregate-value-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-aggregate-value-source.c",
+      "union Bar { char a; int b; };\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 66; return x; }\nunion Bar id(union Bar x){ return x; }\nint main(){ int side = 0; outchar((1 ? makeA() : id(makeB())).a); outchar(((side = 1), makeB()).a); outchar(side + 48); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-aggregate-value", programRel, [], 4000)).toBe("AB1");
+  });
+
+  test("source mode union aggregate conditional return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-aggregate-return-pass-through-conditional-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-aggregate-return-pass-through-conditional-source.c",
+      "union Bar { char a; int b; };\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 66; return x; }\nunion Bar pick(int c){ union Bar x = makeA(); union Bar y = makeB(); return c ? x : y; }\nint main(){ union Bar z = pick(0); union Bar w = pick(1); outchar(z.a); outchar(w.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-aggregate-return-pass-through-conditional", programRel, [], 4000)).toBe("BA");
+  });
+
+  test("source mode union aggregate comma return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-aggregate-return-pass-through-comma-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-aggregate-return-pass-through-comma-source.c",
+      "union Bar { char a; int b; };\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar passthroughComma(){ int side = 0; union Bar y = makeA(); outchar(side + 48); return ((side = 1), y); }\nint main(){ union Bar z = passthroughComma(); outchar(z.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-aggregate-return-pass-through-comma", programRel, [], 4000)).toBe("0A");
+  });
+
+  test("source mode union aggregate assign-expression return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-aggregate-return-pass-through-assign-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-aggregate-return-pass-through-assign-source.c",
+      "union Bar { char a; int b; };\nunion Bar makeB(){ union Bar x; x.a = 66; return x; }\nunion Bar passthroughAssign(){ union Bar z; return (z = makeB()); }\nint main(){ union Bar z = passthroughAssign(); outchar(z.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-aggregate-return-pass-through-assign", programRel, [], 4000)).toBe("B");
   });
 
   test("source mode branch-local aggregate declaration initializers link and produce CP/M output", () => {

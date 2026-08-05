@@ -130,6 +130,31 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.right.kind).toBe("sizeofExpr");
   });
 
+  test("parses typedef aliases, enum constants, and cast expressions", () => {
+    const source = [
+      "typedef int WORD;",
+      "typedef char *TEXT;",
+      "enum Mode { MODE_A = 65, MODE_B };",
+      "WORD main(TEXT text){ WORD x = (WORD)text[0]; return x + (char)MODE_B; }",
+      "",
+    ].join("\n");
+    const program = parseProgram(source, "typedef-enum-cast.c");
+    expect(program.functions[0].returnType).toEqual({ kind: "scalar", name: "int" });
+    expect(program.functions[0].params[0]?.type).toEqual({ kind: "pointer", pointee: "char" });
+    const declaration = program.functions[0].body.declarations[0];
+    expect(declaration?.type).toEqual({ kind: "scalar", name: "int" });
+    const stmt = program.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") {
+      return;
+    }
+    expect(stmt.expr.right.kind).toBe("cast");
+    if (stmt.expr.right.kind !== "cast") {
+      return;
+    }
+    expect(stmt.expr.right.expr).toEqual({ kind: "const", value: 66 });
+  });
+
   test("parses assignment expressions with right associativity", () => {
     const program = parseProgram("int main(){ int x; int y; return x = y = 3; }\n", "assign-expr.c");
     const stmt = program.functions[0].body.statements[0];

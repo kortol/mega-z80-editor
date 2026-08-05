@@ -29,6 +29,9 @@ import { throwDiagnostic } from "./tsFrontendDiagnostics";
 type ParseContext = {
   file?: string;
   normalized: string;
+  typedefs: Map<string, SourceType>;
+  enumTypes: Set<string>;
+  enumConstants: Map<string, number>;
 };
 
 const BINARY_PRECEDENCE: ReadonlyArray<{
@@ -47,21 +50,35 @@ const BINARY_PRECEDENCE: ReadonlyArray<{
 
 export function parseProgram(sourceText: string, file?: string): SourceProgram {
   const normalized = stripLineComments(sourceText);
-  const context: ParseContext = { file, normalized };
+  const context: ParseContext = {
+    file,
+    normalized,
+    typedefs: new Map(),
+    enumTypes: new Set(),
+    enumConstants: new Map(),
+  };
+  const topLevelStatements = splitTopLevelSemicolonStatements(normalized);
+  parseEnumDefs(context, topLevelStatements);
+  parseTypedefDefs(context, topLevelStatements);
   const aggregates = parseAggregateDefs(context);
   const functions: SourceFunction[] = [];
-  const headerPattern = /\b((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
+  const headerPattern = /\b((?:(?:struct|union|enum)\s+[A-Za-z_]\w*)|(?:[A-Za-z_]\w*))((?:\s*\*)*)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
   let match: RegExpExecArray | null;
   while ((match = headerPattern.exec(normalized)) !== null) {
     const bodyStart = headerPattern.lastIndex;
     const bodyEnd = findMatchingBraceIndex(context, bodyStart - 1);
     const bodyText = normalized.slice(bodyStart, bodyEnd);
+    const returnType = parseTypeText(context, `${match[1]}${match[2]}`);
+    if (!returnType || returnType.kind === "array") {
+      headerPattern.lastIndex = bodyEnd + 1;
+      continue;
+    }
     functions.push({
       kind: "function",
-      name: match[2],
-      returnType: parseNamedType(match[1]) ?? makeScalarType("int"),
-      params: parseParams(context, match[3], match[2], match.index),
-      body: parseBodyAsBlock(context, bodyText, match[2], bodyStart),
+      name: match[3],
+      returnType,
+      params: parseParams(context, match[4], match[3], match.index),
+      body: parseBodyAsBlock(context, bodyText, match[3], bodyStart),
     });
     headerPattern.lastIndex = bodyEnd + 1;
   }
@@ -79,6 +96,129 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
   };
 }
 
+function splitTopLevelSemicolonStatements(sourceText: string): string[] {
+  const statements: string[] = [];
+  let braceDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let start = 0;
+  for (let index = 0; index < sourceText.length; index += 1) {
+    const ch = sourceText[index];
+    if (ch === "\"" && sourceText[index - 1] !== "\\") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (ch === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      braceDepth -= 1;
+      continue;
+    }
+    if (ch === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      parenDepth -= 1;
+      continue;
+    }
+    if (ch === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (ch === "]") {
+      bracketDepth -= 1;
+      continue;
+    }
+    if (ch === ";" && braceDepth === 0 && parenDepth === 0 && bracketDepth === 0) {
+      const statement = sourceText.slice(start, index + 1).trim();
+      if (statement.length > 0) {
+        statements.push(statement);
+      }
+      start = index + 1;
+    }
+  }
+  return statements;
+}
+
+function parseEnumDefs(context: ParseContext, statements: string[]): void {
+  for (const statement of statements) {
+    const typedefEnumMatch = /^typedef\s+enum(?:\s+([A-Za-z_]\w*))?\s*\{([\s\S]*)\}\s*([A-Za-z_]\w*)\s*;$/.exec(statement);
+    if (typedefEnumMatch) {
+      if (typedefEnumMatch[1]) {
+        context.enumTypes.add(typedefEnumMatch[1]);
+      }
+      parseEnumMembers(context, typedefEnumMatch[2]);
+      context.typedefs.set(typedefEnumMatch[3], makeScalarType("int"));
+      continue;
+    }
+    const enumMatch = /^enum(?:\s+([A-Za-z_]\w*))?\s*\{([\s\S]*)\}\s*;$/.exec(statement);
+    if (!enumMatch) {
+      continue;
+    }
+    if (enumMatch[1]) {
+      context.enumTypes.add(enumMatch[1]);
+    }
+    parseEnumMembers(context, enumMatch[2]);
+  }
+}
+
+function parseTypedefDefs(context: ParseContext, statements: string[]): void {
+  for (const statement of statements) {
+    if (!statement.startsWith("typedef ")) {
+      continue;
+    }
+    if (/^typedef\s+enum(?:\s+([A-Za-z_]\w*))?\s*\{[\s\S]*\}\s*([A-Za-z_]\w*)\s*;$/.test(statement)) {
+      continue;
+    }
+    const declarator = parseTypeDeclarator(context, statement.slice("typedef ".length, -1));
+    if (!declarator || declarator.type.kind === "array") {
+      throw new Error(`Unsupported typedef '${statement}'.`);
+    }
+    context.typedefs.set(declarator.name, declarator.type);
+  }
+}
+
+function parseEnumMembers(context: ParseContext, bodyText: string): void {
+  let nextValue = 0;
+  for (const member of splitTopLevelArgs(bodyText)) {
+    const trimmed = member.text.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const match = /^([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(trimmed);
+    if (!match) {
+      throw new Error(`Unsupported enum member '${trimmed}'.`);
+    }
+    const value = match[2] ? evaluateEnumValue(context, match[2].trim()) : nextValue;
+    context.enumConstants.set(match[1], value);
+    nextValue = value + 1;
+  }
+}
+
+function evaluateEnumValue(context: ParseContext, valueText: string): number {
+  if (/^-?\d+$/.test(valueText)) {
+    return Number.parseInt(valueText, 10);
+  }
+  const addMatch = /^([A-Za-z_]\w*|-?\d+)\s*([+-])\s*([A-Za-z_]\w*|-?\d+)$/.exec(valueText);
+  if (addMatch) {
+    const left = evaluateEnumValue(context, addMatch[1]);
+    const right = evaluateEnumValue(context, addMatch[3]);
+    return addMatch[2] === "+" ? left + right : left - right;
+  }
+  const enumValue = context.enumConstants.get(valueText);
+  if (enumValue !== undefined) {
+    return enumValue;
+  }
+  throw new Error(`Unsupported enum value '${valueText}'.`);
+}
+
 function parseAggregateDefs(context: ParseContext): SourceAggregateDef[] {
   const defs: SourceAggregateDef[] = [];
   const pattern = /\b(struct|union)\s+([A-Za-z_]\w*)\s*\{/g;
@@ -91,27 +231,34 @@ function parseAggregateDefs(context: ParseContext): SourceAggregateDef[] {
       kind: "aggregateDef",
       aggregateKind: match[1] as AggregateKind,
       name: match[2],
-      fields: parseAggregateFields(bodyText),
+      fields: parseAggregateFields(context, bodyText),
     });
     pattern.lastIndex = bodyEnd + 1;
   }
   return defs;
 }
 
-function parseAggregateFields(bodyText: string): SourceAggregateField[] {
+function parseAggregateFields(context: ParseContext, bodyText: string): SourceAggregateField[] {
   return bodyText
     .split(";")
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
     .map((part) => {
-      const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(part);
-      if (!match) {
+      const fieldMatch = /^(.+?)\s+([A-Za-z_]\w*)$/.exec(part);
+      if (!fieldMatch) {
+        throw new Error(`Unsupported aggregate field '${part}'.`);
+      }
+      const fieldType = parseTypeText(
+        context,
+        fieldMatch[1],
+      );
+      if (!fieldType || fieldType.kind !== "scalar") {
         throw new Error(`Unsupported aggregate field '${part}'.`);
       }
       return {
         kind: "field",
-        name: match[2],
-        type: { kind: "scalar", name: match[1] as ScalarType },
+        name: fieldMatch[2],
+        type: fieldType,
       };
     });
 }
@@ -202,11 +349,11 @@ function parseStatement(
   if (statementText.trim() === "continue") {
     return { kind: "stmt", statement: { kind: "continue" } };
   }
-  const declaration = parseDeclaration(statementText);
+  const declaration = parseDeclaration(context, statementText);
   if (declaration) {
-    if (declaration.type === "charArray") {
+    if (declaration.type.kind === "array") {
       const { declaration: sizedDeclaration, initStatements } = buildCharArrayDeclaration(
-        declaration,
+        { ...declaration, type: declaration.type },
         context,
         functionName,
         offset,
@@ -823,6 +970,10 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       field: expressionMemberAccess.field,
     };
   }
+  const castExpr = parseCastExpr(context, trimmed, functionName, offset);
+  if (castExpr) {
+    return castExpr;
+  }
   if (trimmed.startsWith("(") && findMatchingParenInText(trimmed, 0) === trimmed.length - 1) {
     return parseExpression(context, trimmed.slice(1, -1), functionName, offset + 1);
   }
@@ -1054,6 +1205,10 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
     };
   }
   if (/^[A-Za-z_]\w*$/.test(trimmed)) {
+    const enumValue = context.enumConstants.get(trimmed);
+    if (enumValue !== undefined) {
+      return { kind: "const", value: enumValue };
+    }
     return { kind: "ref", name: trimmed };
   }
   const callMatch = /^([A-Za-z_]\w*)\s*\((.*)\)$/.exec(trimmed);
@@ -1070,6 +1225,30 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
   });
 }
 
+function parseCastExpr(context: ParseContext, exprText: string, functionName: string, offset: number): SourceExpr | null {
+  if (!exprText.startsWith("(")) {
+    return null;
+  }
+  const closeIndex = findMatchingParenInText(exprText, 0);
+  if (closeIndex <= 0 || closeIndex === exprText.length - 1) {
+    return null;
+  }
+  const typeText = exprText.slice(1, closeIndex).trim();
+  const castType = parseTypeText(context, typeText);
+  if (!castType || castType.kind === "array" || castType.kind === "aggregate") {
+    return null;
+  }
+  const rhsText = exprText.slice(closeIndex + 1).trimStart();
+  if (rhsText.length === 0) {
+    return null;
+  }
+  return {
+    kind: "cast",
+    type: castType,
+    expr: parsePrimaryExpr(context, rhsText, functionName, offset + exprText.indexOf(rhsText)),
+  };
+}
+
 function parseSizeofExpr(context: ParseContext, exprText: string, functionName: string, offset: number): SourceExpr {
   const match = /^sizeof\b/.exec(exprText);
   if (!match) {
@@ -1081,7 +1260,7 @@ function parseSizeofExpr(context: ParseContext, exprText: string, functionName: 
   const operandText = exprText.slice(match[0].length).trimStart();
   const operandOffset = offset + exprText.indexOf(operandText);
   const parenType = operandText.startsWith("(") && operandText.endsWith(")")
-    ? parseNamedType(operandText.replace(/^\(\s*|\s*\)$/g, ""))
+    ? parseTypeText(context, operandText.replace(/^\(\s*|\s*\)$/g, ""))
     : null;
   if (parenType) {
     return {
@@ -1089,7 +1268,7 @@ function parseSizeofExpr(context: ParseContext, exprText: string, functionName: 
       type: parenType,
     };
   }
-  const bareType = parseNamedType(operandText);
+  const bareType = parseTypeText(context, operandText);
   if (bareType) {
     return {
       kind: "sizeofType",
@@ -1125,87 +1304,35 @@ function parseParams(context: ParseContext, paramsText: string, functionName: st
 }
 
 function parseParam(context: ParseContext, paramText: string, functionName: string, offset: number): SourceParam {
-  const trimmed = paramText.trim();
-  const charArrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*\]$/.exec(trimmed);
-  if (charArrayMatch) {
+  const declarator = parseTypeDeclarator(context, paramText);
+  if (declarator) {
     return {
       kind: "param",
-      type: { kind: "array", elementType: "char" },
-      name: charArrayMatch[1],
+      type: declarator.type,
+      name: declarator.name,
     };
   }
-  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))((?:\s*\*)+)\s*([A-Za-z_]\w*)$/.exec(trimmed);
-  if (pointerMatch) {
-    return {
-      kind: "param",
-      type: buildPointerType(pointerMatch[1], pointerMatch[2]),
-      name: pointerMatch[3],
-    };
-  }
-  const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(trimmed);
-  if (match) {
-    return {
-      kind: "param",
-      type: makeScalarType(match[1] as ScalarType),
-      name: match[2],
-    };
-  }
-  const aggregateMatch = /^((?:struct|union)\s+[A-Za-z_]\w*)\s+([A-Za-z_]\w*)$/.exec(trimmed);
-  if (aggregateMatch) {
-    return {
-      kind: "param",
-      type: parseNamedType(aggregateMatch[1]) as AggregateTypeRef,
-      name: aggregateMatch[2],
-    };
-  }
-  {
-    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support parameter '${paramText.trim()}' in ${functionName}().`, {
-      file: context.file,
-      offset,
-    });
-  }
+  throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not support parameter '${paramText.trim()}' in ${functionName}().`, {
+    file: context.file,
+    offset,
+  });
 }
 
-function parseDeclaration(statementText: string):
-  | { type: ScalarType; name: string; initializer?: string }
-  | { type: AggregateTypeRef; name: string; initializer?: string }
-  | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
-  | { type: "charArray"; name: string; length?: number; initializer?: string }
+function parseDeclaration(context: ParseContext, statementText: string):
+  | { type: SourceType; name: string; initializer?: string }
   | null {
-  const arrayMatch = /^char\s+([A-Za-z_]\w*)\s*\[\s*(\d*)\s*\](?:\s*=\s*(.+))?$/.exec(statementText);
-  if (arrayMatch) {
-    return {
-      type: "charArray",
-      name: arrayMatch[1],
-      length: arrayMatch[2] ? Number.parseInt(arrayMatch[2], 10) : undefined,
-      initializer: arrayMatch[3],
-    };
+  const initializerMatch = /^(.*?)(?:\s*=\s*(.+))?$/.exec(statementText.trim());
+  if (!initializerMatch) {
+    return null;
   }
-  const pointerMatch = /^((?:int|char)|(?:(?:struct|union)\s+[A-Za-z_]\w*))((?:\s*\*)+)\s*([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
-  if (pointerMatch) {
-    return {
-      type: "pointer",
-      pointee: buildPointerType(pointerMatch[1], pointerMatch[2]).pointee,
-      name: pointerMatch[3],
-      initializer: pointerMatch[4],
-    };
-  }
-  const aggregateMatch = /^((?:struct|union)\s+[A-Za-z_]\w*)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
-  if (aggregateMatch) {
-    return {
-      type: parseNamedType(aggregateMatch[1]) as AggregateTypeRef,
-      name: aggregateMatch[2],
-      initializer: aggregateMatch[3],
-    };
-  }
-  const match = /^(int|char)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
-  if (!match) {
+  const declarator = parseTypeDeclarator(context, initializerMatch[1]);
+  if (!declarator) {
     return null;
   }
   return {
-    type: match[1] as ScalarType,
-    name: match[2],
-    initializer: match[3],
+    type: declarator.type,
+    name: declarator.name,
+    initializer: initializerMatch[2],
   };
 }
 
@@ -1877,48 +2004,84 @@ function makeScalarType(name: ScalarType): SourceType {
   return { kind: "scalar", name };
 }
 
-function parseNamedType(text: string): SourceType | null {
-  if (text === "int" || text === "char") {
-    return makeScalarType(text);
-  }
-  const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(text);
-  if (!aggregateMatch) {
-    return null;
-  }
-  return makeAggregateTypeRef(aggregateMatch[1] as AggregateKind, aggregateMatch[2]);
-}
-
-function parsePointerPointee(text: string): PointerPointee {
+function parseNamedType(context: ParseContext, text: string): SourceType | null {
   const trimmed = text.trim();
   if (trimmed === "int" || trimmed === "char") {
-    return trimmed;
-  }
-  const pointerMatch = /^(.*?)(?:\s*\*)$/.exec(trimmed);
-  if (pointerMatch) {
-    return {
-      kind: "pointer",
-      pointee: parsePointerPointee(pointerMatch[1]),
-    };
+    return makeScalarType(trimmed);
   }
   const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(trimmed);
-  if (!aggregateMatch) {
-    throw new Error(`Internal parser error: unsupported pointer pointee '${text}'.`);
+  if (aggregateMatch) {
+    return makeAggregateTypeRef(aggregateMatch[1] as AggregateKind, aggregateMatch[2]);
   }
-  return makeAggregateTypeRef(aggregateMatch[1] as AggregateKind, aggregateMatch[2]);
+  const enumMatch = /^enum\s+([A-Za-z_]\w*)$/.exec(trimmed);
+  if (enumMatch) {
+    return makeScalarType("int");
+  }
+  return context.typedefs.get(trimmed) ?? null;
 }
 
-function buildPointerType(baseText: string, starsText: string): Extract<SourceType, { kind: "pointer" }> {
-  const depth = (starsText.match(/\*/g) ?? []).length;
-  let pointee = parsePointerPointee(baseText);
+function parseTypeText(context: ParseContext, text: string): SourceType | null {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const pointerMatch = /^(.*?)(\s*\*+)$/.exec(trimmed);
+  if (!pointerMatch) {
+    return parseNamedType(context, trimmed);
+  }
+  const baseType = parseTypeText(context, pointerMatch[1]);
+  if (!baseType || baseType.kind === "array") {
+    return null;
+  }
+  const depth = (pointerMatch[2].match(/\*/g) ?? []).length;
+  let pointee = sourceTypeToPointerPointee(baseType);
   for (let index = 1; index < depth; index += 1) {
-    pointee = {
-      kind: "pointer",
-      pointee,
-    };
+    pointee = { kind: "pointer", pointee };
   }
   return {
     kind: "pointer",
     pointee,
+  };
+}
+
+function sourceTypeToPointerPointee(type: Exclude<SourceType, { kind: "array" }>): PointerPointee | { kind: "pointer"; pointee: PointerPointee } {
+  if (type.kind === "scalar") {
+    return type.name;
+  }
+  if (type.kind === "aggregate") {
+    return type;
+  }
+  return type;
+}
+
+function parseTypeDeclarator(context: ParseContext, text: string): { name: string; type: SourceType } | null {
+  const trimmed = text.trim();
+  const arrayMatch = /^(.+?)\s+([A-Za-z_]\w*)\s*\[\s*(\d*)\s*\]$/.exec(trimmed);
+  if (arrayMatch) {
+    const elementType = parseTypeText(context, arrayMatch[1]);
+    if (!elementType || elementType.kind !== "scalar" || elementType.name !== "char") {
+      return null;
+    }
+    return {
+      name: arrayMatch[2],
+      type: {
+        kind: "array",
+        elementType: "char",
+        length: arrayMatch[3].length > 0 ? Number.parseInt(arrayMatch[3], 10) : undefined,
+      },
+    };
+  }
+  const nameMatch = /([A-Za-z_]\w*)$/.exec(trimmed);
+  if (!nameMatch || nameMatch.index === 0) {
+    return null;
+  }
+  const type = parseTypeText(context, trimmed.slice(0, nameMatch.index).trimEnd());
+  if (!type) {
+    return null;
+  }
+  return {
+    name: nameMatch[1],
+    type,
   };
 }
 
@@ -2468,15 +2631,15 @@ function parseForInitializer(
   functionName: string,
   offset: number,
 ): SourceForInit | null {
-  const declaration = parseDeclaration(initText);
+  const declaration = parseDeclaration(context, initText);
   if (declaration) {
-    if (declaration.type === "charArray" && declaration.initializer) {
+    if (declaration.type.kind === "array" && declaration.initializer) {
       throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support char array string initializers in for-loop declarations in ${functionName}().`, {
         file: context.file,
         offset,
       });
     }
-    if (declaration.type === "charArray" && declaration.length === undefined) {
+    if (declaration.type.kind === "array" && declaration.type.length === undefined) {
       throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized local char array declaration here in ${functionName}().`, {
         file: context.file,
         offset,
@@ -2495,14 +2658,14 @@ function parseForInitializer(
 }
 
 function buildCharArrayDeclaration(
-  declaration: { type: "charArray"; name: string; length?: number; initializer?: string },
+  declaration: { type: Extract<SourceType, { kind: "array" }>; name: string; initializer?: string },
   context: ParseContext,
   functionName: string,
   offset: number,
   statementText: string,
 ): { declaration: { name: string; length: number }; initStatements: SourceStmt[] } {
   if (!declaration.initializer) {
-    if (declaration.length === undefined) {
+    if (declaration.type.length === undefined) {
       throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized local char array declaration in ${functionName}().`, {
         file: context.file,
         offset,
@@ -2511,7 +2674,7 @@ function buildCharArrayDeclaration(
     return {
       declaration: {
         name: declaration.name,
-        length: declaration.length,
+        length: declaration.type.length,
       },
       initStatements: [],
     };
@@ -2530,9 +2693,9 @@ function buildCharArrayDeclaration(
     functionName,
   );
   const values = Array.from(decoded, (ch) => ch.charCodeAt(0));
-  const hasExplicitLength = declaration.length !== undefined;
+  const hasExplicitLength = declaration.type.length !== undefined;
   const requiredLength = hasExplicitLength ? values.length : values.length + 1;
-  const length = declaration.length ?? requiredLength;
+  const length = declaration.type.length ?? requiredLength;
   if (length < requiredLength) {
     throwDiagnostic(
       context.normalized,
@@ -2561,24 +2724,8 @@ function buildCharArrayDeclaration(
 }
 
 function declarationToSourceType(
-  declaration:
-    | { type: ScalarType; name: string; initializer?: string }
-    | { type: AggregateTypeRef; name: string; initializer?: string }
-    | { type: "pointer"; pointee: PointerPointee; name: string; initializer?: string }
-    | { type: "charArray"; name: string; length?: number; initializer?: string },
+  declaration: { type: SourceType; name: string; initializer?: string },
 ): SourceType {
-  if (declaration.type === "charArray") {
-    if (declaration.length === undefined) {
-      throw new Error(`Expected sized char array declaration, got ${JSON.stringify(declaration)}`);
-    }
-    return makeCharArrayType(declaration.length);
-  }
-  if (declaration.type === "pointer") {
-    return { kind: "pointer", pointee: declaration.pointee };
-  }
-  if (typeof declaration.type === "string") {
-    return makeScalarType(declaration.type);
-  }
   return declaration.type;
 }
 

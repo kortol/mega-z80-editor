@@ -152,6 +152,7 @@ export type BoundExpr =
   | { kind: "derefIncDec"; pointer: BoundExpr; op: "++" | "--"; mode: "prefix" | "postfix"; type: SemanticScalarType }
   | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "arrayAssignExpr"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
+  | { kind: "cast"; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "comma"; left: BoundExpr; right: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundExpr; elseExpr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "compare"; left: BoundExpr; right: BoundExpr; op: CompareOp; type: SemanticScalarType }
@@ -1496,6 +1497,37 @@ function analyzeExpr(
         type: toSemanticScalarType("int"),
       };
     }
+    case "cast": {
+      const targetType = toSemanticType(expr.type);
+      if (targetType.kind !== "scalar" && targetType.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports scalar/pointer casts in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      const source = analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file);
+      if (targetType.kind === "pointer") {
+        if (source.type.kind !== "pointer" && source.type.kind !== "scalar") {
+          throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports scalar/pointer casts in ${functionName}().`, {
+            file,
+            offset: 0,
+          });
+        }
+        return { kind: "cast", expr: source, type: targetType };
+      }
+      if (source.kind === "const") {
+        return {
+          kind: "const",
+          value: targetType.width === 1 ? (source.value & 0xFF) : (source.value & 0xFFFF),
+          type: targetType,
+        };
+      }
+      return {
+        kind: "cast",
+        expr: source,
+        type: targetType,
+      };
+    }
     case "comma": {
       const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
       const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
@@ -1758,6 +1790,7 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
     case "preArrayIncDec":
     case "postArrayIncDec":
     case "arrayAssignExpr":
+    case "cast":
     case "comma":
       return expr.type.width;
     default:
