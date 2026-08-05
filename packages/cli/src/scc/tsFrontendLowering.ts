@@ -4,6 +4,7 @@ import {
   BoundExpr,
   BoundForInit,
   BoundFunction,
+  BoundGlobalSymbol,
   BoundLocalSymbol,
   BoundProgram,
   BoundSimpleStmt,
@@ -24,6 +25,7 @@ export function lowerSourceProgram(program: BoundProgram, moduleName: string, so
   const definedFunctions = new Set(program.functions.map((fn) => fn.name));
   const externs = new Set<string>();
   const state: LoweringState = { nextStringId: 0, data: [] };
+  state.data.push(...program.globals.flatMap((global) => lowerGlobalData(global)));
   const functions = program.functions.map((fn) => lowerFunction(fn, externs, definedFunctions, sourceText, state, file));
   return {
     moduleName,
@@ -39,6 +41,53 @@ type LoweringState = {
   nextStringId: number;
   data: DataSpec[];
 };
+
+function lowerGlobalData(global: BoundGlobalSymbol): DataSpec[] {
+  const label = global.name;
+  switch (global.type.kind) {
+    case "scalar":
+      return [{
+        label,
+        directive: global.type.width === 1 ? ".db" : ".dw",
+        value: global.initializer && global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
+          ? `${global.initializer.expr.value}`
+          : "0",
+      }];
+    case "array":
+      return [{
+        label,
+        directive: ".db",
+        value: lowerGlobalArrayInitializer(global.initializer, global.type.length ?? 0),
+      }];
+    default:
+      return [];
+  }
+}
+
+function lowerGlobalArrayInitializer(initializer: BoundGlobalSymbol["initializer"], length: number): string {
+  if (!initializer) {
+    return Array.from({ length }, () => "0").join(",");
+  }
+  if (initializer.kind === "expr" && initializer.expr.kind === "string") {
+    const values = Array.from(initializer.expr.value, (ch) => `${ch.charCodeAt(0)}`);
+    if (values.length < length) {
+      values.push("0");
+    }
+    while (values.length < length) {
+      values.push("0");
+    }
+    return values.join(",");
+  }
+  if (initializer.kind === "list") {
+    const values = initializer.items.map((item) =>
+      item.kind === "expr" && item.expr.kind === "const" ? `${item.expr.value}` : "0");
+    while (values.length < length) {
+      values.push("0");
+    }
+    return values.join(",");
+  }
+  return Array.from({ length }, () => "0").join(",");
+}
 
 type FunctionLoweringState = {
   baseLocalCount: number;
@@ -109,6 +158,8 @@ function lowerStmt(
         };
       }
       return { kind: "returnExpr", expr: lowerExpr(stmt.expr as BoundExpr, externs, definedFunctions, sourceText, state, functionState, file) };
+    case "returnVoid":
+      return { kind: "returnVoid" };
     case "expr":
       return { kind: "evalExpr", expr: lowerExpr(stmt.expr, externs, definedFunctions, sourceText, state, functionState, file) };
     case "if":
@@ -583,7 +634,7 @@ function getScalarLocalWidth(local: BoundLocalSymbol): 1 | 2 {
 }
 
 function getLocalValueWidth(local: BoundLocalSymbol): 1 | 2 {
-  if (local.type.kind === "array" || local.type.kind === "aggregate") {
+  if (local.type.kind === "void" || local.type.kind === "array" || local.type.kind === "aggregate") {
     throw new Error(`Internal lowering error: expected scalar/pointer local, got ${JSON.stringify(local.type)}`);
   }
   return local.type.width;
@@ -595,6 +646,9 @@ function getParamWidth(param: BoundFunction["params"][number]): 1 | 2 {
   }
   if (param.type.kind === "aggregate") {
     return 2;
+  }
+  if (param.type.kind === "void") {
+    throw new Error(`Internal lowering error: expected non-void param, got ${JSON.stringify(param.type)}`);
   }
   return param.type.width;
 }
@@ -633,6 +687,8 @@ function lowerExpr(
       return { kind: "const", value: expr.value };
     case "string":
       return { kind: "dataAddress", label: internStringLiteral(state, expr.value) };
+    case "functionAddress":
+      return { kind: "dataAddress", label: expr.name };
     case "ref":
       return {
         kind: "ref",
@@ -645,13 +701,30 @@ function lowerExpr(
               ? (() => {
                 throw new Error(`Internal lowering error: aggregate parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
               })()
-            : expr.symbol.type.width,
+            : expr.symbol.type.kind === "void"
+              ? (() => {
+                throw new Error(`Internal lowering error: void parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
+              })()
+              : expr.symbol.type.kind === "functionPointer"
+                ? expr.symbol.type.width
+                : expr.symbol.type.width,
         slot: expr.symbol.kind === "local" ? expr.symbol.slot : getParamIrSlot(expr.symbol.slot, functionState),
       } satisfies RefIR;
+    case "globalRef":
+      return {
+        kind: "globalRef",
+        name: expr.symbol.name,
+        width: expr.type.width,
+      };
     case "localAddress":
       return {
         kind: "localAddress",
         slot: expr.symbol.slot,
+      };
+    case "globalAddress":
+      return {
+        kind: "globalAddress",
+        name: expr.symbol.name,
       };
     case "aggregateFieldAccess":
       return {
@@ -714,6 +787,12 @@ function lowerExpr(
         slot: getParamIrSlot(expr.symbol.slot, functionState),
         index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
       };
+    case "globalArrayElement":
+      return {
+        kind: "globalArrayElement",
+        name: expr.symbol.name,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
+      };
     case "compare": {
       const helper = compareOpToHelper(expr.op);
       externs.add(helper);
@@ -755,6 +834,21 @@ function lowerExpr(
       return {
         kind: "call",
         target: expr.target.name,
+        args: expr.args.map((arg) => isAggregateCallArg(arg)
+          ? {
+            kind: "aggregateAddress",
+            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+            tempSlot: allocateTempLocal(functionState, arg.type.size),
+          }
+          : {
+            kind: "expr",
+            expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+          }),
+      };
+    case "indirectCall":
+      return {
+        kind: "indirectCall",
+        target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
             kind: "aggregateAddress",
@@ -815,10 +909,24 @@ function lowerExpr(
         width: getLocalValueWidth(expr.local),
         expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
       };
+    case "assignGlobal":
+      return {
+        kind: "assignGlobal",
+        name: expr.global.name,
+        width: expr.type.width,
+        expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
+      };
     case "arrayAssignExpr":
       return {
         kind: expr.target.kind === "param" ? "assignArgArray" : "assignLocalArray",
         slot: expr.target.slot,
+        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
+        expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
+      };
+    case "globalArrayAssignExpr":
+      return {
+        kind: "assignGlobalArray",
+        name: expr.target.name,
         index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
         expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
       };

@@ -196,6 +196,34 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `WORD echo(TEXT text){ WORD x = (WORD)text[0]; return x; }`
   - `outchar((char)MODE_B);`
   - `outchar(echo((TEXT)buf));`
+- `void` / builtin type-alias subset
+  - `void emit(unsigned char c){ outchar(c); return; }`
+  - `unsigned int up(short x, signed char y){ return x + y; }`
+  - current subset normalizes `signed/unsigned char` to `char`
+  - current subset normalizes `short` / `unsigned short` / `unsigned int` to the existing 16-bit `int` model
+- `static` / qualifier subset
+  - `static int id(const unsigned char c){ return c; }`
+  - `volatile char x = 65;`
+  - current subset accepts `const` / `volatile` syntax and normalizes it away
+  - current subset accepts `static` function definitions on the source path
+- recursion subset
+  - `int sumdown(int n){ if (n == 0) return 0; return n + sumdown(n - 1); }`
+  - direct self-recursive scalar calls are now runtime-covered on the source path
+- global object subset
+  - `int g = 65;`
+  - `char buf[3] = { 65, 66, 0 };`
+  - `g = 66;`
+  - `buf[1] = 67;`
+  - current subset runtime-covers file-scope scalar globals and `char[]` globals on the source path
+- aggregate brace / partial initializer subset
+  - `struct Foo x = { 65, 66 };`
+  - `struct Foo y = { 65 };`
+  - current subset runtime-covers one-level aggregate brace initializers with trailing zero-fill
+- function pointer / indirect-call subset
+  - `int (*fp)(void) = &putA;`
+  - `fp();`
+  - `fp = &putB;`
+  - current subset runtime-covers local function-pointer declaration, reassignment, and indirect call on the source path
 - assignment expression
   - `return x = 66;`
   - `return x = y = 3;`
@@ -215,6 +243,7 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
 - minimal pointer subset
   - `int *p = &x;`
   - `char *q = buf;`
+  - `char *first(char *p){ return p; }`
   - `return *p;`
   - `return *q = 65;`
   - `char *p = &buf[i];`
@@ -620,6 +649,7 @@ source-driven compile path の最初の slice はかなり限定しています�
 | path / operation | scalar value | pointer value | aggregate lvalue | aggregate value |
 | --- | --- | --- | --- | --- |
 | local declaration | S | S | S | P |
+| file-scope declaration | S | P | P | N |
 | read as expression | S | S | P | P |
 | assign statement | S | S | S | P |
 | assign expression result | S | S | N | P |
@@ -631,11 +661,22 @@ source-driven compile path の最初の slice はかなり限定しています�
 | conditional `c ? x : y` | S | S | N | P |
 | comma `(x, y)` | S | S | N | P |
 | call argument | S | S | N | P |
+| indirect call target | N/A | P | N/A | N/A |
 | return value | S | S | N | P |
 
 `aggregate lvalue` は `x`, `*p`, `(c ? p : q)->field` のように storage location を持つ側を指す。
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
 `compare` と `logical truthiness` の aggregate 列は未実装ではなく、`struct/union` を scalar のように比較・条件評価しない方針として `N` を維持する。
+
+2026-08-05 時点の matrix 補足:
+
+- `file-scope declaration`
+  - scalar は `int g = 65;`
+  - pointer は未実証なので `P` のまま
+  - aggregate lvalue は型として parse / semantic には載るが source-path runtime evidence がまだないため `P`
+- `indirect call target`
+  - `int (*fp)(void) = &putA; fp(); fp = &putB; fp();` は source path runtime pass
+  - ただし local function-pointer subset に限るので `P`
 
 2026-08-05 時点の aggregate value 補足:
 

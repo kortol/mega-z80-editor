@@ -2660,6 +2660,72 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-typedef-enum-cast", programRel)).toBe("AB");
   });
 
+  test("source mode void returns and normalized signedness aliases link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-void-alias-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-void-alias-source.c",
+      "void emit(unsigned char c){ outchar(c); return; }\nunsigned int up(short x, signed char y){ return x + y; }\nint main(){ emit(65); outchar(up(1, 65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-void-alias", programRel)).toBe("AB");
+  });
+
+  test("source mode pointer returns link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-pointer-return-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-pointer-return-source.c",
+      "char *first(char *p){ return p; }\nint main(){ char buf[] = \"A$\"; char *p = buf; p = first(p); outchar(p[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-pointer-return", programRel)).toBe("A");
+  });
+
+  test("source mode static functions and const/volatile qualifiers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-static-qualifier-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-static-qualifier-source.c",
+      "static int id(const unsigned char c){ return c; }\nint main(){ volatile char x = 65; outchar(id(x)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-static-qualifier", programRel)).toBe("A");
+  });
+
+  test("source mode file-scope globals link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-globals-"));
+    const programRel = compileSourceRel(tempDir, "globals-source.c", "int g = 65;\nchar buf[3] = { 65, 66, 0 };\nint main(){ outchar(g); g = 66; outchar(g); outchar(buf[1]); buf[1] = 67; outchar(buf[1]); return 0; }\n");
+
+    expect(linkAndRunCom(tempDir, "globals-source", programRel, [], 4000)).toBe("ABBC");
+  });
+
+  test("source mode aggregate brace and partial initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-brace-init-"));
+    const programRel = compileSourceRel(tempDir, "aggregate-brace-init.c", "struct Foo { char a; int b; };\nint main(){ struct Foo x = { 65, 66 }; struct Foo y = { 65 }; outchar(x.a); outchar(x.b); outchar(y.a); outchar(y.b + 65); return 0; }\n");
+
+    expect(linkAndRunCom(tempDir, "aggregate-brace-init", programRel, [], 4000)).toBe("ABAA");
+  });
+
+  test("source mode function pointers and indirect calls link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer.c",
+      "int putA(){ outchar(65); return 0; }\nint putB(){ outchar(66); return 0; }\nint main(){ int (*fp)(void) = &putA; fp(); fp = &putB; fp(); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "function-pointer", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode recursion links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-recursion-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-recursion-source.c",
+      "int sumdown(int n){ if (n == 0) return 0; return n + sumdown(n - 1); }\nint main(){ outchar(sumdown(3) + 64); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-recursion", programRel, [helperRelPath], 4000)).toBe("F");
+  });
+
   test("source mode unsized char array parameters link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-param-array-link-"));
     const programRel = compileSourceRel(

@@ -1,5 +1,8 @@
 export type ScalarType = "char" | "int";
 export type AggregateKind = "struct" | "union";
+export type VoidTypeRef = {
+  kind: "void";
+};
 
 export type AggregateTypeRef = {
   kind: "aggregate";
@@ -12,15 +15,23 @@ export type PointerTypeRef = {
   pointee: PointerPointee;
 };
 
+export type FunctionPointerTypeRef = {
+  kind: "functionPointer";
+  returnType: SourceType;
+  params: SourceType[];
+};
+
 export type PointerPointee = ScalarType | AggregateTypeRef | PointerTypeRef;
 
 export type SourceType =
+  | VoidTypeRef
   | {
     kind: "scalar";
     name: ScalarType;
   }
   | AggregateTypeRef
   | PointerTypeRef
+  | FunctionPointerTypeRef
   | {
     kind: "array";
     elementType: "char";
@@ -30,6 +41,7 @@ export type SourceType =
 export type SourceProgram = {
   kind: "program";
   aggregates: SourceAggregateDef[];
+  globals: SourceGlobalDecl[];
   functions: SourceFunction[];
 };
 
@@ -64,7 +76,25 @@ export type SourceLocalDecl = {
   kind: "localDecl";
   name: string;
   type: SourceType;
-  initializer?: SourceExpr;
+  initializer?: SourceInitializer;
+};
+
+export type SourceGlobalDecl = {
+  kind: "globalDecl";
+  name: string;
+  type: SourceType;
+  initializer?: SourceInitializer;
+};
+
+export type SourceInitializer =
+  | {
+    kind: "expr";
+    expr: SourceExpr;
+  }
+  | {
+    kind: "list";
+    items: SourceInitializer[];
+  };
 };
 
 export type SourceBlock = {
@@ -91,6 +121,9 @@ export type SourceStmt =
   | {
     kind: "return";
     expr: SourceExpr;
+  }
+  | {
+    kind: "returnVoid";
   }
   | {
     kind: "expr";
@@ -214,7 +247,7 @@ export type SourceForInit =
     kind: "localDecl";
     name: string;
     type: SourceType;
-    initializer?: SourceExpr;
+    initializer?: SourceInitializer;
   };
 
 export type SourceExpr =
@@ -230,6 +263,7 @@ export type SourceExpr =
   | { kind: "deref"; expr: SourceExpr }
   | { kind: "arrayIndex"; name: string; index: SourceExpr }
   | { kind: "call"; target: string; args: SourceExpr[] }
+  | { kind: "indirectCall"; target: SourceExpr; args: SourceExpr[] }
   | { kind: "preIncDec"; name: string; op: "++" | "--" }
   | { kind: "postIncDec"; name: string; op: "++" | "--" }
   | { kind: "preArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }

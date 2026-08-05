@@ -4,6 +4,7 @@ import {
   AdditiveOp,
   BitwiseOp,
   CompareOp,
+  FunctionPointerTypeRef,
   LogicalOp,
   MultiplicativeOp,
   PointerPointee,
@@ -14,10 +15,13 @@ import {
   SourceForInit,
   SourceFunction,
   SourceAggregateDef,
+  SourceInitializer,
   SourceSimpleStmt,
+  SourceGlobalDecl,
   SourceProgram,
   SourceStmt,
   SourceType,
+  VoidTypeRef,
 } from "./tsFrontendAst";
 import { throwDiagnostic } from "./tsFrontendDiagnostics";
 import { ValueWidth } from "./tsProgram";
@@ -40,6 +44,13 @@ export type SemanticPointerType = {
   width: 2;
 };
 
+export type SemanticFunctionPointerType = {
+  kind: "functionPointer";
+  returnType: SemanticType;
+  params: SemanticType[];
+  width: 2;
+};
+
 export type SemanticAggregateType = {
   kind: "aggregate";
   aggregateKind: AggregateKind;
@@ -47,7 +58,9 @@ export type SemanticAggregateType = {
   size: number;
 };
 
-export type SemanticType = SemanticScalarType | SemanticArrayType | SemanticPointerType | SemanticAggregateType;
+export type SemanticVoidType = VoidTypeRef;
+
+export type SemanticType = SemanticVoidType | SemanticScalarType | SemanticArrayType | SemanticPointerType | SemanticFunctionPointerType | SemanticAggregateType;
 
 export type BoundFunctionSymbol = {
   kind: "function";
@@ -71,10 +84,18 @@ export type BoundLocalSymbol = {
   slot: number;
 };
 
-type BoundSymbol = BoundFunctionSymbol | BoundParamSymbol | BoundLocalSymbol;
+export type BoundGlobalSymbol = {
+  kind: "global";
+  name: string;
+  type: SemanticType;
+  initializer?: SourceInitializer;
+};
+
+type BoundSymbol = BoundFunctionSymbol | BoundParamSymbol | BoundLocalSymbol | BoundGlobalSymbol;
 
 export type BoundProgram = {
   kind: "boundProgram";
+  globals: BoundGlobalSymbol[];
   functions: BoundFunction[];
 };
 
@@ -109,6 +130,7 @@ export type BoundCallArg = BoundExpr | BoundAggregateValueExpr;
 
 export type BoundStmt =
   | { kind: "return"; expr: BoundExpr | BoundAggregateValueExpr }
+  | { kind: "returnVoid" }
   | { kind: "expr"; expr: BoundExpr }
   | { kind: "if"; condition: BoundExpr; thenBlock: BoundBlock; elseBlock?: BoundBlock }
   | { kind: "while"; condition: BoundExpr; body: BoundBlock }
@@ -134,24 +156,31 @@ export type BoundForInit =
 export type BoundExpr =
   | { kind: "const"; value: number; type: SemanticScalarType }
   | { kind: "string"; value: string; type: SemanticScalarType }
-  | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
+  | { kind: "globalRef"; symbol: BoundGlobalSymbol; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
+  | { kind: "functionAddress"; name: string; type: SemanticFunctionPointerType }
   | { kind: "localAddress"; symbol: BoundLocalSymbol; type: SemanticPointerType }
+  | { kind: "globalAddress"; symbol: BoundGlobalSymbol; type: SemanticPointerType }
   | { kind: "aggregateFieldAccess"; symbol: BoundLocalSymbol | BoundParamSymbol; offset: number; type: SemanticScalarType }
   | { kind: "aggregateValueFieldAccess"; source: BoundAggregateValueExpr; offset: number; type: SemanticScalarType }
   | { kind: "aggregateValueFieldAddress"; source: BoundAggregateValueExpr; offset: number; type: SemanticPointerType }
   | { kind: "pointerAdd"; pointer: BoundExpr; index: BoundExpr; pointee: ScalarType; type: SemanticPointerType }
   | { kind: "localArrayElement"; symbol: BoundLocalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "paramArrayElement"; symbol: BoundParamSymbol; index: BoundExpr; type: SemanticScalarType }
+  | { kind: "globalArrayElement"; symbol: BoundGlobalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "deref"; pointer: BoundExpr; type: SemanticScalarType }
   | { kind: "derefAssign"; pointer: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
   | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "indirectCall"; target: BoundExpr; signature: SemanticFunctionPointerType; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "postIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
   | { kind: "postArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
   | { kind: "derefIncDec"; pointer: BoundExpr; op: "++" | "--"; mode: "prefix" | "postfix"; type: SemanticScalarType }
-  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "assign"; local: BoundLocalSymbol; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
+  | { kind: "assignGlobal"; global: BoundGlobalSymbol; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
   | { kind: "arrayAssignExpr"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
+  | { kind: "globalArrayAssignExpr"; target: BoundGlobalSymbol; index: BoundExpr; expr: BoundExpr; type: SemanticScalarType }
   | { kind: "cast"; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "comma"; left: BoundExpr; right: BoundExpr; type: SemanticScalarType | SemanticPointerType }
   | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundExpr; elseExpr: BoundExpr; type: SemanticScalarType | SemanticPointerType }
@@ -195,20 +224,35 @@ export function analyzeProgram(program: SourceProgram, sourceText: string, file?
       params: fn.params.map((param) => toSemanticType(param.type)),
     });
   }
+  const globals = program.globals.map((globalDecl) => analyzeGlobalDecl(globalDecl, sourceText, file));
 
   return {
     kind: "boundProgram",
-    functions: program.functions.map((fn) => analyzeFunction(fn, functionSymbols, sourceText, file)),
+    globals,
+    functions: program.functions.map((fn) => analyzeFunction(fn, globals, functionSymbols, sourceText, file)),
+  };
+}
+
+function analyzeGlobalDecl(globalDecl: SourceGlobalDecl, sourceText: string, file?: string): BoundGlobalSymbol {
+  return {
+    kind: "global",
+    name: globalDecl.name,
+    type: toSemanticType(globalDecl.type),
+    initializer: globalDecl.initializer,
   };
 }
 
 function analyzeFunction(
   fn: SourceFunction,
+  globals: BoundGlobalSymbol[],
   functionSymbols: Map<string, BoundFunctionSymbol>,
   sourceText: string,
   file?: string,
 ): BoundFunction {
   const functionScope: Scope = { entries: new Map() };
+  for (const global of globals) {
+    functionScope.entries.set(global.name, global);
+  }
   const params: BoundParamSymbol[] = [];
   for (const [index, param] of fn.params.entries()) {
     if (functionScope.entries.has(param.name)) {
@@ -306,12 +350,32 @@ function analyzeStmt(
         if (!fnSymbol) {
           throw new Error(`Unknown function symbol '${functionName}'.`);
         }
+        if (fnSymbol.returnType.kind === "void") {
+          throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support returning a value from void ${functionName}().`, {
+            file,
+            offset: 0,
+          });
+        }
         return {
           kind: "return",
           expr: fnSymbol.returnType.kind === "aggregate"
             ? analyzeAggregateValueExpr(stmt.expr, scope, functionSymbols, fnSymbol.returnType, functionName, sourceText, file)
             : analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
         };
+      }
+    case "returnVoid":
+      {
+        const fnSymbol = functionSymbols.get(functionName);
+        if (!fnSymbol) {
+          throw new Error(`Unknown function symbol '${functionName}'.`);
+        }
+        if (fnSymbol.returnType.kind !== "void") {
+          throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset requires a return value in non-void ${functionName}().`, {
+            file,
+            offset: 0,
+          });
+        }
+        return { kind: "returnVoid" };
       }
     case "expr":
       return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
@@ -376,11 +440,28 @@ function analyzeStmt(
       };
     case "assign": {
       const symbol = lookupVisible(scope, stmt.name);
-      if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "global") || symbol.type.kind === "array") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
           file,
           offset: 0,
         });
+      }
+      if (symbol.kind === "global") {
+        if (symbol.type.kind === "aggregate") {
+          throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not yet support aggregate global assignment in ${functionName}().`, {
+            file,
+            offset: 0,
+          });
+        }
+        return {
+          kind: "expr",
+          expr: {
+            kind: "assignGlobal",
+            global: symbol,
+            expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+            type: getValueSemanticType(symbol.type),
+          },
+        };
       }
       if (symbol.type.kind === "aggregate") {
         return analyzeAggregateAssignStmt(symbol as BoundLocalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
@@ -473,11 +554,28 @@ function analyzeSimpleStmt(
     };
   }
   const symbol = lookupVisible(scope, stmt.name);
-  if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
+  if (!symbol || (symbol.kind !== "local" && symbol.kind !== "global") || symbol.type.kind === "array") {
     throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`, {
       file,
       offset: 0,
     });
+  }
+  if (symbol.kind === "global") {
+    if (symbol.type.kind === "aggregate") {
+      throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not yet support aggregate global assignment in ${functionName}().`, {
+        file,
+        offset: 0,
+      });
+    }
+    return {
+      kind: "expr",
+      expr: {
+        kind: "assignGlobal",
+        global: symbol,
+        expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+        type: getValueSemanticType(symbol.type),
+      },
+    };
   }
   if (symbol.type.kind === "aggregate") {
     return analyzeAggregateAssignSimpleStmt(symbol as BoundLocalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
@@ -690,6 +788,18 @@ function analyzeIndexedAssignStmt(
   file?: string,
 ): BoundStmt {
   const symbol = lookupVisible(scope, name);
+  if (symbol && symbol.kind === "global" && symbol.type.kind === "array") {
+    return {
+      kind: "expr",
+      expr: {
+        kind: "globalArrayAssignExpr",
+        target: symbol,
+        index: analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file),
+        expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+        type: toSemanticScalarType("char"),
+      },
+    };
+  }
   if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
     return {
       kind: "expr",
@@ -710,6 +820,18 @@ function analyzeIndexedAssignSimpleStmt(
   file?: string,
 ): BoundSimpleStmt {
   const symbol = lookupVisible(scope, name);
+  if (symbol && symbol.kind === "global" && symbol.type.kind === "array") {
+    return {
+      kind: "expr",
+      expr: {
+        kind: "globalArrayAssignExpr",
+        target: symbol,
+        index: analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file),
+        expr: analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file),
+        type: toSemanticScalarType("char"),
+      },
+    };
+  }
   if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
     return {
       kind: "expr",
@@ -1044,7 +1166,14 @@ function analyzeForInitializer(
     kind: "localDecl",
     local: symbol,
     initializer: init.initializer
-      ? analyzeExpr(init.initializer, scope, functionSymbols, functionName, sourceText, file)
+      ? init.initializer.kind === "expr"
+        ? analyzeExpr(init.initializer.expr, scope, functionSymbols, functionName, sourceText, file)
+        : (() => {
+          throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not yet support brace initializers in for-loop declarations in ${functionName}().`, {
+            file,
+            offset: 0,
+          });
+        })()
       : undefined,
   };
 }
@@ -1064,11 +1193,31 @@ function analyzeExpr(
       return { kind: "string", value: expr.value, type: toSemanticScalarType("int") };
     case "addressOf": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || symbol.kind !== "local") {
-        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports address-of on local symbols, got '${expr.name}'.`, {
+      if (!symbol) {
+        const functionSymbol = functionSymbols.get(expr.name);
+        if (functionSymbol) {
+          return {
+            kind: "functionAddress",
+            name: functionSymbol.name,
+            type: toSemanticFunctionPointerType(functionSymbol),
+          };
+        }
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports address-of on local/global symbols or functions, got '${expr.name}'.`, {
           file,
           offset: 0,
         });
+      }
+      if (symbol.kind !== "local" && symbol.kind !== "global") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports address-of on local/global symbols or functions, got '${expr.name}'.`, {
+          file,
+          offset: 0,
+        });
+      }
+      if (symbol.kind === "global") {
+        if (symbol.type.kind === "array") {
+          return { kind: "globalAddress", symbol, type: toSemanticPointerType("char") };
+        }
+        return { kind: "globalAddress", symbol, type: toSemanticPointerType(toPointerPointee(symbol.type)) };
       }
       if (symbol.type.kind === "array") {
         return { kind: "localAddress", symbol, type: toSemanticPointerType("char") };
@@ -1143,11 +1292,26 @@ function analyzeExpr(
     }
     case "ref": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param" && symbol.kind !== "global")) {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know symbol '${expr.name}'.`, {
           file,
           offset: 0,
         });
+      }
+      if (symbol.kind === "global") {
+        if (symbol.type.kind === "array") {
+          return { kind: "globalAddress", symbol, type: toSemanticPointerType("char") };
+        }
+        if (symbol.type.kind === "aggregate") {
+          throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not yet support aggregate object values for '${expr.name}' in ${functionName}().`, {
+            file,
+            offset: 0,
+          });
+        }
+        if (symbol.type.kind === "functionPointer") {
+          return { kind: "globalRef", symbol, type: symbol.type };
+        }
+        return { kind: "globalRef", symbol, type: getValueSemanticType(symbol.type) };
       }
       if (symbol.kind === "local" && symbol.type.kind === "array") {
         return { kind: "localAddress", symbol, type: toSemanticPointerType("char") };
@@ -1160,6 +1324,9 @@ function analyzeExpr(
           file,
           offset: 0,
         });
+      }
+      if (symbol.type.kind === "functionPointer") {
+        return { kind: "ref", symbol, type: symbol.type };
       }
       return { kind: "ref", symbol, type: getValueSemanticType(symbol.type) };
     }
@@ -1236,7 +1403,7 @@ function analyzeExpr(
     }
     case "arrayIndex": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param" && symbol.kind !== "global")) {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not know symbol '${expr.name}'.`, {
           file,
           offset: 0,
@@ -1248,7 +1415,9 @@ function analyzeExpr(
           kind: "deref",
           pointer: {
             kind: "pointerAdd",
-            pointer: { kind: "ref", symbol, type: symbol.type },
+            pointer: symbol.kind === "global"
+              ? { kind: "globalRef", symbol, type: symbol.type }
+              : { kind: "ref", symbol, type: symbol.type },
             index: analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file),
             pointee,
             type: symbol.type,
@@ -1263,6 +1432,14 @@ function analyzeExpr(
         });
       }
       const index = analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file);
+      if (symbol.kind === "global") {
+        return {
+          kind: "globalArrayElement",
+          symbol,
+          index,
+          type: toSemanticScalarType("char"),
+        };
+      }
       if (symbol.kind === "param") {
         return {
           kind: "paramArrayElement",
@@ -1294,17 +1471,63 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      if (!target) {
+        const symbol = lookupVisible(scope, expr.target);
+        if (symbol && (symbol.kind === "local" || symbol.kind === "param" || symbol.kind === "global") && symbol.type.kind === "functionPointer") {
+          const signature = symbol.type;
+          if (symbol.type.params.length !== expr.args.length) {
+            throwDiagnostic(
+              sourceText,
+              `TsSccCompilerAdapter Phase C subset expected ${symbol.type.params.length} argument(s) for indirect call '${expr.target}()', got ${expr.args.length}.`,
+              { file, offset: 0 },
+            );
+          }
+          return {
+            kind: "indirectCall",
+            target: symbol.kind === "global"
+              ? { kind: "globalRef", symbol, type: symbol.type }
+              : { kind: "ref", symbol, type: symbol.type },
+            signature,
+            args: expr.args.map((arg, index) => analyzeCallArg(arg, signature.params[index], scope, functionSymbols, functionName, sourceText, file)),
+            type: signature.returnType.kind === "void"
+              ? toSemanticScalarType("int")
+              : (signature.returnType as SemanticScalarType | SemanticPointerType),
+          };
+        }
+      }
       return {
         kind: "call",
         target: target ?? { kind: "extern", name: expr.target },
-        args: expr.args.map((arg, index) => {
-          const paramType = target?.params[index];
-          if (paramType?.kind === "aggregate") {
-            return analyzeAggregateValueExpr(arg, scope, functionSymbols, paramType, functionName, sourceText, file);
-          }
-          return analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file);
-        }),
-        type: (target?.returnType as SemanticScalarType | SemanticPointerType | undefined) ?? toSemanticScalarType("int"),
+        args: expr.args.map((arg, index) => analyzeCallArg(arg, target?.params[index], scope, functionSymbols, functionName, sourceText, file)),
+        type: !target || target.returnType.kind === "void"
+          ? toSemanticScalarType("int")
+          : (target.returnType as SemanticScalarType | SemanticPointerType),
+      };
+    }
+    case "indirectCall": {
+      const target = analyzeExpr(expr.target, scope, functionSymbols, functionName, sourceText, file);
+      if (target.type.kind !== "functionPointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports indirect call through function pointers in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      const signature = target.type;
+      if (target.type.params.length !== expr.args.length) {
+        throwDiagnostic(
+          sourceText,
+          `TsSccCompilerAdapter Phase C subset expected ${target.type.params.length} argument(s) for indirect call, got ${expr.args.length}.`,
+          { file, offset: 0 },
+        );
+      }
+      return {
+        kind: "indirectCall",
+        target,
+        signature,
+        args: expr.args.map((arg, index) => analyzeCallArg(arg, signature.params[index], scope, functionSymbols, functionName, sourceText, file)),
+        type: signature.returnType.kind === "void"
+          ? toSemanticScalarType("int")
+          : (signature.returnType as SemanticScalarType | SemanticPointerType),
       };
     }
     case "preIncDec":
@@ -1312,6 +1535,12 @@ function analyzeExpr(
       const symbol = lookupVisible(scope, expr.name);
       if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports increment/decrement on local scalar/pointer symbols, got '${expr.name}'.`, {
+          file,
+          offset: 0,
+        });
+      }
+      if (symbol.type.kind === "functionPointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support increment/decrement on function pointers in ${functionName}().`, {
           file,
           offset: 0,
         });
@@ -1432,11 +1661,19 @@ function analyzeExpr(
     }
     case "assign": {
       const symbol = lookupVisible(scope, expr.name);
-      if (!symbol || symbol.kind !== "local" || symbol.type.kind === "array") {
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "global") || symbol.type.kind === "array") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${expr.name}'.`, {
           file,
           offset: 0,
         });
+      }
+      if (symbol.kind === "global") {
+        return {
+          kind: "assignGlobal",
+          global: symbol,
+          expr: analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file),
+          type: getValueSemanticType(symbol.type),
+        };
       }
       return {
         kind: "assign",
@@ -1449,6 +1686,15 @@ function analyzeExpr(
       const symbol = lookupVisible(scope, expr.name);
       if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
         return analyzePointerIndexedAssignExpr(symbol, expr.index, expr.expr, scope, functionSymbols, functionName, sourceText, file);
+      }
+      if (symbol && symbol.kind === "global" && symbol.type.kind === "array") {
+        return {
+          kind: "globalArrayAssignExpr",
+          target: symbol,
+          index: analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file),
+          expr: analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file),
+          type: toSemanticScalarType("char"),
+        };
       }
       const stmt = analyzeArrayAssignStmt(expr.name, expr.index, expr.expr, scope, functionSymbols, functionName, sourceText, file);
       return {
@@ -1531,6 +1777,12 @@ function analyzeExpr(
     case "comma": {
       const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
       const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
+      if (right.type.kind === "functionPointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support comma expressions yielding function pointers in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
       return {
         kind: "comma",
         left,
@@ -1640,6 +1892,21 @@ function analyzeExpr(
   }
 }
 
+function analyzeCallArg(
+  arg: SourceExpr,
+  paramType: SemanticType | undefined,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundCallArg {
+  if (paramType?.kind === "aggregate") {
+    return analyzeAggregateValueExpr(arg, scope, functionSymbols, paramType, functionName, sourceText, file);
+  }
+  return analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file);
+}
+
 function lookupVisible(scope: Scope, name: string): BoundSymbol | undefined {
   let current: Scope | undefined = scope;
   while (current) {
@@ -1676,6 +1943,9 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
   if (typeof type === "string") {
     return toSemanticScalarType(type);
   }
+  if (type.kind === "void") {
+    return type;
+  }
   if (type.kind === "scalar") {
     return toSemanticScalarType(type.name);
   }
@@ -1694,10 +1964,27 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
   if (type.kind === "pointer") {
     return toSemanticPointerType(type.pointee);
   }
+  if (type.kind === "functionPointer") {
+    return {
+      kind: "functionPointer",
+      returnType: toSemanticType(type.returnType),
+      params: type.params.map((param) => toSemanticType(param)),
+      width: 2,
+    };
+  }
   return {
     kind: "array",
     elementType: type.elementType,
     length: type.length,
+  };
+}
+
+function toSemanticFunctionPointerType(fn: BoundFunctionSymbol): SemanticFunctionPointerType {
+  return {
+    kind: "functionPointer",
+    returnType: fn.returnType,
+    params: fn.params,
+    width: 2,
   };
 }
 
@@ -1719,6 +2006,8 @@ function toSemanticPointerType(pointee: PointerPointee): SemanticPointerType {
 
 function toPointerPointee(type: SemanticType): PointerPointee {
   switch (type.kind) {
+    case "void":
+      throw new Error(`Expected non-void type for pointer pointee conversion, got ${JSON.stringify(type)}`);
     case "scalar":
       return type.name;
     case "aggregate":
@@ -1732,6 +2021,8 @@ function toPointerPointee(type: SemanticType): PointerPointee {
         kind: "pointer",
         pointee: type.pointee,
       };
+    case "functionPointer":
+      throw new Error(`Expected scalar/aggregate pointer pointee, got function pointer ${JSON.stringify(type)}`);
     case "array":
       throw new Error(`Expected non-array type for pointer pointee conversion, got ${JSON.stringify(type)}`);
     default:
@@ -1740,6 +2031,9 @@ function toPointerPointee(type: SemanticType): PointerPointee {
 }
 
 function getTypeStorageBytes(type: SourceType): number {
+  if (type.kind === "void") {
+    throw new Error("Void type has no storage bytes.");
+  }
   if (type.kind === "scalar") {
     return type.name === "char" ? 1 : 2;
   }
@@ -1753,6 +2047,9 @@ function getTypeStorageBytes(type: SourceType): number {
   if (type.kind === "pointer") {
     return 2;
   }
+  if (type.kind === "functionPointer") {
+    return 2;
+  }
   if (type.length === undefined) {
     throw new Error(`Unsized arrays are only supported for parameters, got ${JSON.stringify(type)}`);
   }
@@ -1764,7 +2061,9 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
     case "const":
     case "string":
     case "ref":
+    case "functionAddress":
     case "call":
+    case "indirectCall":
     case "preIncDec":
     case "postIncDec":
     case "assign":
@@ -1787,11 +2086,16 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
       return expr.type.width;
     case "localArrayElement":
     case "paramArrayElement":
+    case "globalArrayElement":
     case "preArrayIncDec":
     case "postArrayIncDec":
     case "arrayAssignExpr":
+    case "globalArrayAssignExpr":
     case "cast":
     case "comma":
+    case "globalRef":
+    case "globalAddress":
+    case "assignGlobal":
       return expr.type.width;
     default:
       return assertNever(expr);
@@ -1818,6 +2122,10 @@ function getSourceExprStorageBytes(
       ? symbol.type.length ?? 2
       : symbol.type.kind === "aggregate"
         ? symbol.type.size
+        : symbol.type.kind === "void"
+          ? (() => {
+            throw new Error(`Void expressions have no storage bytes: ${JSON.stringify(symbol.type)}`);
+          })()
         : symbol.type.width;
   }
   const boundExpr = analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file);
@@ -1839,7 +2147,7 @@ function getScalarSemanticType(type: SemanticType): SemanticScalarType {
 }
 
 function getValueSemanticType(type: SemanticType): SemanticScalarType | SemanticPointerType {
-  if (type.kind === "array" || type.kind === "aggregate") {
+  if (type.kind === "void" || type.kind === "array" || type.kind === "aggregate" || type.kind === "functionPointer") {
     throw new Error(`Expected scalar or pointer semantic type, got ${JSON.stringify(type)}`);
   }
   return type;

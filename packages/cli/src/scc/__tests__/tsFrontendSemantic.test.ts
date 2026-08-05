@@ -155,6 +155,89 @@ describe("tsFrontendSemantic", () => {
     expect(returnStmt.expr.right).toEqual({ kind: "const", value: 66, type: { kind: "scalar", name: "char", width: 1 } });
   });
 
+  test("binds void returns and normalized signedness/short aliases", () => {
+    const source = [
+      "void emit(unsigned char c){ outchar(c); return; }",
+      "unsigned int up(short x, signed char y){ return x + y; }",
+      "",
+    ].join("\n");
+    const parsed = parseProgram(source, "void-aliases.c");
+    const bound = analyzeProgram(parsed, source, "void-aliases.c");
+    expect(bound.functions[0].returnType).toEqual({ kind: "void" });
+    expect(bound.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+    expect(bound.functions[0].body.statements[1]).toEqual({ kind: "returnVoid" });
+    expect(bound.functions[1].returnType).toEqual({ kind: "scalar", name: "int", width: 2 });
+    expect(bound.functions[1].params[0]?.type).toEqual({ kind: "scalar", name: "int", width: 2 });
+    expect(bound.functions[1].params[1]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+  });
+
+  test("binds static function definitions and ignores const/volatile qualifiers", () => {
+    const source = [
+      "static int id(const unsigned char c){ return c; }",
+      "int main(){ volatile char x = 65; return id(x); }",
+      "",
+    ].join("\n");
+    const parsed = parseProgram(source, "static-qualifier.c");
+    const bound = analyzeProgram(parsed, source, "static-qualifier.c");
+    expect(bound.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+    expect(bound.functions[1].locals[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+  });
+
+  test("binds file-scope globals and local aggregate brace initializers", () => {
+    const source = "int g = 65;\nchar buf[3] = { 65, 66, 0 };\nstruct Foo { char a; int b; };\nint main(){ struct Foo x = { 65, 66 }; g = g + 1; buf[1] = 67; return g + buf[1] + x.a + x.b; }\n";
+    const bound = analyzeProgram(parseProgram(source, "globals-and-brace-init.c"), source, "globals-and-brace-init.c");
+
+    expect(bound.globals).toEqual([
+      {
+        kind: "global",
+        name: "g",
+        type: { kind: "scalar", name: "int", width: 2 },
+        initializer: { kind: "expr", expr: { kind: "const", value: 65 } },
+      },
+      {
+        kind: "global",
+        name: "buf",
+        type: { kind: "array", elementType: "char", length: 3 },
+        initializer: {
+          kind: "list",
+          items: [
+            { kind: "expr", expr: { kind: "const", value: 65 } },
+            { kind: "expr", expr: { kind: "const", value: 66 } },
+            { kind: "expr", expr: { kind: "const", value: 0 } },
+          ],
+        },
+      },
+    ]);
+    expect(bound.functions[0].locals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 3 });
+  });
+
+  test("binds local function pointers and indirect calls", () => {
+    const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint main(){ int (*fp)(void) = &putA; fp(); fp = &putB; return fp(); }\n";
+    const bound = analyzeProgram(parseProgram(source, "function-pointer.c"), source, "function-pointer.c");
+    const mainFn = bound.functions[2];
+
+    expect(mainFn.locals[0]?.type).toEqual({
+      kind: "functionPointer",
+      returnType: { kind: "scalar", name: "int", width: 2 },
+      params: [],
+      width: 2,
+    });
+    expect(mainFn.body.statements[1]).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "indirectCall",
+        target: {
+          kind: "ref",
+          symbol: mainFn.locals[0],
+          type: mainFn.locals[0]?.type,
+        },
+        signature: mainFn.locals[0]?.type,
+        args: [],
+        type: { kind: "scalar", name: "int", width: 2 },
+      },
+    });
+  });
+
   test("binds assignment expressions on local scalars", () => {
     const source = "int main(){ int x; int y; return x = y = 3; }\n";
     const parsed = parseProgram(source, "assign-expr.c");

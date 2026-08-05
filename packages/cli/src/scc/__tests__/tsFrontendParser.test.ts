@@ -95,11 +95,11 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(stmt.initializer.name).toBe("x");
-    expect(stmt.initializer.initializer.kind).toBe("binary");
-    if (stmt.initializer.initializer.kind !== "binary") {
+    expect(stmt.initializer.initializer.kind).toBe("expr");
+    if (stmt.initializer.initializer.kind !== "expr" || stmt.initializer.initializer.expr.kind !== "binary") {
       return;
     }
-    expect(stmt.initializer.initializer.op).toBe("-");
+    expect(stmt.initializer.initializer.expr.op).toBe("-");
   });
 
   test("parses logical not as a zero-compare expression", () => {
@@ -153,6 +153,99 @@ describe("tsFrontendParser", () => {
       return;
     }
     expect(stmt.expr.right.expr).toEqual({ kind: "const", value: 66 });
+  });
+
+  test("parses void returns and normalized signedness/short aliases", () => {
+    const source = [
+      "void emit(unsigned char c){ outchar(c); return; }",
+      "unsigned int up(short x, signed char y){ return x + y; }",
+      "",
+    ].join("\n");
+    const program = parseProgram(source, "void-aliases.c");
+    expect(program.functions[0].returnType).toEqual({ kind: "void" });
+    expect(program.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char" });
+    const emitReturn = program.functions[0].body.statements[1];
+    expect(emitReturn).toEqual({ kind: "returnVoid" });
+    expect(program.functions[1].returnType).toEqual({ kind: "scalar", name: "int" });
+    expect(program.functions[1].params[0]?.type).toEqual({ kind: "scalar", name: "int" });
+    expect(program.functions[1].params[1]?.type).toEqual({ kind: "scalar", name: "char" });
+  });
+
+  test("parses file-scope globals and local aggregate brace initializers", () => {
+    const source = "int g = 65;\nchar buf[3] = { 65, 66, 0 };\nstruct Foo { char a; int b; };\nint main(){ struct Foo x = { 65, 66 }; return g + buf[1] + x.a + x.b; }\n";
+    const program = parseProgram(source, "globals-and-brace-init.c");
+
+    expect(program.globals).toHaveLength(2);
+    expect(program.globals[0]).toEqual({
+      kind: "globalDecl",
+      name: "g",
+      type: { kind: "scalar", name: "int" },
+      initializer: { kind: "expr", expr: { kind: "const", value: 65 } },
+    });
+    expect(program.globals[1]).toEqual({
+      kind: "globalDecl",
+      name: "buf",
+      type: { kind: "array", elementType: "char", length: 3 },
+      initializer: {
+        kind: "list",
+        items: [
+          { kind: "expr", expr: { kind: "const", value: 65 } },
+          { kind: "expr", expr: { kind: "const", value: 66 } },
+          { kind: "expr", expr: { kind: "const", value: 0 } },
+        ],
+      },
+    });
+    expect(program.functions[0].body.declarations[0]).toEqual({
+      kind: "localDecl",
+      name: "x",
+      type: { kind: "aggregate", aggregateKind: "struct", name: "Foo" },
+      initializer: {
+        kind: "list",
+        items: [
+          { kind: "expr", expr: { kind: "const", value: 65 } },
+          { kind: "expr", expr: { kind: "const", value: 66 } },
+        ],
+      },
+    });
+  });
+
+  test("parses local function pointers and indirect calls", () => {
+    const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint main(){ int (*fp)(void) = &putA; fp(); fp = &putB; return fp(); }\n";
+    const program = parseProgram(source, "function-pointer.c");
+
+    expect(program.functions[2].body.declarations[0]).toEqual({
+      kind: "localDecl",
+      name: "fp",
+      type: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "int" },
+        params: [],
+      },
+      initializer: {
+        kind: "expr",
+        expr: { kind: "addressOf", name: "putA" },
+      },
+    });
+    expect(program.functions[2].body.statements[1]).toEqual({
+      kind: "expr",
+      expr: { kind: "call", target: "fp", args: [] },
+    });
+    expect(program.functions[2].body.statements[3]).toEqual({
+      kind: "return",
+      expr: { kind: "call", target: "fp", args: [] },
+    });
+  });
+
+  test("parses static function definitions and ignores const/volatile qualifiers", () => {
+    const source = [
+      "static int id(const unsigned char c){ return c; }",
+      "int main(){ volatile char x = 65; return id(x); }",
+      "",
+    ].join("\n");
+    const program = parseProgram(source, "static-qualifier.c");
+    expect(program.functions[0].name).toBe("id");
+    expect(program.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char" });
+    expect(program.functions[1].body.declarations[0]?.type).toEqual({ kind: "scalar", name: "char" });
   });
 
   test("parses assignment expressions with right associativity", () => {
@@ -318,8 +411,11 @@ describe("tsFrontendParser", () => {
     const program = parseProgram("int main(){ int i = 1; char buf[3]; char *p = &buf[i]; return p[0]; }\n", "pointer-index.c");
     expect(program.functions[0].body.declarations[2]?.type).toEqual({ kind: "pointer", pointee: "char" });
     expect(program.functions[0].body.declarations[2]?.initializer).toEqual({
-      kind: "addressOfExpr",
-      expr: { kind: "arrayIndex", name: "buf", index: { kind: "ref", name: "i" } },
+      kind: "expr",
+      expr: {
+        kind: "addressOfExpr",
+        expr: { kind: "arrayIndex", name: "buf", index: { kind: "ref", name: "i" } },
+      },
     });
     const stmt = program.functions[0].body.statements[2];
     expect(stmt.kind).toBe("return");
@@ -598,7 +694,7 @@ describe("tsFrontendParser", () => {
       kind: "localDecl",
       name: "p",
       type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "struct", name: "Foo" } },
-      initializer: { kind: "addressOf", name: "x" },
+      initializer: { kind: "expr", expr: { kind: "addressOf", name: "x" } },
     });
   });
 
@@ -614,7 +710,7 @@ describe("tsFrontendParser", () => {
       kind: "localDecl",
       name: "p",
       type: { kind: "pointer", pointee: { kind: "aggregate", aggregateKind: "union", name: "Bar" } },
-      initializer: { kind: "addressOf", name: "x" },
+      initializer: { kind: "expr", expr: { kind: "addressOf", name: "x" } },
     });
   });
 

@@ -23,9 +23,11 @@ export type CallArgSpec =
 export type ExprSpec =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
+  | { kind: "globalAddress"; name: string }
   | { kind: "localAddress"; offset: number }
   | { kind: "localArrayElement"; offset: number }
   | { kind: "localArrayElementExpr"; offset: number; index: ExprSpec }
+  | { kind: "globalArrayElement"; name: string; index: ExprSpec }
   | { kind: "argArrayElement"; offset: number; index: ExprSpec }
   | { kind: "pointerAdd"; pointer: ExprSpec; index: ExprSpec; scale: 1 | 2 }
   | { kind: "derefByte"; pointer: ExprSpec }
@@ -38,9 +40,12 @@ export type ExprSpec =
   | { kind: "incDecLocalArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecArgArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "assignLocal"; offset: number; width: ValueWidth; expr: ExprSpec }
+  | { kind: "assignGlobal"; name: string; width: ValueWidth; expr: ExprSpec }
   | { kind: "assignLocalArray"; offset: number; index: ExprSpec; expr: ExprSpec }
+  | { kind: "assignGlobalArray"; name: string; index: ExprSpec; expr: ExprSpec }
   | { kind: "assignArgArray"; offset: number; index: ExprSpec; expr: ExprSpec }
   | { kind: "comma"; left: ExprSpec; right: ExprSpec }
+  | { kind: "indirectCall"; target: ExprSpec; args?: CallArgSpec[] }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: ExprSpec; elseExpr: ExprSpec }
   | { kind: "logical"; left: ExprSpec; right: ExprSpec; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprSpec; right: ExprSpec; op: "&" | "^" | "|" }
@@ -53,7 +58,8 @@ export type ExprSpec =
   | { kind: "localChar"; offset: number }
   | { kind: "localInt"; offset: number }
   | { kind: "argChar"; offset: number }
-  | { kind: "argInt"; offset: number };
+  | { kind: "argInt"; offset: number }
+  | { kind: "globalRef"; name: string; width: ValueWidth };
 
 export type FunctionSpec = {
   name: string;
@@ -87,8 +93,10 @@ export type CallArgIR =
 export type ExprIR =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
+  | { kind: "globalAddress"; name: string }
   | { kind: "localAddress"; slot: number }
   | { kind: "localArrayElement"; slot: number; index: ExprIR }
+  | { kind: "globalArrayElement"; name: string; index: ExprIR }
   | { kind: "argArrayElement"; slot: number; index: ExprIR }
   | { kind: "pointerAdd"; pointer: ExprIR; index: ExprIR; scale: 1 | 2 }
   | { kind: "derefByte"; pointer: ExprIR }
@@ -101,9 +109,12 @@ export type ExprIR =
   | { kind: "incDecLocalArray"; slot: number; index: ExprIR; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecArgArray"; slot: number; index: ExprIR; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "assignLocal"; slot: number; width: ValueWidth; expr: ExprIR }
+  | { kind: "assignGlobal"; name: string; width: ValueWidth; expr: ExprIR }
   | { kind: "assignLocalArray"; slot: number; index: ExprIR; expr: ExprIR }
+  | { kind: "assignGlobalArray"; name: string; index: ExprIR; expr: ExprIR }
   | { kind: "assignArgArray"; slot: number; index: ExprIR; expr: ExprIR }
   | { kind: "comma"; left: ExprIR; right: ExprIR }
+  | { kind: "indirectCall"; target: ExprIR; args?: CallArgIR[] }
   | { kind: "conditional"; condition: ExprIR; thenExpr: ExprIR; elseExpr: ExprIR }
   | { kind: "logical"; left: ExprIR; right: ExprIR; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprIR; right: ExprIR; op: "&" | "^" | "|" }
@@ -113,6 +124,7 @@ export type ExprIR =
   | { kind: "additive"; left: ExprIR; right: ExprIR; op: "+" | "-" }
   | { kind: "aggregateValueFieldAccess"; source: AggregateValueIR; tempSlot: number; offset: number; width: ValueWidth }
   | { kind: "aggregateValueFieldAddress"; source: AggregateValueIR; tempSlot: number; offset: number }
+  | { kind: "globalRef"; name: string; width: ValueWidth }
   | { kind: "call"; target: string; args?: CallArgIR[] };
 
 export type FunctionIR = {
@@ -435,6 +447,8 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
       return { kind: "const", value: expr.value };
     case "dataAddress":
       return { kind: "dataAddress", label: expr.label };
+    case "globalAddress":
+      return { kind: "globalAddress", name: expr.name };
     case "localAddress":
       return { kind: "localAddress", offset: getLocalOffset(layout, expr.slot) };
     case "localArrayElement":
@@ -442,6 +456,8 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         return { kind: "localArrayElement", offset: getLocalOffset(layout, expr.slot) + expr.index.value };
       }
       return { kind: "localArrayElementExpr", offset: getLocalOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout) };
+    case "globalArrayElement":
+      return { kind: "globalArrayElement", name: expr.name, index: lowerExprIR(expr.index, layout) };
     case "argArrayElement":
       return { kind: "argArrayElement", offset: getParamOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout) };
     case "pointerAdd":
@@ -464,12 +480,22 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
       return { kind: "incDecArgArray", offset: getParamOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), op: expr.op, mode: expr.mode };
     case "assignLocal":
       return { kind: "assignLocal", offset: getLocalOffset(layout, expr.slot), width: expr.width, expr: lowerExprIR(expr.expr, layout) };
+    case "assignGlobal":
+      return { kind: "assignGlobal", name: expr.name, width: expr.width, expr: lowerExprIR(expr.expr, layout) };
     case "assignLocalArray":
       return { kind: "assignLocalArray", offset: getLocalOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), expr: lowerExprIR(expr.expr, layout) };
+    case "assignGlobalArray":
+      return { kind: "assignGlobalArray", name: expr.name, index: lowerExprIR(expr.index, layout), expr: lowerExprIR(expr.expr, layout) };
     case "assignArgArray":
       return { kind: "assignArgArray", offset: getParamOffset(layout, expr.slot), index: lowerExprIR(expr.index, layout), expr: lowerExprIR(expr.expr, layout) };
     case "comma":
       return { kind: "comma", left: lowerExprIR(expr.left, layout), right: lowerExprIR(expr.right, layout) };
+    case "indirectCall":
+      return {
+        kind: "indirectCall",
+        target: lowerExprIR(expr.target, layout),
+        args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
+      };
     case "compare":
       return {
         kind: "compare",
@@ -542,6 +568,8 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
       };
     case "ref":
       return lowerRefIR(expr, layout);
+    case "globalRef":
+      return { kind: "globalRef", name: expr.name, width: expr.width };
     default:
       return assertNever(expr);
   }
@@ -728,12 +756,16 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return [`\tld\thl,#${expr.value}`];
     case "dataAddress":
       return [`\tld\thl,#${expr.label}+0`];
+    case "globalAddress":
+      return [`\tld\thl,#${expr.name}+0`];
     case "localAddress":
       return emitLoadStackAddrToHl(expr.offset, ctx);
     case "localArrayElement":
       return emitLoadStackByteToHl(expr.offset, ctx);
     case "localArrayElementExpr":
       return emitLoadIndexedLocalByteToHl(expr.offset, expr.index, ctx);
+    case "globalArrayElement":
+      return emitLoadIndexedGlobalByteToHl(expr.name, expr.index, ctx);
     case "argArrayElement":
       return emitLoadIndexedArgByteToHl(expr.offset, expr.index, ctx);
     case "pointerAdd":
@@ -762,14 +794,22 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return expr.width === 1
         ? emitAssignLocalByteExpr(expr.offset, expr.expr, ctx)
         : emitAssignLocalWordExpr(expr.offset, expr.expr, ctx);
+    case "assignGlobal":
+      return expr.width === 1
+        ? emitAssignGlobalByteExpr(expr.name, expr.expr, ctx)
+        : emitAssignGlobalWordExpr(expr.name, expr.expr, ctx);
     case "assignLocalArray":
       return emitAssignLocalArrayExpr(expr.offset, expr.index, expr.expr, ctx);
+    case "assignGlobalArray":
+      return emitAssignGlobalArrayExpr(expr.name, expr.index, expr.expr, ctx);
     case "assignArgArray":
       return emitAssignArgArrayExpr(expr.offset, expr.index, expr.expr, ctx);
     case "comma":
       return [...emitExprToHl(expr.left, ctx), ...emitExprToHl(expr.right, ctx)];
     case "call":
       return emitCallExpr(expr.target, expr.args ?? [], ctx);
+    case "indirectCall":
+      return emitIndirectCallExpr(expr.target, expr.args ?? [], ctx);
     case "conditional":
       return emitConditionalExpr(expr.condition, expr.thenExpr, expr.elseExpr, ctx);
     case "logical":
@@ -794,6 +834,10 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
     case "localInt":
     case "argInt":
       return emitLoadStackWordToHl(expr.offset, ctx);
+    case "globalRef":
+      return expr.width === 1
+        ? [`\tld\ta,(${expr.name})`, "\tld\tl,a", "\tld\th,#0"]
+        : [`\tld\thl,(${expr.name})`];
     default:
       return assertNever(expr);
   }
@@ -804,6 +848,20 @@ function emitCallExpr(target: string, args: CallArgSpec[], ctx: EmitExprContext)
     return [`\tcall\t${target}`];
   }
   return [...emitPushArgs(args, ctx), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
+}
+
+function emitIndirectCallExpr(target: ExprSpec, args: CallArgSpec[], ctx: EmitExprContext): string[] {
+  const lines = [...emitExprToHl(target, ctx), "\tpush\thl"];
+  const pushedArgs = emitPushArgs(args, { ...ctx, stackDelta: ctx.stackDelta + 2 });
+  const returnLabel = allocateExprLabel(ctx);
+  lines.push(...pushedArgs);
+  lines.push("\tpop\thl");
+  lines.push(`\tld\tde,#${returnLabel}`);
+  lines.push("\tpush\tde");
+  lines.push("\tjp\t(hl)");
+  lines.push(`${returnLabel}:`);
+  lines.push(...Array.from({ length: args.length }, () => "\tpop\tbc"));
+  return lines;
 }
 
 function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
@@ -873,6 +931,47 @@ function emitStoreExprToArgArrayByte(offset: number, index: ExprSpec, expr: Expr
     ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
     "\tpush\thl",
     ...emitLoadStackWordToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 4 }),
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tpop\tde",
+    "\tld\t(hl),e",
+  ];
+}
+
+function emitLoadIndexedGlobalByteToHl(name: string, index: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(index, ctx),
+    "\tpush\thl",
+    `\tld\thl,#${name}+0`,
+    "\tpop\tde",
+    "\tadd\thl,de",
+    "\tld\tl,(hl)",
+    "\tld\th,#0",
+  ];
+}
+
+function emitAssignGlobalByteExpr(name: string, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    `\tld\t(${name}),l`,
+    "\tld\th,#0",
+  ];
+}
+
+function emitAssignGlobalWordExpr(name: string, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    `\tld\t(${name}),hl`,
+  ];
+}
+
+function emitAssignGlobalArrayExpr(name: string, index: ExprSpec, expr: ExprSpec, ctx: EmitExprContext): string[] {
+  return [
+    ...emitExprToHl(expr, ctx),
+    "\tpush\thl",
+    ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+    "\tpush\thl",
+    `\tld\thl,#${name}+0`,
     "\tpop\tde",
     "\tadd\thl,de",
     "\tpop\tde",
