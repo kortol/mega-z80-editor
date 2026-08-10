@@ -709,6 +709,129 @@ source-driven compile path の最初の slice はかなり限定しています�
   - branch / conditional / comma / assign-expression result / return pass-through をまたぐ aggregate temporary path は source path で通る
   - aggregate-returning function の `conditional` / `comma` は P0 で runtime ABI を安定化し、`struct/union` ともに CP/M 実行確認済み
 
+### Aggregate Value Redesign
+
+2026-08-10 時点の根本問題は、「aggregate value」が未実装なのではなく、同じ概念を 3 回持っていることです。
+
+- `semantic`
+  - `BoundAggregateValueExpr` が aggregate source tree を表す
+- `lowering`
+  - `lowerAggregateAssignToLocalSlot()` / `lowerAggregateReturnToReturnSlot()` / aggregate call arg lowering が sink ごとに別々の copy 戦略を持つ
+- `tsProgram`
+  - `emitAggregateValueToLocal()` が source tree を再帰的に解釈し直し、emit 側で aggregate evaluator を再実装している
+
+この形だと、新しい aggregate value path を 1 つ追加するたびに、
+
+- semantic で source path を増やす
+- lowering で sink 特例を増やす
+- emit で materialize 分岐を増やす
+
+という 3 箇所修正になりやすく、coverage の増加に対して実装の真直度が上がりにくい。
+
+#### Target Model
+
+aggregate value を「expression」ではなく「producer」として統一して扱う。
+
+- source side:
+  - `aggregate ref`
+  - `aggregate assign-expr`
+  - `aggregate call result`
+  - `aggregate conditional`
+  - `aggregate comma`
+- sink side:
+  - local slot materialize
+  - global object assign
+  - call argument address passing
+  - return slot copy
+  - field read / field address
+
+中心原則は次の 2 つです。
+
+1. source は 1 回だけ解釈する
+   - semantic は aggregate producer tree を作るだけにする
+   - emit 側で source tree を再解釈しない
+2. sink は `materialize(source, destination)` に統一する
+   - local / global / arg-return-slot / temp を destination の違いとして扱う
+   - `call` / `return` / initializer / assign は sink の違いとして扱う
+
+#### Concrete Refactor Direction
+
+1. `semantic`
+   - `BoundAggregateValueExpr` を aggregate producer tree として維持する
+   - ただし「aggregate 専用 expression」の追加は止める
+   - field read / field address / call arg / return / initializer は「producer を消費する consumer」として整理する
+
+2. `lowering`
+   - sink ごとの helper を次の 2 層に分ける
+   - `lowerAggregateProducer(expr) -> AggregateProducerIR`
+   - `materializeAggregateProducer(producer, destination) -> StmtIRHigh[]`
+   - `lowerAggregateAssignToLocalSlot()` / `lowerAggregateReturnToReturnSlot()` / aggregate call arg lowering は、この共通 materialize API の薄い wrapper に落とす
+
+3. `tsProgram`
+   - `emitAggregateValueToLocal()` のような emit-time evaluator をやめる
+   - aggregate producer の分岐評価は lowering 完了時点までに終える
+   - emit は「copy bytes from place A to place B」と「call with address args」に集中させる
+
+#### Destination Model
+
+aggregate sink は destination を first-class にした方がよい。
+
+- `localSlot(offset, size)`
+- `globalSymbol(name, size)`
+- `returnSlot(size)`
+- `tempLocal(slot, size)`
+
+`aggregateAssignExpr` の本質も「target に副作用を書き込みつつ、value としては materialized temp を返す」なので、
+
+- current:
+  - `target + tempSlot + source`
+- target:
+  - `effect destination + value destination + source`
+
+として表現すると、local/global 差を押し込めやすい。
+
+#### Immediate Task Split
+
+`1. aggregate value semantics`
+
+- `BoundAggregateValueExpr` を producer と呼ぶ前提で comments / docs / helper 名を揃える
+- aggregate consumer を列挙する
+  - assign
+  - local initializer
+  - call arg
+  - return
+  - field read
+  - field address
+
+`2. aggregate temporary IR`
+
+- `AggregateValueIR` を `AggregateProducerIR` 相当に寄せる
+- materialize の destination concept を導入する
+- `aggregateAssignExpr` の local/global special-case を destination model へ押し込む
+
+`3. aggregate call / return ABI`
+
+- `call arg` / `return` / `initializer` を全部 `materialize(producer, destination)` に寄せる
+- source path 差ではなく destination 差だけが残る形にする
+
+`4. pointer shape expansion`
+
+- aggregate redesign で pointer path が壊れていないことの regression 確認だけ行う
+
+`5. remaining C surface`
+
+- redesign 完了後に declaration / initializer / array / unary の残件へ戻る
+- aggregate value 系の設計収束より先に surface を広げない
+
+#### Success Condition
+
+再設計の成功条件は、aggregate value path が増えることではなく、次の状態になることです。
+
+- aggregate source の追加で emit 側の分岐が増えない
+- local/global の違いが destination へ閉じる
+- `call` / `return` / initializer / field access が同じ producer model を共有する
+- docs の aggregate value matrix が `P` から `S` へ上がるための構造的準備が整う
+
 ### Implementation Order
 
 1. `aggregate value semantics`

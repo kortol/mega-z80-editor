@@ -919,7 +919,7 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tcall\tpassthroughAssign/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((asm.match(/\tjp\tz,\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 

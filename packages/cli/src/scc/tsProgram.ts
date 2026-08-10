@@ -18,6 +18,11 @@ export type AggregateValueSpec =
   | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
 
+export type AggregateDestinationSpec =
+  | { kind: "localSlot"; offset: number; size: number }
+  | { kind: "globalSymbol"; name: string; size: number }
+  | { kind: "returnSlot"; size: number };
+
 export type CallArgSpec =
   | { kind: "expr"; expr: ExprSpec }
   | { kind: "aggregateAddress"; source: AggregateValueSpec; tempOffset: number };
@@ -89,6 +94,11 @@ export type AggregateValueIR =
   | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
   | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
 
+export type AggregateDestinationIR =
+  | { kind: "localSlot"; slot: number; size: number }
+  | { kind: "globalSymbol"; name: string; size: number }
+  | { kind: "returnSlot"; size: number };
+
 export type CallArgIR =
   | { kind: "expr"; expr: ExprIR }
   | { kind: "aggregateAddress"; source: AggregateValueIR; tempSlot: number };
@@ -138,7 +148,7 @@ export type FunctionIR = {
 };
 
 export type StmtIRHigh =
-  | { kind: "materializeAggregateValue"; targetSlot: number; source: AggregateValueIR }
+  | { kind: "materializeAggregateValue"; destination: AggregateDestinationIR; source: AggregateValueIR }
   | { kind: "assignLocalConst"; slot: number; width: ValueWidth; value: number }
   | { kind: "assignLocalExpr"; slot: number; width: ValueWidth; expr: ExprIR }
   | { kind: "assignLocalArrayConst"; slot: number; index: number; value: number }
@@ -177,7 +187,7 @@ type LoopContext = {
 };
 
 type StatementSpec =
-  | { kind: "materializeAggregateValue"; targetOffset: number; source: AggregateValueSpec }
+  | { kind: "materializeAggregateValue"; destination: AggregateDestinationSpec; source: AggregateValueSpec }
   | { kind: "call"; target: string }
   | { kind: "loadConstHl"; value: number }
   | { kind: "loadDataAddressHl"; label: string }
@@ -261,7 +271,7 @@ function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringSt
     case "materializeAggregateValue":
       return [{
         kind: "materializeAggregateValue",
-        targetOffset: getLocalOffset(layout, stmt.targetSlot),
+        destination: lowerAggregateDestinationIR(stmt.destination, layout),
         source: lowerAggregateValueIR(stmt.source, layout),
       }];
     case "assignLocalConst": {
@@ -642,6 +652,19 @@ function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): 
   }
 }
 
+function lowerAggregateDestinationIR(destination: AggregateDestinationIR, layout: FunctionLayout): AggregateDestinationSpec {
+  switch (destination.kind) {
+    case "localSlot":
+      return { kind: "localSlot", offset: getLocalOffset(layout, destination.slot), size: destination.size };
+    case "globalSymbol":
+      return destination;
+    case "returnSlot":
+      return destination;
+    default:
+      return assertNever(destination);
+  }
+}
+
 function lowerCallArgIR(arg: CallArgIR, layout: FunctionLayout): CallArgSpec {
   switch (arg.kind) {
     case "expr":
@@ -706,7 +729,7 @@ function emitFunction(fn: FunctionSpec): string[] {
 function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[] {
   switch (statement.kind) {
     case "materializeAggregateValue":
-      return emitAggregateValueToLocal(statement.source, statement.targetOffset, ctx);
+      return emitAggregateValueToDestination(statement.source, statement.destination, ctx);
     case "call":
       return [`\tcall\t${statement.target}`];
     case "loadConstHl":
@@ -887,13 +910,17 @@ function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
     if (arg.kind === "expr") {
       lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
     } else {
-      lines.push(...emitAggregateValueToLocal(arg.source, arg.tempOffset, { ...ctx, stackDelta }));
+      lines.push(...emitAggregateValueToTempLocal(arg.source, arg.tempOffset, inferAggregateTempSize(arg.source), { ...ctx, stackDelta }));
       lines.push(...emitExprToHl({ kind: "localAddress", offset: arg.tempOffset }, { ...ctx, stackDelta }));
     }
     lines.push("\tpush\thl");
     stackDelta += 2;
   }
   return lines;
+}
+
+function inferAggregateTempSize(source: AggregateValueSpec): number {
+  return source.size;
 }
 
 function emitReserveBytes(count: number): string[] {
@@ -1270,7 +1297,7 @@ function emitAggregateValueFieldAccessExpr(
     ? { kind: "localChar", offset: tempOffset + fieldOffset }
     : { kind: "localInt", offset: tempOffset + fieldOffset };
   return [
-    ...emitAggregateValueToLocal(source, tempOffset, ctx),
+    ...emitAggregateValueToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAccess(fieldOffset, width), ctx),
     ...emitExprToHl(loadExpr, ctx),
   ];
 }
@@ -1282,9 +1309,114 @@ function emitAggregateValueFieldAddressExpr(
   ctx: EmitExprContext,
 ): string[] {
   return [
-    ...emitAggregateValueToLocal(source, tempOffset, ctx),
+    ...emitAggregateValueToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAddress(fieldOffset), ctx),
     ...emitLoadStackAddrToHl(tempOffset + fieldOffset, ctx),
   ];
+}
+
+function emitAggregateValueToTempLocal(
+  source: AggregateValueSpec,
+  tempOffset: number,
+  size: number,
+  ctx: EmitExprContext,
+): string[] {
+  return emitAggregateValueToDestination(source, { kind: "localSlot", offset: tempOffset, size }, ctx);
+}
+
+function getAggregateTempSizeForFieldAccess(fieldOffset: number, width: ValueWidth): number {
+  return fieldOffset + width;
+}
+
+function getAggregateTempSizeForFieldAddress(fieldOffset: number): number {
+  return fieldOffset + 1;
+}
+
+function emitAggregateValueToDestination(source: AggregateValueSpec, destination: AggregateDestinationSpec, ctx: EmitExprContext): string[] {
+  switch (destination.kind) {
+    case "localSlot":
+      return emitAggregateValueToLocal(source, destination.offset, ctx);
+    case "globalSymbol":
+      return emitAggregateValueToPointer(source, { kind: "globalAddress", name: destination.name }, destination.size, ctx);
+    case "returnSlot":
+      return emitAggregateValueToPointer(source, { kind: "argInt", offset: 0 }, destination.size, ctx);
+    default:
+      return assertNever(destination);
+  }
+}
+
+function emitAggregateValueToPointer(
+  source: AggregateValueSpec,
+  destinationPointer: ExprSpec,
+  size: number,
+  ctx: EmitExprContext,
+): string[] {
+  switch (source.kind) {
+    case "aggregateRef":
+      if (source.scope === "local") {
+        return emitAggregateCopyFromPointerToPointer(
+          { kind: "localAddress", offset: source.offset },
+          destinationPointer,
+          source.size,
+          ctx,
+        );
+      }
+      if (source.scope === "arg") {
+        return emitAggregateCopyFromPointerToPointer(
+          { kind: "argInt", offset: source.offset },
+          destinationPointer,
+          source.size,
+          ctx,
+        );
+      }
+      const globalSource = source as Extract<AggregateValueSpec, { kind: "aggregateRef"; scope: "global" }>;
+      return emitAggregateCopyFromPointerToPointer(
+        { kind: "globalAddress", name: globalSource.name },
+        destinationPointer,
+        globalSource.size,
+        ctx,
+      );
+    case "aggregateAssignExpr":
+      return [
+        ...emitAggregateValueToLocal(source.source, source.tempOffset, ctx),
+        ...(source.target.scope === "local"
+          ? (source.target.offset === source.tempOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, source.target.offset, source.size, ctx))
+          : emitAggregateCopyLocalToGlobal(source.tempOffset, source.target.name, source.size, ctx)),
+        ...emitAggregateCopyFromPointerToPointer(
+          { kind: "localAddress", offset: source.tempOffset },
+          destinationPointer,
+          source.size,
+          ctx,
+        ),
+      ];
+    case "call":
+      return [
+        ...emitPushArgs([{ kind: "expr", expr: destinationPointer }, ...(source.args ?? [])], ctx),
+        `\tcall\t${source.target}`,
+        ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
+      ];
+    case "comma":
+      return [
+        ...emitExprToHl(source.left, ctx),
+        ...emitAggregateValueToPointer(source.right, destinationPointer, size, ctx),
+      ];
+    case "conditional": {
+      const elseLabel = allocateExprLabel(ctx);
+      const endLabel = allocateExprLabel(ctx);
+      return [
+        ...emitExprToHl(source.condition, ctx),
+        "\tld\ta,h",
+        "\tor\tl",
+        `\tjp\tz,${elseLabel}`,
+        ...emitAggregateValueToPointer(source.thenExpr, destinationPointer, size, ctx),
+        `\tjp\t${endLabel}`,
+        `${elseLabel}:`,
+        ...emitAggregateValueToPointer(source.elseExpr, destinationPointer, size, ctx),
+        `${endLabel}:`,
+      ];
+    }
+    default:
+      return assertNever(source);
+  }
 }
 
 function emitAggregateValueToLocal(source: AggregateValueSpec, targetOffset: number, ctx: EmitExprContext): string[] {
@@ -1384,6 +1516,33 @@ function emitAggregateCopyFromGlobal(name: string, targetOffset: number, size: n
           pointer: {
             kind: "pointerAdd",
             pointer: { kind: "globalAddress", name },
+            index: { kind: "const", value: index },
+            scale: 1,
+          },
+        },
+        ctx,
+      ),
+    );
+  }
+  return lines;
+}
+
+function emitAggregateCopyFromPointerToPointer(sourcePointer: ExprSpec, targetPointer: ExprSpec, size: number, ctx: EmitExprContext): string[] {
+  const lines: string[] = [];
+  for (let index = 0; index < size; index += 1) {
+    lines.push(
+      ...emitAssignDerefByteExpr(
+        {
+          kind: "pointerAdd",
+          pointer: targetPointer,
+          index: { kind: "const", value: index },
+          scale: 1,
+        },
+        {
+          kind: "derefByte",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: sourcePointer,
             index: { kind: "const", value: index },
             scale: 1,
           },

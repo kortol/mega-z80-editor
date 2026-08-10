@@ -556,9 +556,18 @@ function lowerAggregateAssignWrapper(
   file?: string,
 ): StmtIRHigh {
   const aggregateTarget = target as (BoundLocalSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType };
-  const thenBody = aggregateTarget.kind === "local"
-    ? lowerAggregateAssignToLocalSlot(aggregateTarget.slot, aggregateTarget.type, source, externs, definedFunctions, sourceText, state, functionState, file)
-    : lowerAggregateAssignToGlobal(aggregateTarget.name, aggregateTarget.type, source, externs, definedFunctions, sourceText, state, functionState, file);
+  const thenBody = materializeAggregateProducer(
+    source,
+    aggregateTarget.kind === "local"
+      ? { kind: "localSlot", slot: aggregateTarget.slot, type: aggregateTarget.type }
+      : { kind: "globalSymbol", name: aggregateTarget.name, type: aggregateTarget.type },
+    externs,
+    definedFunctions,
+    sourceText,
+    state,
+    functionState,
+    file,
+  );
   return {
     kind: "ifExprZero",
     expr: { kind: "const", value: 1 },
@@ -566,6 +575,11 @@ function lowerAggregateAssignWrapper(
     elseBody: [],
   };
 }
+
+type AggregateDestination =
+  | { kind: "localSlot"; slot: number; type: SemanticAggregateType }
+  | { kind: "globalSymbol"; name: string; type: SemanticAggregateType }
+  | { kind: "returnSlot"; type: SemanticAggregateType };
 
 function lowerAggregateAssignToGlobal(
   targetName: string,
@@ -578,11 +592,16 @@ function lowerAggregateAssignToGlobal(
   functionState: FunctionLoweringState,
   file?: string,
 ): StmtIRHigh[] {
-  const tempSlot = allocateTempLocal(functionState, targetType.size);
-  return [
-    ...lowerAggregateAssignToLocalSlot(tempSlot, targetType, source, externs, definedFunctions, sourceText, state, functionState, file),
-    ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, targetName, targetType),
-  ];
+  return materializeAggregateProducer(
+    source,
+    { kind: "globalSymbol", name: targetName, type: targetType },
+    externs,
+    definedFunctions,
+    sourceText,
+    state,
+    functionState,
+    file,
+  );
 }
 
 function lowerAggregateCopyLocalSlotToGlobal(
@@ -652,87 +671,244 @@ function lowerAggregateAssignToLocalSlot(
   functionState: FunctionLoweringState,
   file?: string,
 ): StmtIRHigh[] {
-  const aggregateType = targetType;
-  if (aggregateType.kind !== "aggregate" || source.type.kind !== "aggregate") {
-    throw new Error("Internal lowering error: aggregate assignment expected aggregate locals.");
+  if (targetType.kind !== "aggregate") {
+    throw new Error("Internal lowering error: aggregate assignment expected aggregate local target.");
   }
+  return materializeAggregateProducer(
+    source,
+    { kind: "localSlot", slot: targetSlot, type: targetType },
+    externs,
+    definedFunctions,
+    sourceText,
+    state,
+    functionState,
+    file,
+  );
+}
+
+function materializeAggregateProducer(
+  source: BoundAggregateValueExpr,
+  destination: AggregateDestination,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh[] {
+  const aggregateType = destination.type;
   switch (source.kind) {
-    case "aggregateRef": {
-      const fields = getAggregateFieldStores(aggregateType);
-      const sourcePointer = lowerAggregateSourceAddressExpr(source.symbol, functionState);
-      return fields.map((field) => ({
-        kind: "evalExpr",
-        expr: {
-          kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
-          pointer: {
-            kind: "pointerAdd",
-            pointer: { kind: "localAddress", slot: targetSlot },
-            index: { kind: "const", value: field.offset },
-            scale: 1,
-          },
-          expr: {
-            kind: field.width === 1 ? "derefByte" : "derefWord",
-            pointer: {
-              kind: "pointerAdd",
-              pointer: sourcePointer,
-              index: { kind: "const", value: field.offset },
-              scale: 1,
-            },
-          },
-        },
-      }));
-    }
+    case "aggregateRef":
+      return lowerAggregateSourceAddressToDestination(
+        lowerAggregateSourceAddressExpr(source.symbol, functionState),
+        source.symbol.type,
+        destination,
+      );
     case "aggregateAssignExpr":
       if (source.target.kind === "local") {
+        const effectDestination: AggregateDestination = {
+          kind: "localSlot",
+          slot: source.target.slot,
+          type: source.target.type,
+        };
         return [
-          ...lowerAggregateAssignToLocalSlot(source.target.slot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
-          ...(targetSlot === source.target.slot ? [] : lowerAggregateCopyLocalSlotToLocalSlot(source.target.slot, targetSlot, aggregateType)),
+          ...materializeAggregateProducer(source.source, effectDestination, externs, definedFunctions, sourceText, state, functionState, file),
+          ...copyAggregateLocalSlotToDestination(source.target.slot, source.target.type, destination),
         ];
       }
       {
         const tempSlot = allocateTempLocal(functionState, source.type.size);
         return [
-          ...lowerAggregateAssignToLocalSlot(tempSlot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
+          ...materializeAggregateProducer(
+            source.source,
+            { kind: "localSlot", slot: tempSlot, type: source.target.type },
+            externs,
+            definedFunctions,
+            sourceText,
+            state,
+            functionState,
+            file,
+          ),
           ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, source.target.name, source.target.type),
-          ...(targetSlot === tempSlot ? [] : lowerAggregateCopyLocalSlotToLocalSlot(tempSlot, targetSlot, aggregateType)),
+          ...copyAggregateLocalSlotToDestination(tempSlot, source.target.type, destination),
         ];
       }
     case "comma":
       return [
         { kind: "evalExpr", expr: lowerExpr(source.left, externs, definedFunctions, sourceText, state, functionState, file) },
-        ...lowerAggregateAssignToLocalSlot(targetSlot, targetType, source.right, externs, definedFunctions, sourceText, state, functionState, file),
+        ...materializeAggregateProducer(source.right, destination, externs, definedFunctions, sourceText, state, functionState, file),
       ];
     case "conditional":
       return [{
         kind: "ifExprZero",
         expr: lowerExpr(source.condition, externs, definedFunctions, sourceText, state, functionState, file),
-        thenBody: lowerAggregateAssignToLocalSlot(targetSlot, targetType, source.thenExpr, externs, definedFunctions, sourceText, state, functionState, file),
-        elseBody: lowerAggregateAssignToLocalSlot(targetSlot, targetType, source.elseExpr, externs, definedFunctions, sourceText, state, functionState, file),
+        thenBody: materializeAggregateProducer(source.thenExpr, destination, externs, definedFunctions, sourceText, state, functionState, file),
+        elseBody: materializeAggregateProducer(source.elseExpr, destination, externs, definedFunctions, sourceText, state, functionState, file),
       }];
     case "call":
-      return [{
-        kind: "evalExpr",
-        expr: {
-          kind: "call",
-          target: source.target.name,
-          args: [
-            { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
-            ...source.args.map((arg) => isAggregateCallArg(arg)
-              ? {
-                kind: "aggregateAddress" as const,
-                source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-                tempSlot: allocateTempLocal(functionState, arg.type.size),
-              }
-              : {
-                kind: "expr" as const,
-                expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-              }),
-          ],
-        },
-      }];
+      if (destination.kind === "localSlot") {
+        return [lowerAggregateCallIntoLocalSlot(destination.slot, source, externs, definedFunctions, sourceText, state, functionState, file)];
+      }
+      {
+        const tempSlot = allocateTempLocal(functionState, aggregateType.size);
+        return [
+          lowerAggregateCallIntoLocalSlot(tempSlot, source, externs, definedFunctions, sourceText, state, functionState, file),
+          ...copyAggregateLocalSlotToDestination(tempSlot, aggregateType, destination),
+        ];
+      }
     default:
       return assertNever(source);
   }
+}
+
+function lowerAggregateSourceAddressToDestination(
+  sourcePointer: ExprIR,
+  sourceType: SemanticAggregateType,
+  destination: AggregateDestination,
+): StmtIRHigh[] {
+  switch (destination.kind) {
+    case "localSlot":
+      return lowerAggregateCopySourceAddressToLocalSlot(sourcePointer, destination.slot, destination.type);
+    case "globalSymbol":
+      return lowerAggregateCopySourceAddressToGlobal(sourcePointer, destination.name, destination.type);
+    case "returnSlot":
+      return lowerAggregateCopySourceAddressToReturnSlot(sourcePointer, sourceType.size);
+    default:
+      return assertNever(destination);
+  }
+}
+
+function copyAggregateLocalSlotToDestination(
+  sourceSlot: number,
+  sourceType: SemanticAggregateType,
+  destination: AggregateDestination,
+): StmtIRHigh[] {
+  switch (destination.kind) {
+    case "localSlot":
+      return destination.slot === sourceSlot ? [] : lowerAggregateCopyLocalSlotToLocalSlot(sourceSlot, destination.slot, destination.type);
+    case "globalSymbol":
+      return lowerAggregateCopyLocalSlotToGlobal(sourceSlot, destination.name, destination.type);
+    case "returnSlot":
+      return lowerAggregateCopyLocalToReturnSlot(sourceSlot, sourceType.size);
+    default:
+      return assertNever(destination);
+  }
+}
+
+function lowerAggregateCopySourceAddressToLocalSlot(
+  sourcePointer: ExprIR,
+  targetSlot: number,
+  targetType: SemanticAggregateType,
+): StmtIRHigh[] {
+  const aggregateType = targetType;
+  return getAggregateFieldStores(aggregateType).map((field) => ({
+    kind: "evalExpr",
+    expr: {
+      kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
+      pointer: {
+        kind: "pointerAdd",
+        pointer: { kind: "localAddress", slot: targetSlot },
+        index: { kind: "const", value: field.offset },
+        scale: 1,
+      },
+      expr: {
+        kind: field.width === 1 ? "derefByte" : "derefWord",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: sourcePointer,
+          index: { kind: "const", value: field.offset },
+          scale: 1,
+        },
+      },
+    },
+  }));
+}
+
+function lowerAggregateCopySourceAddressToGlobal(
+  sourcePointer: ExprIR,
+  targetName: string,
+  targetType: SemanticAggregateType,
+): StmtIRHigh[] {
+  return getAggregateFieldStores(targetType).map((field) => ({
+    kind: "evalExpr",
+    expr: {
+      kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
+      pointer: {
+        kind: "pointerAdd",
+        pointer: { kind: "globalAddress", name: targetName },
+        index: { kind: "const", value: field.offset },
+        scale: 1,
+      },
+      expr: {
+        kind: field.width === 1 ? "derefByte" : "derefWord",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: sourcePointer,
+          index: { kind: "const", value: field.offset },
+          scale: 1,
+        },
+      },
+    },
+  }));
+}
+
+function lowerAggregateCopySourceAddressToReturnSlot(
+  sourcePointer: ExprIR,
+  size: number,
+): StmtIRHigh[] {
+  return Array.from({ length: size }, (_, index) => ({
+    kind: "evalExpr" as const,
+    expr: {
+      kind: "assignDerefByte" as const,
+      pointer: {
+        kind: "pointerAdd" as const,
+        pointer: { kind: "ref" as const, scope: "arg" as const, width: 2 as const, slot: 0 },
+        index: { kind: "const" as const, value: index },
+        scale: 1 as const,
+      },
+      expr: {
+        kind: "derefByte" as const,
+        pointer: {
+          kind: "pointerAdd" as const,
+          pointer: sourcePointer,
+          index: { kind: "const" as const, value: index },
+          scale: 1 as const,
+        },
+      },
+    },
+  }));
+}
+
+function lowerAggregateCallIntoLocalSlot(
+  targetSlot: number,
+  source: Extract<BoundAggregateValueExpr, { kind: "call" }>,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh {
+  return {
+    kind: "evalExpr",
+    expr: {
+      kind: "call",
+      target: source.target.name,
+      args: [
+        { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
+        ...source.args.map((arg) => isAggregateCallArg(arg)
+          ? {
+            kind: "aggregateAddress" as const,
+            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+            tempSlot: allocateTempLocal(functionState, arg.type.size),
+          }
+          : {
+            kind: "expr" as const,
+            expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+          }),
+      ],
+    },
+  };
 }
 
 function lowerAggregateCopyLocalToReturnSlot(sourceSlot: number, size: number): StmtIRHigh[] {
@@ -816,55 +992,16 @@ function lowerAggregateReturnToReturnSlot(
   functionState: FunctionLoweringState,
   file?: string,
 ): StmtIRHigh[] {
-  switch (source.kind) {
-    case "aggregateRef":
-      return source.symbol.kind === "local"
-        ? lowerAggregateCopyLocalToReturnSlot(source.symbol.slot, source.type.size)
-        : source.symbol.kind === "param"
-          ? lowerAggregateCopyArgAddressToReturnSlot(getParamIrSlot(source.symbol.slot, functionState), source.type.size)
-          : lowerAggregateCopyGlobalToReturnSlot(source.symbol.name, source.type.size);
-    case "aggregateAssignExpr":
-      if (source.target.kind === "local") {
-        return [
-          ...lowerAggregateAssignToLocalSlot(source.target.slot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
-          ...lowerAggregateCopyLocalToReturnSlot(source.target.slot, source.type.size),
-        ];
-      }
-      {
-        const tempSlot = allocateTempLocal(functionState, source.type.size);
-        return [
-          ...lowerAggregateAssignToLocalSlot(tempSlot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
-          ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, source.target.name, source.target.type),
-          ...lowerAggregateCopyLocalToReturnSlot(tempSlot, source.type.size),
-        ];
-      }
-    case "call":
-      return [{
-        kind: "evalExpr",
-        expr: {
-          kind: "call",
-          target: source.target.name,
-          args: [
-            { kind: "expr", expr: { kind: "ref", scope: "arg", width: 2, slot: 0 } },
-            ...source.args.map((arg) => isAggregateCallArg(arg)
-              ? {
-                kind: "aggregateAddress" as const,
-                source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-                tempSlot: allocateTempLocal(functionState, arg.type.size),
-              }
-              : {
-                kind: "expr" as const,
-                expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-              }),
-          ],
-        },
-      }];
-    case "comma":
-    case "conditional":
-      return lowerAggregateReturnViaTempLocal(source, externs, definedFunctions, sourceText, state, functionState, file);
-    default:
-      return assertNever(source);
-  }
+  return materializeAggregateProducer(
+    source,
+    { kind: "returnSlot", type: functionState.returnType as SemanticAggregateType },
+    externs,
+    definedFunctions,
+    sourceText,
+    state,
+    functionState,
+    file,
+  );
 }
 
 function lowerAggregateReturnViaTempLocal(
