@@ -649,7 +649,7 @@ source-driven compile path の最初の slice はかなり限定しています�
 | path / operation | scalar value | pointer value | aggregate lvalue | aggregate value |
 | --- | --- | --- | --- | --- |
 | local declaration | S | S | S | P |
-| file-scope declaration | S | P | P | N |
+| file-scope declaration | S | S | S | P |
 | read as expression | S | S | P | P |
 | assign statement | S | S | S | P |
 | assign expression result | S | S | N | P |
@@ -661,35 +661,43 @@ source-driven compile path の最初の slice はかなり限定しています�
 | conditional `c ? x : y` | S | S | N | P |
 | comma `(x, y)` | S | S | N | P |
 | call argument | S | S | N | P |
-| indirect call target | N/A | P | N/A | N/A |
+| indirect call target | N/A | S | N/A | N/A |
 | return value | S | S | N | P |
 
 `aggregate lvalue` は `x`, `*p`, `(c ? p : q)->field` のように storage location を持つ側を指す。
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
 `compare` と `logical truthiness` の aggregate 列は未実装ではなく、`struct/union` を scalar のように比較・条件評価しない方針として `N` を維持する。
 
-2026-08-05 時点の matrix 補足:
+2026-08-10 時点の matrix 補足:
 
 - `file-scope declaration`
   - scalar は `int g = 65;`
-  - pointer は未実証なので `P` のまま
-  - aggregate lvalue は型として parse / semantic には載るが source-path runtime evidence がまだないため `P`
+  - pointer は `char *gp; gp = buf; outchar(gp[0]);`、`int (*fp)(void); fp = &putA; fp();`、`int (*fp)(void) = &putA; fp();` まで source-path runtime pass したため `S`
+  - aggregate lvalue は `struct Foo g; g.a = 65; g.b = 66; outchar(g.a); outchar(g.b);` と `g = makeFoo(); u = makeBar();` まで source-path runtime pass したため `S`
+  - aggregate value は `take(g)`、`return g;`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`return ((side = 1), g);`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`return (g = make())`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))` を `struct/union` ともに source-path runtime pass したため `P`
+  - aggregate brace initializer も `struct Foo g = { 65, 66 };` と `struct Outer g = { { 65, 66 }, 67 };` で source-path runtime pass
 - `indirect call target`
-  - `int (*fp)(void) = &putA; fp(); fp = &putB; fp();` は source path runtime pass
-  - ただし local function-pointer subset に限るので `P`
+  - `int (*fp)(void) = &putA; fp(); fp = &putB; fp();`、`int (*fp)(void); fp = &putA; fp();`、`int (*fp)(void) = &putA; fp();` は source path runtime pass
+  - local / file-scope function-pointer の両方で indirect call を確認したため `S`
 
-2026-08-05 時点の aggregate value 補足:
+2026-08-10 時点の file-scope storage 補足:
+
+- uninitialized scalar / pointer / array / aggregate は `_BSS` に `.ds` で出力され、`int g;`, `char *gp;`, `char buf[3];`, `struct Foo g;` の各 source-path runtime pass を確認済み
+- initialized file-scope function pointer は `_DATA` に `.dw putA+0` で出力され、`int (*fp)(void) = &putA; fp();` の source-path runtime pass を確認済み
+
+2026-08-10 時点の aggregate value 補足:
 
 - compile / lowering path
   - `call / conditional / comma / assign-expression result / field-read / field-address / return pass-through` まで source path で生成できる
+  - file-scope aggregate source でも `call / field-read / field-address / assign-expression result / return / return pass-through` を通せる
 - runtime coverage
-  - `take(x)`、`take(make())`、`return make().a`、`return (x = make()).a + take(x = make())`、`assign-expression` / `conditional` / `comma` 経由の aggregate return pass-through は `struct/union` ともに CP/M 実行まで確認済み
-  - したがって matrix 上の aggregate value `return value` は `P` のまま維持する
+  - `take(x)`、`take(make())`、`take(g)`、`return make().a`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return ((side = 1), g)`、`return (g = make())`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`return (x = make()).a + take(x = make())`、`aggregate local initializer` / `assign-expression` / `conditional` / `comma` / `nested-call` 経由の aggregate return pass-through は `struct/union` ともに CP/M 実行まで確認済み
+  - ただし aggregate value 自体の一般値モデル統合は未了なので matrix 上の aggregate value `call argument` / `return value` は `P` のまま維持する
 
 ### Root Blockers
 
 - `tsFrontendSemantic.ts`
-  - aggregate value path は `call` / `conditional` / `comma` / assign-expression result / field-read / field-address / return pass-through まで入った
+  - aggregate value path は `call` / `conditional` / `comma` / assign-expression result / field-read / field-address / nested-call / return pass-through まで入った
   - ただし aggregate value 自体を scalar expression と同列に扱う汎化はまだない
   - compare / truthiness は intentional reject を維持する
   - assign-expression result は通るようになったが、general aggregate value model への統合はまだない

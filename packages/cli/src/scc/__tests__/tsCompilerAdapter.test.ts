@@ -2697,6 +2697,94 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "globals-source", programRel, [], 4000)).toBe("ABBC");
   });
 
+  test("source mode file-scope aggregate field reads and writes link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-aggregate-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-aggregate-fields.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nint main(){ g.a = 65; g.b = 66; outchar(g.a); outchar(g.b); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-aggregate-fields", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode nested file-scope aggregate field reads and writes link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-nested-aggregate-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-nested-aggregate-fields.c",
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer g;\nint main(){ g.inner.a = 65; g.inner.b = 66; g.tail = 67; outchar(g.inner.a); outchar(g.inner.b); outchar(g.tail); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-nested-aggregate-fields", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode file-scope aggregate brace initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-aggregate-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-aggregate-init.c",
+      "struct Foo { char a; int b; };\nstruct Foo g = { 65, 66 };\nint main(){ outchar(g.a); outchar(g.b); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-aggregate-init", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode nested file-scope aggregate brace initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-nested-aggregate-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-nested-aggregate-init.c",
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer g = { { 65, 66 }, 67 };\nint main(){ outchar(g.inner.a); outchar(g.inner.b); outchar(g.tail); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-nested-aggregate-init", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode file-scope pointer declarations and assignments link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-pointer.c",
+      "char buf[3] = { 65, 36, 0 };\nchar *gp;\nint main(){ gp = buf; outchar(gp[0]); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-pointer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode uninitialized file-scope aggregate storage link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-aggregate-bss-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-aggregate-bss.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nint main(){ g.a = 65; g.b = 66; outchar(g.a); outchar(g.b); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-aggregate-bss", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode uninitialized file-scope scalar storage link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-scalar-bss-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-scalar-bss.c",
+      "int g;\nint main(){ g = 65; outchar(g); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-scalar-bss", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode uninitialized file-scope char array storage link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-array-bss-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-array-bss.c",
+      "char buf[3];\nint main(){ buf[0] = 65; outchar(buf[0]); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-array-bss", programRel, [], 4000)).toBe("A");
+  });
+
   test("source mode aggregate brace and partial initializers link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-brace-init-"));
     const programRel = compileSourceRel(tempDir, "aggregate-brace-init.c", "struct Foo { char a; int b; };\nint main(){ struct Foo x = { 65, 66 }; struct Foo y = { 65 }; outchar(x.a); outchar(x.b); outchar(y.a); outchar(y.b + 65); return 0; }\n");
@@ -2713,6 +2801,28 @@ describe("TsSccCompilerAdapter", () => {
     );
 
     expect(linkAndRunCom(tempDir, "function-pointer", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode file-scope function pointers and indirect calls link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-function-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-function-pointer.c",
+      "int putA(){ outchar(65); return 0; }\nint putB(){ outchar(66); return 0; }\nint (*fp)(void);\nint main(){ fp = &putA; fp(); fp = &putB; fp(); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-function-pointer", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode file-scope initialized function pointers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-function-pointer-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-function-pointer-init.c",
+      "int putA(){ outchar(65); return 0; }\nint (*fp)(void) = &putA;\nint main(){ fp(); return 0; }\n",
+    );
+
+    expect(linkAndRunCom(tempDir, "global-function-pointer-init", programRel, [], 4000)).toBe("A");
   });
 
   test("source mode recursion links and produces CP/M output", () => {
@@ -2850,6 +2960,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-assign", programRel, [], 4000)).toBe("ABC");
   });
 
+  test("source mode file-scope aggregate assignment statements link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nunion Bar { char a; int b; };\nunion Bar u;\nstruct Foo makeFoo(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nunion Bar makeBar(){ union Bar x; x.a = 67; return x; }\nint main(){ g = makeFoo(); u = makeBar(); outchar(g.a); outchar(g.b); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign", programRel, [], 4000)).toBe("ABC");
+  });
+
   test("source mode aggregate conditional and comma assignment expressions link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-assign-expr-link-"));
     const programRel = compileSourceRel(
@@ -2870,6 +2990,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-value-member-read", programRel, [], 4000)).toBe("CD1");
   });
 
+  test("source mode file-scope member reads from conditional and comma aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-value-member-read-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-value-member-read-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nint main(){ int c = 0; int side = 0; g.a = 65; g.b = 66; alt.a = 67; alt.b = 68; outchar((c ? g : alt).a); outchar(((side = 1), g).b); outchar(side + 48); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-value-member-read", programRel, [], 4000)).toBe("CB1");
+  });
+
   test("source mode address-of on fields from conditional, comma, and assign-expression aggregate values link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-value-field-address-link-"));
     const programRel = compileSourceRel(
@@ -2878,6 +3008,36 @@ describe("TsSccCompilerAdapter", () => {
       "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 69; x.b = 70; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 0; int side = 0; struct Foo x; struct Foo y; x.a = 65; x.b = 66; y.a = 67; y.b = 68; outchar(first(&(c ? x : y).a)); outchar(second(&((side = 1), y).b)); outchar(first(&((x = make()).a))); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-aggregate-value-field-address", programRel, [], 4000)).toBe("CDE");
+  });
+
+  test("source mode file-scope address-of on fields from conditional and comma aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-value-field-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-value-field-address-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ int c = 0; int side = 0; g.a = 65; g.b = 66; alt.a = 67; alt.b = 68; outchar(first(&(c ? g : alt).a)); outchar(second(&((side = 1), g).b)); outchar(side + 48); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-value-field-address", programRel, [], 4000)).toBe("CB1");
+  });
+
+  test("source mode nested pointer-member and dereferenced-member chains link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-nested-pointer-member-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "nested-pointer-member-source.c",
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a = 65; (*p).inner.b = 66; p->tail = 67; outchar(p->inner.a); outchar((*p).inner.b); outchar(p->tail); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "nested-pointer-member", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode nested pointer-member compound assignment and incdec link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-nested-pointer-member-ops-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "nested-pointer-member-ops-source.c",
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a = 65; (*p).inner.b = 65; p->inner.a += 1; ++(*p).inner.b; p->inner.a--; outchar(p->inner.a); outchar((*p).inner.b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "nested-pointer-member-ops", programRel, [], 4000)).toBe("AB");
   });
 
   test("source mode aggregate call arguments link and produce CP/M output", () => {
@@ -2890,6 +3050,26 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-call", programRel, [], 4000)).toBe("B");
   });
 
+  test("source mode file-scope aggregate call arguments link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-call-global-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-call-global-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nint take(struct Foo a){ return a.a + a.b; }\nint main(){ g.a = 65; g.b = 1; outchar(take(g)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-call-global", programRel, [], 4000)).toBe("B");
+  });
+
+  test("source mode file-scope union call arguments link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-call-global-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-call-global-source.c",
+      "union Bar { char a; int b; };\nunion Bar g;\nint take(union Bar a){ return a.a; }\nint main(){ g.a = 65; outchar(take(g)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-call-global", programRel, [], 4000)).toBe("A");
+  });
+
   test("source mode aggregate return values link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-return-link-"));
     const programRel = compileSourceRel(
@@ -2898,6 +3078,26 @@ describe("TsSccCompilerAdapter", () => {
       "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nint main(){ struct Foo y; y = make(); outchar(y.a); outchar(y.b); outchar(make().a); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-aggregate-return", programRel, [], 4000)).toBe("ABA");
+  });
+
+  test("source mode file-scope aggregate return values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-return-global-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-return-global-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo pick(){ return g; }\nint main(){ g.a = 65; g.b = 66; outchar(pick().a); outchar(pick().b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-return-global", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode file-scope union return values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-return-global-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-return-global-source.c",
+      "union Bar { char a; int b; };\nunion Bar g;\nunion Bar pick(){ return g; }\nint main(){ g.a = 65; outchar(pick().a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-return-global", programRel, [], 4000)).toBe("A");
   });
 
   test("source mode nested aggregate-returning calls link and produce CP/M output", () => {
@@ -2920,6 +3120,26 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-return-conditional-comma", programRel, [], 4000)).toBe("ABA");
   });
 
+  test("source mode file-scope aggregate declaration initializers from aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-init-values-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-init-values-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(){ int side = 0; int c = 0; g.a = 69; g.b = 70; alt.a = 71; alt.b = 72; struct Foo y = g; struct Foo z = c ? g : alt; struct Foo w = id(g = makeA()); struct Foo q = id(((side = 1), (g = makeB()))); outchar(y.a); outchar(z.b); outchar(w.a); outchar(q.b); outchar(g.a); outchar(g.b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-init-values", programRel, [], 4000)).toBe("EHADCD");
+  });
+
+  test("source mode file-scope union declaration initializers from aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-init-values-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-init-values-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar alt;\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 67; return x; }\nunion Bar id(union Bar x){ return x; }\nint main(){ int side = 0; int c = 0; u.a = 69; alt.a = 71; union Bar y = u; union Bar z = c ? u : alt; union Bar w = id(u = makeA()); union Bar q = id(((side = 1), (u = makeB()))); outchar(y.a); outchar(z.a); outchar(w.a); outchar(q.a); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-init-values", programRel, [], 4000)).toBe("EGACC");
+  });
+
   test("source mode supports aggregate return pass-through for conditional, comma, and assign-expression values in the Phase C subset", () => {
     const adapter = new TsSccCompilerAdapter();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-return-pass-through-"));
@@ -2936,6 +3156,16 @@ describe("TsSccCompilerAdapter", () => {
     expect((sccAsm.match(/\tcall\tpassthroughAssign/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((sccAsm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((sccAsm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("source mode file-scope aggregate return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-return-pass-through-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-return-pass-through-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo pick(int c){ return c ? g : alt; }\nstruct Foo passComma(){ int side = 0; return ((side = 1), g); }\nint main(){ g.a = 65; g.b = 66; alt.a = 67; alt.b = 68; outchar(pick(0).a); outchar(pick(1).a); outchar(passComma().b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-return-pass-through", programRel, [], 4000)).toBe("CAB");
   });
 
   test("source mode aggregate conditional return pass-through links and produces CP/M output", () => {
@@ -3044,6 +3274,106 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-assign-expr-result", programRel, [], 4000)).toBe("AB");
   });
 
+  test("source mode file-scope aggregate assignment expression results link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-expr-result-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-expr-result-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ outchar((g = makeA()).a); outchar(take(g = makeB())); outchar(g.a); outchar(g.b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign-expr-result", programRel, [], 4000)).toBe("ADCD");
+  });
+
+  test("source mode file-scope union assignment expression results link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-assign-expr-result-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-assign-expr-result-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 67; return x; }\nint take(union Bar x){ return x.a; }\nint main(){ outchar((u = makeA()).a); outchar(take(u = makeB())); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-assign-expr-result", programRel, [], 4000)).toBe("ACC");
+  });
+
+  test("source mode file-scope aggregate assign-expression return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-return-pass-through-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-return-pass-through-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo pass(){ return (g = make()); }\nint main(){ outchar(pass().a); outchar(g.b); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign-return-pass-through", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode file-scope union assign-expression return pass-through links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-assign-return-pass-through-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-assign-return-pass-through-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; x.a = 67; return x; }\nunion Bar pass(){ return (u = make()); }\nint main(){ outchar(pass().a); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-assign-return-pass-through", programRel, [], 4000)).toBe("CC");
+  });
+
+  test("source mode file-scope address-of on fields from assign-expression aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-field-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-field-address-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 69; x.b = 70; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ outchar(first(&((g = makeA()).a))); outchar(second(&((g = makeB()).b))); outchar(g.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign-field-address", programRel, [], 4000)).toBe("CFE");
+  });
+
+  test("source mode file-scope conditional and comma aggregate assign-expression values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-conditional-comma-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-conditional-comma-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nint main(){ int c = 0; int side = 0; outchar((c ? (g = makeA()) : (g = makeB())).a); outchar((((side = 1), (g = makeA()))).b); outchar(side + 48); outchar(g.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign-conditional-comma", programRel, [], 4000)).toBe("CB1A");
+  });
+
+  test("source mode file-scope address-of on fields from union assign-expression aggregate values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-assign-field-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-assign-field-address-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; x.a = 67; return x; }\nunion Bar makeB(){ union Bar x; x.a = 69; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ outchar(first(&((u = makeA()).a))); outchar(second(&((u = makeB()).b))); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-assign-field-address", programRel, [], 4000)).toBe("CEE");
+  });
+
+  test("source mode file-scope conditional and comma union assign-expression values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-assign-conditional-comma-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-assign-conditional-comma-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 67; return x; }\nint main(){ int c = 0; int side = 0; outchar((c ? (u = makeA()) : (u = makeB())).a); outchar((((side = 1), (u = makeA()))).a); outchar(side + 48); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-assign-conditional-comma", programRel, [], 4000)).toBe("CA1A");
+  });
+
+  test("source mode file-scope aggregate call and return paths from conditional and comma assign-expression values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-call-return-composite-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-call-return-composite-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass_cond(int c){ return c ? (g = makeA()) : (g = makeB()); }\nstruct Foo pass_comma(){ int side = 0; return ((side = 1), (g = makeA())); }\nint main(){ int c = 0; int side = 0; outchar(take(c ? (g = makeA()) : (g = makeB()))); outchar(take(((side = 1), (g = makeA())))); outchar(pass_cond(c).b); outchar(pass_comma().a); outchar(g.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign-call-return-composite", programRel, [], 4000)).toBe("CADAA");
+  });
+
+  test("source mode file-scope union call and return paths from conditional and comma assign-expression values link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-assign-call-return-composite-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-assign-call-return-composite-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 67; return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass_cond(int c){ return c ? (u = makeA()) : (u = makeB()); }\nunion Bar pass_comma(){ int side = 0; return ((side = 1), (u = makeA())); }\nint main(){ int c = 0; int side = 0; outchar(take(c ? (u = makeA()) : (u = makeB()))); outchar(take(((side = 1), (u = makeA())))); outchar(pass_cond(c).a); outchar(pass_comma().a); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-assign-call-return-composite", programRel, [], 4000)).toBe("CACAA");
+  });
+
   test("source mode loop-local aggregate declaration initializers link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-loop-local-init-link-"));
     const helperRelPath = assembleCompareHelperRuntime(tempDir);
@@ -3063,6 +3393,46 @@ describe("TsSccCompilerAdapter", () => {
       "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nint main(int c){ outchar(id(id(make())).a); outchar(take(id(make()))); outchar((c ? id(make()) : make()).b); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-aggregate-chained-value", programRel, [], 4000)).toBe("AAB");
+  });
+
+  test("source mode file-scope chained aggregate value call paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-chained-value-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-chained-value-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass(int c){ return id(c ? g : alt); }\nint main(){ int side = 0; int c = 0; g.a = 65; g.b = 66; alt.a = 67; alt.b = 68; outchar(id(id(g)).a); outchar(take(id(c ? g : alt))); outchar(id(((side = 1), g)).b); outchar(pass(c).a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-chained-value", programRel, [], 4000)).toBe("ACBC");
+  });
+
+  test("source mode file-scope union chained aggregate value call paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-chained-value-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-chained-value-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar alt;\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass(int c){ return id(c ? u : alt); }\nint main(){ int side = 0; int c = 0; u.a = 65; alt.a = 67; outchar(id(id(u)).a); outchar(take(id(c ? u : alt))); outchar(id(((side = 1), u)).a); outchar(pass(c).a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-chained-value", programRel, [], 4000)).toBe("ACAC");
+  });
+
+  test("source mode file-scope aggregate assign-expression nested call paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-nested-call-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-global-assign-nested-call-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass(int c){ return id(c ? (g = makeA()) : (g = makeB())); }\nint main(){ int side = 0; int c = 0; outchar(id(g = makeA()).a); outchar(take(id(g = makeB()))); outchar(id(((side = 1), (g = makeA()))).b); outchar(pass(c).a); outchar(g.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-global-assign-nested-call", programRel, [], 4000)).toBe("ACBCC");
+  });
+
+  test("source mode file-scope union assign-expression nested call paths link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-global-assign-nested-call-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-global-assign-nested-call-source.c",
+      "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; x.a = 65; return x; }\nunion Bar makeB(){ union Bar x; x.a = 67; return x; }\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass(int c){ return id(c ? (u = makeA()) : (u = makeB())); }\nint main(){ int side = 0; int c = 0; outchar(id(u = makeA()).a); outchar(take(id(u = makeB()))); outchar(id(((side = 1), (u = makeA()))).a); outchar(pass(c).a); outchar(u.a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-global-assign-nested-call", programRel, [], 4000)).toBe("ACACC");
   });
 
   test("source mode char argument reads a stack argument and returns it", () => {

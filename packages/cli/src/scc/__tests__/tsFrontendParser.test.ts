@@ -236,6 +236,41 @@ describe("tsFrontendParser", () => {
     });
   });
 
+  test("parses file-scope function pointers after function definitions", () => {
+    const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint (*fp)(void);\nint main(){ fp = &putA; fp(); fp = &putB; return fp(); }\n";
+    const program = parseProgram(source, "global-function-pointer.c");
+
+    expect(program.globals[0]).toEqual({
+      kind: "globalDecl",
+      name: "fp",
+      type: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "int" },
+        params: [],
+      },
+      initializer: undefined,
+    });
+  });
+
+  test("parses file-scope initialized function pointers", () => {
+    const source = "int putA(){ return 65; }\nint (*fp)(void) = &putA;\nint main(){ return fp(); }\n";
+    const program = parseProgram(source, "global-function-pointer-init.c");
+
+    expect(program.globals[0]).toEqual({
+      kind: "globalDecl",
+      name: "fp",
+      type: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "int" },
+        params: [],
+      },
+      initializer: {
+        kind: "expr",
+        expr: { kind: "addressOf", name: "putA" },
+      },
+    });
+  });
+
   test("parses static function definitions and ignores const/volatile qualifiers", () => {
     const source = [
       "static int id(const unsigned char c){ return c; }",
@@ -1814,5 +1849,124 @@ describe("tsFrontendParser", () => {
     }
     expect(stmt.body.statements[0]?.kind).toBe("assign");
     expect(stmt.condition.kind).toBe("binary");
+  });
+
+  test("parses nested aggregate field declarations", () => {
+    const program = parseProgram(
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ return 0; }\n",
+      "nested-aggregate-fields.c",
+    );
+    expect(program.aggregates[1]?.fields).toEqual([
+      {
+        kind: "field",
+        name: "inner",
+        type: {
+          kind: "aggregate",
+          aggregateKind: "struct",
+          name: "Inner",
+        },
+      },
+      {
+        kind: "field",
+        name: "tail",
+        type: { kind: "scalar", name: "char" },
+      },
+    ]);
+  });
+
+  test("parses nested aggregate member chains and nested brace initializers", () => {
+    const program = parseProgram(
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { 65, 66 }, 67 }; return x.inner.a + x.inner.b + x.tail; }\n",
+      "nested-aggregate-init.c",
+    );
+    const body = program.functions[0].body;
+    expect(body.statements[0]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "a",
+      expr: { kind: "const", value: 65 },
+    });
+    expect(body.statements[1]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "b",
+      expr: { kind: "const", value: 66 },
+    });
+    const stmt = body.statements[3];
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "binary" || stmt.expr.op !== "+" || stmt.expr.left.kind !== "binary" || stmt.expr.left.op !== "+") {
+      return;
+    }
+    expect(stmt.expr.left.left).toEqual({
+      kind: "memberExprAccess",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "a",
+    });
+    expect(stmt.expr.left.right).toEqual({
+      kind: "memberExprAccess",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "b",
+    });
+  });
+
+  test("parses nested pointer-member and dereferenced-member chains", () => {
+    const program = parseProgram(
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a = 65; (*p).inner.b = 66; return p->inner.a + (*p).inner.b + p->tail; }\n",
+      "nested-pointer-member.c",
+    );
+    expect(program.functions[0].body.statements[0]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "pointerMemberAccess", name: "p", field: "inner" },
+      field: "a",
+      expr: { kind: "const", value: 65 },
+    });
+    expect(program.functions[0].body.statements[1]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "memberExprAccess", target: { kind: "deref", expr: { kind: "ref", name: "p" } }, field: "inner" },
+      field: "b",
+      expr: { kind: "const", value: 66 },
+    });
+  });
+
+  test("parses nested pointer-member compound assignment and incdec", () => {
+    const program = parseProgram(
+      "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a += 1; ++(*p).inner.b; p->inner.a--; return p->inner.a + (*p).inner.b; }\n",
+      "nested-pointer-member-ops.c",
+    );
+    expect(program.functions[0].body.statements[0]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "pointerMemberAccess", name: "p", field: "inner" },
+      field: "a",
+      expr: {
+        kind: "binary",
+        left: { kind: "memberExprAccess", target: { kind: "pointerMemberAccess", name: "p", field: "inner" }, field: "a" },
+        op: "+",
+        right: { kind: "const", value: 1 },
+      },
+    });
+    expect(program.functions[0].body.statements[1]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "memberExprAccess", target: { kind: "deref", expr: { kind: "ref", name: "p" } }, field: "inner" },
+      field: "b",
+      expr: {
+        kind: "binary",
+        left: {
+          kind: "memberExprAccess",
+          target: { kind: "memberExprAccess", target: { kind: "deref", expr: { kind: "ref", name: "p" } }, field: "inner" },
+          field: "b",
+        },
+        op: "+",
+        right: { kind: "const", value: 1 },
+      },
+    });
+    expect(program.functions[0].body.statements[2]).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "postMemberExprIncDec",
+        target: { kind: "pointerMemberAccess", name: "p", field: "inner" },
+        field: "a",
+        op: "--",
+      },
+    });
   });
 });

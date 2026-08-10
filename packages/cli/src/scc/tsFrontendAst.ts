@@ -48,7 +48,7 @@ export type SourceProgram = {
 export type SourceAggregateField = {
   kind: "field";
   name: string;
-  type: Extract<SourceType, { kind: "scalar" }>;
+  type: SourceType;
 };
 
 export type SourceAggregateDef = {

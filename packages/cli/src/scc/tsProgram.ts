@@ -5,13 +5,15 @@ export type ProgramSpec = {
   exports?: string[];
   externs?: string[];
   data?: DataSpec[];
+  bss?: DataSpec[];
   functions: FunctionSpec[];
   includeBss?: boolean;
 };
 
 export type AggregateValueSpec =
   | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
-  | { kind: "aggregateAssignExpr"; targetOffset: number; source: AggregateValueSpec; size: number }
+  | { kind: "aggregateRef"; scope: "global"; name: string; size: number }
+  | { kind: "aggregateAssignExpr"; target: { scope: "local"; offset: number } | { scope: "global"; name: string }; tempOffset: number; source: AggregateValueSpec; size: number }
   | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
   | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
@@ -81,7 +83,8 @@ export type RefIR = {
 
 export type AggregateValueIR =
   | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
-  | { kind: "aggregateAssignExpr"; targetSlot: number; source: AggregateValueIR; size: number }
+  | { kind: "aggregateRef"; scope: "global"; slot: string; size: number }
+  | { kind: "aggregateAssignExpr"; target: { scope: "local"; slot: number } | { scope: "global"; name: string }; tempSlot: number; source: AggregateValueIR; size: number }
   | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
   | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
   | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
@@ -230,8 +233,11 @@ export function emitProgram(spec: ProgramSpec): string {
       lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
     }
   }
-  if (spec.includeBss) {
+  if (spec.includeBss || (spec.bss && spec.bss.length > 0)) {
     lines.push("\t.area\t_BSS");
+    for (const item of spec.bss ?? []) {
+      lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
+    }
   }
   lines.push("");
   return lines.join("\n");
@@ -586,16 +592,26 @@ function lowerRefIR(ref: RefIR, layout: FunctionLayout): ExprSpec {
 function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): AggregateValueSpec {
   switch (expr.kind) {
     case "aggregateRef":
-      return {
-        kind: "aggregateRef",
-        scope: expr.scope,
-        offset: expr.scope === "local" ? getLocalOffset(layout, expr.slot) : getParamOffset(layout, expr.slot),
-        size: expr.size,
-      };
+      return expr.scope === "global"
+        ? {
+          kind: "aggregateRef",
+          scope: "global",
+          name: expr.slot,
+          size: expr.size,
+        }
+        : {
+          kind: "aggregateRef",
+          scope: expr.scope,
+          offset: expr.scope === "local" ? getLocalOffset(layout, expr.slot) : getParamOffset(layout, expr.slot),
+          size: expr.size,
+        };
     case "aggregateAssignExpr":
       return {
         kind: "aggregateAssignExpr",
-        targetOffset: getLocalOffset(layout, expr.targetSlot),
+        target: expr.target.scope === "local"
+          ? { scope: "local", offset: getLocalOffset(layout, expr.target.slot) }
+          : { scope: "global", name: expr.target.name },
+        tempOffset: getLocalOffset(layout, expr.tempSlot),
         source: lowerAggregateValueIR(expr.source, layout),
         size: expr.size,
       };
@@ -1274,13 +1290,25 @@ function emitAggregateValueFieldAddressExpr(
 function emitAggregateValueToLocal(source: AggregateValueSpec, targetOffset: number, ctx: EmitExprContext): string[] {
   switch (source.kind) {
     case "aggregateRef":
-      return source.scope === "local"
-        ? emitAggregateCopyFromLocal(source.offset, targetOffset, source.size, ctx)
-        : emitAggregateCopyFromArgAddress(source.offset, targetOffset, source.size, ctx);
+      if (source.scope === "local") {
+        return emitAggregateCopyFromLocal(source.offset, targetOffset, source.size, ctx);
+      }
+      if (source.scope === "arg") {
+        return emitAggregateCopyFromArgAddress(source.offset, targetOffset, source.size, ctx);
+      }
+      return emitAggregateCopyFromGlobal(
+        (source as Extract<AggregateValueSpec, { kind: "aggregateRef"; scope: "global" }>).name,
+        targetOffset,
+        source.size,
+        ctx,
+      );
     case "aggregateAssignExpr":
       return [
-        ...emitAggregateValueToLocal(source.source, source.targetOffset, ctx),
-        ...(source.targetOffset === targetOffset ? [] : emitAggregateCopyFromLocal(source.targetOffset, targetOffset, source.size, ctx)),
+        ...emitAggregateValueToLocal(source.source, source.tempOffset, ctx),
+        ...(source.target.scope === "local"
+          ? (source.target.offset === source.tempOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, source.target.offset, source.size, ctx))
+          : emitAggregateCopyLocalToGlobal(source.tempOffset, source.target.name, source.size, ctx)),
+        ...(source.tempOffset === targetOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, targetOffset, source.size, ctx)),
       ];
     case "call":
       return [
@@ -1321,6 +1349,60 @@ function emitAggregateCopyFromLocal(sourceOffset: number, targetOffset: number, 
         {
           kind: "pointerAdd",
           pointer: { kind: "localAddress", offset: targetOffset },
+          index: { kind: "const", value: index },
+          scale: 1,
+        },
+        {
+          kind: "derefByte",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: { kind: "localAddress", offset: sourceOffset },
+            index: { kind: "const", value: index },
+            scale: 1,
+          },
+        },
+        ctx,
+      ),
+    );
+  }
+  return lines;
+}
+
+function emitAggregateCopyFromGlobal(name: string, targetOffset: number, size: number, ctx: EmitExprContext): string[] {
+  const lines: string[] = [];
+  for (let index = 0; index < size; index += 1) {
+    lines.push(
+      ...emitAssignDerefByteExpr(
+        {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", offset: targetOffset },
+          index: { kind: "const", value: index },
+          scale: 1,
+        },
+        {
+          kind: "derefByte",
+          pointer: {
+            kind: "pointerAdd",
+            pointer: { kind: "globalAddress", name },
+            index: { kind: "const", value: index },
+            scale: 1,
+          },
+        },
+        ctx,
+      ),
+    );
+  }
+  return lines;
+}
+
+function emitAggregateCopyLocalToGlobal(sourceOffset: number, targetName: string, size: number, ctx: EmitExprContext): string[] {
+  const lines: string[] = [];
+  for (let index = 0; index < size; index += 1) {
+    lines.push(
+      ...emitAssignDerefByteExpr(
+        {
+          kind: "pointerAdd",
+          pointer: { kind: "globalAddress", name: targetName },
           index: { kind: "const", value: index },
           scale: 1,
         },

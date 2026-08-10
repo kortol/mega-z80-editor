@@ -1,14 +1,23 @@
 import {
+  SourceInitializer,
+  SourceType,
+} from "./tsFrontendAst";
+import {
   BoundAggregateValueExpr,
   BoundBlock,
   BoundExpr,
   BoundForInit,
   BoundFunction,
   BoundGlobalSymbol,
+  BoundParamSymbol,
+  getAggregateLayoutFields,
+  getAggregateLayoutSize,
   BoundLocalSymbol,
   BoundProgram,
   BoundSimpleStmt,
   BoundStmt,
+  SemanticAggregateType,
+  SemanticType,
 } from "./tsFrontendSemantic";
 import {
   AggregateValueIR,
@@ -24,14 +33,23 @@ import {
 export function lowerSourceProgram(program: BoundProgram, moduleName: string, sourceText: string, file?: string): ProgramSpec {
   const definedFunctions = new Set(program.functions.map((fn) => fn.name));
   const externs = new Set<string>();
-  const state: LoweringState = { nextStringId: 0, data: [] };
-  state.data.push(...program.globals.flatMap((global) => lowerGlobalData(global)));
+  const state: LoweringState = { nextStringId: 0, data: [], bss: [] };
+  for (const global of program.globals) {
+    const storage = lowerGlobalStorage(global);
+    if (storage.data) {
+      state.data.push(storage.data);
+    }
+    if (storage.bss) {
+      state.bss.push(storage.bss);
+    }
+  }
   const functions = program.functions.map((fn) => lowerFunction(fn, externs, definedFunctions, sourceText, state, file));
   return {
     moduleName,
     exports: definedFunctions.has("main") ? ["main"] : [],
     externs: Array.from(externs),
     data: state.data.length > 0 ? state.data : undefined,
+    bss: state.bss.length > 0 ? state.bss : undefined,
     functions,
     includeBss: true,
   };
@@ -40,27 +58,104 @@ export function lowerSourceProgram(program: BoundProgram, moduleName: string, so
 type LoweringState = {
   nextStringId: number;
   data: DataSpec[];
+  bss: DataSpec[];
 };
 
-function lowerGlobalData(global: BoundGlobalSymbol): DataSpec[] {
+function lowerGlobalStorage(global: BoundGlobalSymbol): { data?: DataSpec; bss?: DataSpec } {
   const label = global.name;
   switch (global.type.kind) {
     case "scalar":
-      return [{
-        label,
-        directive: global.type.width === 1 ? ".db" : ".dw",
-        value: global.initializer && global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
-          ? `${global.initializer.expr.value}`
-          : "0",
-      }];
+      return global.initializer
+        ? {
+          data: {
+            label,
+            directive: global.type.width === 1 ? ".db" : ".dw",
+            value: global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
+              ? `${global.initializer.expr.value}`
+              : "0",
+          },
+        }
+        : {
+          bss: {
+            label,
+            directive: ".ds",
+            value: `${global.type.width}`,
+          },
+        };
+    case "pointer":
+      return global.initializer
+        ? {
+          data: {
+            label,
+            directive: ".dw",
+            value: global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
+              ? `${global.initializer.expr.value}`
+              : "0",
+          },
+        }
+        : {
+          bss: {
+            label,
+            directive: ".ds",
+            value: "2",
+          },
+        };
     case "array":
-      return [{
-        label,
-        directive: ".db",
-        value: lowerGlobalArrayInitializer(global.initializer, global.type.length ?? 0),
-      }];
+      return global.initializer
+        ? {
+          data: {
+            label,
+            directive: ".db",
+            value: lowerGlobalArrayInitializer(global.initializer, global.type.length ?? 0),
+          },
+        }
+        : {
+          bss: {
+            label,
+            directive: ".ds",
+            value: `${global.type.length ?? 0}`,
+          },
+        };
+    case "aggregate":
+      return global.initializer
+        ? {
+          data: {
+            label,
+            directive: ".db",
+            value: lowerGlobalAggregateInitializer(global.name, global.type, global.initializer),
+          },
+        }
+        : {
+          bss: {
+            label,
+            directive: ".ds",
+            value: `${global.type.size}`,
+          },
+        };
+    case "functionPointer":
+      return global.initializer
+        ? {
+          data: {
+            label,
+            directive: ".dw",
+            value: global.initializer.kind === "expr"
+              ? global.initializer.expr.kind === "const"
+                ? `${global.initializer.expr.value}`
+                : global.initializer.expr.kind === "addressOf"
+                  ? `${global.initializer.expr.name}+0`
+                  : "0"
+              : "0",
+          },
+        }
+        : {
+          bss: {
+            label,
+            directive: ".ds",
+            value: "2",
+          },
+        };
     default:
-      return [];
+      return {};
   }
 }
 
@@ -87,6 +182,80 @@ function lowerGlobalArrayInitializer(initializer: BoundGlobalSymbol["initializer
     return values.join(",");
   }
   return Array.from({ length }, () => "0").join(",");
+}
+
+function lowerGlobalAggregateInitializer(
+  name: string,
+  type: Extract<SemanticType, { kind: "aggregate" }>,
+  initializer?: BoundGlobalSymbol["initializer"],
+): string {
+  const values = flattenGlobalAggregateInitializer(name, type, initializer);
+  return values.join(",");
+}
+
+function flattenGlobalAggregateInitializer(
+  name: string,
+  type: Extract<SourceType | SemanticType, { kind: "aggregate" }>,
+  initializer?: BoundGlobalSymbol["initializer"],
+): string[] {
+  if (!initializer) {
+    return Array.from({ length: "size" in type ? type.size : getAggregateLayoutSize(type) }, () => "0");
+  }
+  if (initializer.kind !== "list") {
+    throw new Error(`Global aggregate initializer for '${name}' must be a brace list.`);
+  }
+  const values: string[] = [];
+  const fields = getAggregateLayoutFields(type);
+  for (const [index, field] of fields.entries()) {
+    values.push(...flattenGlobalInitializerValue(`${name}.${field.name}`, field.type, initializer.items[index]));
+  }
+  return values;
+}
+
+function flattenGlobalInitializerValue(
+  label: string,
+  type: SourceType,
+  initializer?: SourceInitializer,
+): string[] {
+  switch (type.kind) {
+    case "void":
+      throw new Error(`Global initializer cannot materialize void field '${label}'.`);
+    case "scalar":
+      return scalarInitializerBytes(type.name === "char" ? 1 : 2, initializerConstValue(label, initializer));
+    case "pointer":
+      return scalarInitializerBytes(2, initializerConstValue(label, initializer));
+    case "aggregate":
+      return flattenGlobalAggregateInitializer(label, type, initializer);
+    case "array":
+      throw new Error(`Global aggregate initializer does not yet support array field '${label}'.`);
+    case "functionPointer":
+      throw new Error(`Global aggregate initializer does not yet support function-pointer field '${label}'.`);
+    default:
+      return ["0"];
+  }
+}
+
+function initializerConstValue(label: string, initializer?: SourceInitializer): number {
+  if (!initializer) {
+    return 0;
+  }
+  if (initializer.kind === "expr" && initializer.expr.kind === "const") {
+    return initializer.expr.value;
+  }
+  if (initializer.kind === "list" && initializer.items.length === 0) {
+    return 0;
+  }
+  if (initializer.kind === "list" && initializer.items.length === 1 && initializer.items[0]?.kind === "expr" && initializer.items[0].expr.kind === "const") {
+    return initializer.items[0].expr.value;
+  }
+  throw new Error(`Global initializer for '${label}' must be a constant expression.`);
+}
+
+function scalarInitializerBytes(width: 1 | 2, value: number): string[] {
+  if (width === 1) {
+    return [`${value & 0xff}`];
+  }
+  return [`${value & 0xff}`, `${(value >> 8) & 0xff}`];
 }
 
 type FunctionLoweringState = {
@@ -377,7 +546,7 @@ function lowerSimpleStmt(
 }
 
 function lowerAggregateAssignWrapper(
-  target: BoundLocalSymbol,
+  target: BoundLocalSymbol | BoundGlobalSymbol,
   source: BoundAggregateValueExpr,
   externs: Set<string>,
   definedFunctions: Set<string>,
@@ -386,12 +555,90 @@ function lowerAggregateAssignWrapper(
   functionState: FunctionLoweringState,
   file?: string,
 ): StmtIRHigh {
+  const aggregateTarget = target as (BoundLocalSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType };
+  const thenBody = aggregateTarget.kind === "local"
+    ? lowerAggregateAssignToLocalSlot(aggregateTarget.slot, aggregateTarget.type, source, externs, definedFunctions, sourceText, state, functionState, file)
+    : lowerAggregateAssignToGlobal(aggregateTarget.name, aggregateTarget.type, source, externs, definedFunctions, sourceText, state, functionState, file);
   return {
     kind: "ifExprZero",
     expr: { kind: "const", value: 1 },
-    thenBody: lowerAggregateAssignToLocalSlot(target.slot, target.type, source, externs, definedFunctions, sourceText, state, functionState, file),
+    thenBody,
     elseBody: [],
   };
+}
+
+function lowerAggregateAssignToGlobal(
+  targetName: string,
+  targetType: SemanticAggregateType,
+  source: BoundAggregateValueExpr,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh[] {
+  const tempSlot = allocateTempLocal(functionState, targetType.size);
+  return [
+    ...lowerAggregateAssignToLocalSlot(tempSlot, targetType, source, externs, definedFunctions, sourceText, state, functionState, file),
+    ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, targetName, targetType),
+  ];
+}
+
+function lowerAggregateCopyLocalSlotToGlobal(
+  sourceSlot: number,
+  targetName: string,
+  targetType: SemanticAggregateType,
+): StmtIRHigh[] {
+  return getAggregateFieldStores(targetType).map((field) => ({
+    kind: "evalExpr",
+    expr: {
+      kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
+      pointer: {
+        kind: "pointerAdd",
+        pointer: { kind: "globalAddress", name: targetName },
+        index: { kind: "const", value: field.offset },
+        scale: 1,
+      },
+      expr: {
+        kind: field.width === 1 ? "derefByte" : "derefWord",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", slot: sourceSlot },
+          index: { kind: "const", value: field.offset },
+          scale: 1,
+        },
+      },
+    },
+  }));
+}
+
+function lowerAggregateCopyLocalSlotToLocalSlot(
+  sourceSlot: number,
+  targetSlot: number,
+  targetType: SemanticAggregateType,
+): StmtIRHigh[] {
+  return getAggregateFieldStores(targetType).map((field) => ({
+    kind: "evalExpr",
+    expr: {
+      kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
+      pointer: {
+        kind: "pointerAdd",
+        pointer: { kind: "localAddress", slot: targetSlot },
+        index: { kind: "const", value: field.offset },
+        scale: 1,
+      },
+      expr: {
+        kind: field.width === 1 ? "derefByte" : "derefWord",
+        pointer: {
+          kind: "pointerAdd",
+          pointer: { kind: "localAddress", slot: sourceSlot },
+          index: { kind: "const", value: field.offset },
+          scale: 1,
+        },
+      },
+    },
+  }));
 }
 
 function lowerAggregateAssignToLocalSlot(
@@ -412,6 +659,7 @@ function lowerAggregateAssignToLocalSlot(
   switch (source.kind) {
     case "aggregateRef": {
       const fields = getAggregateFieldStores(aggregateType);
+      const sourcePointer = lowerAggregateSourceAddressExpr(source.symbol, functionState);
       return fields.map((field) => ({
         kind: "evalExpr",
         expr: {
@@ -426,9 +674,7 @@ function lowerAggregateAssignToLocalSlot(
             kind: field.width === 1 ? "derefByte" : "derefWord",
             pointer: {
               kind: "pointerAdd",
-              pointer: source.symbol.kind === "local"
-                ? { kind: "localAddress", slot: source.symbol.slot }
-                : { kind: "ref", scope: "arg", width: 2, slot: getParamIrSlot(source.symbol.slot, functionState) },
+              pointer: sourcePointer,
               index: { kind: "const", value: field.offset },
               scale: 1,
             },
@@ -437,16 +683,20 @@ function lowerAggregateAssignToLocalSlot(
       }));
     }
     case "aggregateAssignExpr":
-      return [
-        ...lowerAggregateAssignToLocalSlot(source.target.slot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
-        ...(targetSlot === source.target.slot
-          ? []
-          : lowerAggregateAssignToLocalSlot(targetSlot, targetType, {
-            kind: "aggregateRef",
-            symbol: source.target,
-            type: source.target.type,
-          }, externs, definedFunctions, sourceText, state, functionState, file)),
-      ];
+      if (source.target.kind === "local") {
+        return [
+          ...lowerAggregateAssignToLocalSlot(source.target.slot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
+          ...(targetSlot === source.target.slot ? [] : lowerAggregateCopyLocalSlotToLocalSlot(source.target.slot, targetSlot, aggregateType)),
+        ];
+      }
+      {
+        const tempSlot = allocateTempLocal(functionState, source.type.size);
+        return [
+          ...lowerAggregateAssignToLocalSlot(tempSlot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
+          ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, source.target.name, source.target.type),
+          ...(targetSlot === tempSlot ? [] : lowerAggregateCopyLocalSlotToLocalSlot(tempSlot, targetSlot, aggregateType)),
+        ];
+      }
     case "comma":
       return [
         { kind: "evalExpr", expr: lowerExpr(source.left, externs, definedFunctions, sourceText, state, functionState, file) },
@@ -533,6 +783,30 @@ function lowerAggregateCopyArgAddressToReturnSlot(sourceSlot: number, size: numb
   }));
 }
 
+function lowerAggregateCopyGlobalToReturnSlot(sourceName: string, size: number): StmtIRHigh[] {
+  return Array.from({ length: size }, (_, index) => ({
+    kind: "evalExpr" as const,
+    expr: {
+      kind: "assignDerefByte" as const,
+      pointer: {
+        kind: "pointerAdd" as const,
+        pointer: { kind: "ref" as const, scope: "arg" as const, width: 2 as const, slot: 0 },
+        index: { kind: "const" as const, value: index },
+        scale: 1 as const,
+      },
+      expr: {
+        kind: "derefByte" as const,
+        pointer: {
+          kind: "pointerAdd" as const,
+          pointer: { kind: "globalAddress" as const, name: sourceName },
+          index: { kind: "const" as const, value: index },
+          scale: 1 as const,
+        },
+      },
+    },
+  }));
+}
+
 function lowerAggregateReturnToReturnSlot(
   source: BoundAggregateValueExpr,
   externs: Set<string>,
@@ -546,12 +820,24 @@ function lowerAggregateReturnToReturnSlot(
     case "aggregateRef":
       return source.symbol.kind === "local"
         ? lowerAggregateCopyLocalToReturnSlot(source.symbol.slot, source.type.size)
-        : lowerAggregateCopyArgAddressToReturnSlot(getParamIrSlot(source.symbol.slot, functionState), source.type.size);
+        : source.symbol.kind === "param"
+          ? lowerAggregateCopyArgAddressToReturnSlot(getParamIrSlot(source.symbol.slot, functionState), source.type.size)
+          : lowerAggregateCopyGlobalToReturnSlot(source.symbol.name, source.type.size);
     case "aggregateAssignExpr":
-      return [
-        ...lowerAggregateAssignToLocalSlot(source.target.slot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
-        ...lowerAggregateCopyLocalToReturnSlot(source.target.slot, source.type.size),
-      ];
+      if (source.target.kind === "local") {
+        return [
+          ...lowerAggregateAssignToLocalSlot(source.target.slot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
+          ...lowerAggregateCopyLocalToReturnSlot(source.target.slot, source.type.size),
+        ];
+      }
+      {
+        const tempSlot = allocateTempLocal(functionState, source.type.size);
+        return [
+          ...lowerAggregateAssignToLocalSlot(tempSlot, source.target.type, source.source, externs, definedFunctions, sourceText, state, functionState, file),
+          ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, source.target.name, source.target.type),
+          ...lowerAggregateCopyLocalToReturnSlot(tempSlot, source.type.size),
+        ];
+      }
     case "call":
       return [{
         kind: "evalExpr",
@@ -733,7 +1019,9 @@ function lowerExpr(
           kind: "pointerAdd",
           pointer: expr.symbol.kind === "local"
             ? { kind: "localAddress", slot: expr.symbol.slot }
-            : { kind: "ref", scope: "arg", width: 2, slot: getParamIrSlot(expr.symbol.slot, functionState) },
+            : expr.symbol.kind === "global"
+              ? { kind: "globalAddress", name: expr.symbol.name }
+              : { kind: "ref", scope: "arg", width: 2, slot: getParamIrSlot(expr.symbol.slot, functionState) },
           index: { kind: "const", value: expr.offset },
           scale: 1,
         },
@@ -1003,16 +1291,26 @@ function lowerAggregateValueExpr(
 ): AggregateValueIR {
   switch (expr.kind) {
     case "aggregateRef":
-      return {
-        kind: "aggregateRef",
-        scope: expr.symbol.kind === "local" ? "local" : "arg",
-        slot: expr.symbol.kind === "local" ? expr.symbol.slot : getParamIrSlot(expr.symbol.slot, functionState),
-        size: expr.type.size,
-      };
+      return expr.symbol.kind === "global"
+        ? {
+          kind: "aggregateRef",
+          scope: "global",
+          slot: expr.symbol.name,
+          size: expr.type.size,
+        }
+        : {
+          kind: "aggregateRef",
+          scope: expr.symbol.kind === "local" ? "local" : "arg",
+          slot: expr.symbol.kind === "local" ? expr.symbol.slot : getParamIrSlot(expr.symbol.slot, functionState),
+          size: expr.type.size,
+        };
     case "aggregateAssignExpr":
       return {
         kind: "aggregateAssignExpr",
-        targetSlot: expr.target.slot,
+        target: expr.target.kind === "local"
+          ? { scope: "local", slot: expr.target.slot }
+          : { scope: "global", name: expr.target.name },
+        tempSlot: expr.target.kind === "local" ? expr.target.slot : allocateTempLocal(functionState, expr.type.size),
         source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
         size: expr.type.size,
       };
@@ -1050,6 +1348,19 @@ function lowerAggregateValueExpr(
     default:
       return assertNever(expr);
   }
+}
+
+function lowerAggregateSourceAddressExpr(
+  symbol: (BoundLocalSymbol | BoundParamSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType },
+  functionState: FunctionLoweringState,
+): ExprIR {
+  if (symbol.kind === "local") {
+    return { kind: "localAddress", slot: symbol.slot };
+  }
+  if (symbol.kind === "param") {
+    return { kind: "ref", scope: "arg", width: 2, slot: getParamIrSlot(symbol.slot, functionState) };
+  }
+  return { kind: "globalAddress", name: symbol.name };
 }
 
 function allocateTempLocal(state: FunctionLoweringState, size: number): number {

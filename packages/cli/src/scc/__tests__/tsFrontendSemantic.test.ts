@@ -211,6 +211,68 @@ describe("tsFrontendSemantic", () => {
     expect(bound.functions[0].locals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 3 });
   });
 
+  test("binds file-scope aggregate field reads and writes", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nint main(){ g.a = 65; g.b = 66; return g.a + g.b; }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-aggregate-fields.c"), source, "global-aggregate-fields.c");
+
+    expect(bound.globals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 3 });
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[1]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[2]?.kind).toBe("return");
+  });
+
+  test("binds nested file-scope aggregate field reads and writes", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer g;\nint main(){ g.inner.a = 65; g.inner.b = 66; g.tail = 67; return g.inner.a + g.inner.b + g.tail; }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-nested-aggregate-fields.c"), source, "global-nested-aggregate-fields.c");
+
+    expect(bound.globals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Outer", size: 4 });
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[1]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[2]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[3]?.kind).toBe("return");
+  });
+
+  test("binds file-scope aggregate brace initializers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g = { 65, 66 };\nint main(){ return g.a + g.b; }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-aggregate-init.c"), source, "global-aggregate-init.c");
+
+    expect(bound.globals[0]?.initializer).toEqual({
+      kind: "list",
+      items: [
+        { kind: "expr", expr: { kind: "const", value: 65 } },
+        { kind: "expr", expr: { kind: "const", value: 66 } },
+      ],
+    });
+  });
+
+  test("binds file-scope pointer declarations and assignments", () => {
+    const source = "char buf[3] = { 65, 36, 0 };\nchar *gp = 0;\nint main(){ gp = buf; return gp[0]; }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-pointer.c"), source, "global-pointer.c");
+
+    expect(bound.globals[1]?.type).toEqual({ kind: "pointer", pointee: "char", width: 2 });
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[1]?.kind).toBe("return");
+  });
+
+  test("binds nested file-scope aggregate brace initializers", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer g = { { 65, 66 }, 67 };\nint main(){ return g.inner.a + g.inner.b + g.tail; }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-nested-aggregate-init.c"), source, "global-nested-aggregate-init.c");
+
+    expect(bound.globals[0]?.initializer).toEqual({
+      kind: "list",
+      items: [
+        {
+          kind: "list",
+          items: [
+            { kind: "expr", expr: { kind: "const", value: 65 } },
+            { kind: "expr", expr: { kind: "const", value: 66 } },
+          ],
+        },
+        { kind: "expr", expr: { kind: "const", value: 67 } },
+      ],
+    });
+  });
+
   test("binds local function pointers and indirect calls", () => {
     const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint main(){ int (*fp)(void) = &putA; fp(); fp = &putB; return fp(); }\n";
     const bound = analyzeProgram(parseProgram(source, "function-pointer.c"), source, "function-pointer.c");
@@ -234,6 +296,58 @@ describe("tsFrontendSemantic", () => {
         signature: mainFn.locals[0]?.type,
         args: [],
         type: { kind: "scalar", name: "int", width: 2 },
+      },
+    });
+  });
+
+  test("binds file-scope function pointers and indirect calls", () => {
+    const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint (*fp)(void);\nint main(){ fp = &putA; fp(); fp = &putB; return fp(); }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-function-pointer.c"), source, "global-function-pointer.c");
+    const mainFn = bound.functions[2];
+
+    expect(bound.globals[0]).toEqual({
+      kind: "global",
+      name: "fp",
+      type: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "int", width: 2 },
+        params: [],
+        width: 2,
+      },
+      initializer: undefined,
+    });
+    expect(mainFn.body.statements[1]).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "indirectCall",
+        target: {
+          kind: "globalRef",
+          symbol: bound.globals[0],
+          type: bound.globals[0]?.type,
+        },
+        signature: bound.globals[0]?.type,
+        args: [],
+        type: { kind: "scalar", name: "int", width: 2 },
+      },
+    });
+  });
+
+  test("binds file-scope initialized function pointers", () => {
+    const source = "int putA(){ return 65; }\nint (*fp)(void) = &putA;\nint main(){ return fp(); }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-function-pointer-init.c"), source, "global-function-pointer-init.c");
+
+    expect(bound.globals[0]).toEqual({
+      kind: "global",
+      name: "fp",
+      type: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "int", width: 2 },
+        params: [],
+        width: 2,
+      },
+      initializer: {
+        kind: "expr",
+        expr: { kind: "addressOf", name: "putA" },
       },
     });
   });
@@ -1210,6 +1324,42 @@ describe("tsFrontendSemantic", () => {
     });
   });
 
+  test("binds file-scope aggregate assignment statements", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nunion Bar { char a; int b; };\nunion Bar u;\nstruct Foo makeFoo(){ struct Foo x; return x; }\nunion Bar makeBar(){ union Bar x; return x; }\nint main(){ g = makeFoo(); u = makeBar(); return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-assign-global-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-global-value.c");
+    expect(bound.functions[2].body.statements[0]).toEqual({
+      kind: "aggregateAssign",
+      target: bound.globals[0],
+      source: {
+        kind: "call",
+        target: {
+          kind: "function",
+          name: "makeFoo",
+          returnType: { kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 3 },
+          params: [],
+        },
+        args: [],
+        type: { kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 3 },
+      },
+    });
+    expect(bound.functions[2].body.statements[1]).toEqual({
+      kind: "aggregateAssign",
+      target: bound.globals[1],
+      source: {
+        kind: "call",
+        target: {
+          kind: "function",
+          name: "makeBar",
+          returnType: { kind: "aggregate", aggregateKind: "union", name: "Bar", size: 2 },
+          params: [],
+        },
+        args: [],
+        type: { kind: "aggregate", aggregateKind: "union", name: "Bar", size: 2 },
+      },
+    });
+  });
+
   test("binds conditional and comma aggregate assignment expressions", () => {
     const source = "struct Foo { char a; int b; };\nint main(int c){ int side = 1; struct Foo x; struct Foo y; struct Foo z; x = c ? y : z; x = (side = 2, y); return side; }\n";
     const parsed = parseProgram(source, "aggregate-assign-expr.c");
@@ -1258,6 +1408,40 @@ describe("tsFrontendSemantic", () => {
     expect(stmt.expr.right.source.left.kind).toBe("assign");
   });
 
+  test("binds file-scope member reads from conditional and comma aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nint main(int c){ int side = 0; return (c ? g : alt).a + ((side = 1), g).b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-value-member-read.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-value-member-read.c");
+    const stmt = bound.functions[0].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.source.kind).toBe("conditional");
+    if (stmt.expr.left.source.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.expr.left.source.thenExpr.kind).toBe("aggregateRef");
+    expect(stmt.expr.left.source.elseExpr.kind).toBe("aggregateRef");
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.right.source.kind).toBe("comma");
+    if (stmt.expr.right.source.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.right.source.right.kind).toBe("aggregateRef");
+    if (stmt.expr.right.source.right.kind !== "aggregateRef") {
+      return;
+    }
+    expect(stmt.expr.right.source.right.symbol.kind).toBe("global");
+  });
+
   test("binds address-of on fields from conditional, comma, and assign-expression aggregate values", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(int c){ int side = 0; struct Foo x; struct Foo y; return first(&(c ? x : y).a) + second(&((side = 1), y).b) + first(&((x = make()).a)); }\n";
     const parsed = parseProgram(source, "aggregate-value-field-address.c");
@@ -1296,6 +1480,53 @@ describe("tsFrontendSemantic", () => {
     expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
   });
 
+  test("binds file-scope address-of on fields from conditional and comma aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(int c){ int side = 0; return first(&(c ? g : alt).a) + second(&((side = 1), g).b); }\n";
+    const parsed = parseProgram(source, "aggregate-global-value-field-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-value-field-address.c");
+    const stmt = bound.functions[2].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("call");
+    if (stmt.expr.left.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.args[0]?.kind).toBe("aggregateValueFieldAddress");
+    if (stmt.expr.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.kind).toBe("conditional");
+    if (stmt.expr.left.args[0].source.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.thenExpr.kind).toBe("aggregateRef");
+    expect(stmt.expr.left.args[0].source.elseExpr.kind).toBe("aggregateRef");
+    if (stmt.expr.left.args[0].source.thenExpr.kind !== "aggregateRef" || stmt.expr.left.args[0].source.elseExpr.kind !== "aggregateRef") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.thenExpr.symbol.kind).toBe("global");
+    expect(stmt.expr.left.args[0].source.elseExpr.symbol.kind).toBe("global");
+    expect(stmt.expr.right.kind).toBe("call");
+    if (stmt.expr.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateValueFieldAddress");
+    if (stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.kind).toBe("comma");
+    if (stmt.expr.right.args[0].source.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.right.kind).toBe("aggregateRef");
+    if (stmt.expr.right.args[0].source.right.kind !== "aggregateRef") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.right.symbol.kind).toBe("global");
+  });
+
   test("binds aggregate call arguments and aggregate parameter member reads", () => {
     const source = "struct Foo { char a; int b; };\nint take(struct Foo a){ return a.a + a.b; }\nint main(){ struct Foo x; return take(x); }\n";
     const parsed = parseProgram(source, "aggregate-call-value.c");
@@ -1313,6 +1544,40 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(mainStmt.expr.args[0]?.kind).toBe("aggregateRef");
+  });
+
+  test("binds file-scope aggregate call arguments", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nint take(struct Foo a){ return a.a + a.b; }\nint main(){ return take(g); }\n";
+    const parsed = parseProgram(source, "aggregate-call-global-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-call-global-value.c");
+    const mainStmt = bound.functions[1].body.statements[0];
+    expect(mainStmt.kind).toBe("return");
+    if (mainStmt.kind !== "return" || mainStmt.expr.kind !== "call") {
+      return;
+    }
+    expect(mainStmt.expr.args[0]?.kind).toBe("aggregateRef");
+    if (mainStmt.expr.args[0]?.kind !== "aggregateRef") {
+      return;
+    }
+    expect(mainStmt.expr.args[0].symbol.kind).toBe("global");
+    expect(mainStmt.expr.args[0].symbol.name).toBe("g");
+  });
+
+  test("binds file-scope union call arguments", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar g;\nint take(union Bar a){ return a.a; }\nint main(){ return take(g); }\n";
+    const parsed = parseProgram(source, "union-call-global-value.c");
+    const bound = analyzeProgram(parsed, source, "union-call-global-value.c");
+    const mainStmt = bound.functions[1].body.statements[0];
+    expect(mainStmt.kind).toBe("return");
+    if (mainStmt.kind !== "return" || mainStmt.expr.kind !== "call") {
+      return;
+    }
+    expect(mainStmt.expr.args[0]?.kind).toBe("aggregateRef");
+    if (mainStmt.expr.args[0]?.kind !== "aggregateRef") {
+      return;
+    }
+    expect(mainStmt.expr.args[0].symbol.kind).toBe("global");
+    expect(mainStmt.expr.args[0].symbol.name).toBe("g");
   });
 
   test("binds aggregate return statements and aggregate-returning value paths", () => {
@@ -1337,6 +1602,32 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(finalReturn.expr.source.kind).toBe("call");
+  });
+
+  test("binds file-scope aggregate return statements", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo pick(){ return g; }\nint main(){ return pick().a; }\n";
+    const parsed = parseProgram(source, "aggregate-return-global-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-return-global-value.c");
+    const returnStmt = bound.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "aggregateRef") {
+      return;
+    }
+    expect(returnStmt.expr.symbol.kind).toBe("global");
+    expect(returnStmt.expr.symbol.name).toBe("g");
+  });
+
+  test("binds file-scope union return statements", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar g;\nunion Bar pick(){ return g; }\nint main(){ return pick().a; }\n";
+    const parsed = parseProgram(source, "union-return-global-value.c");
+    const bound = analyzeProgram(parsed, source, "union-return-global-value.c");
+    const returnStmt = bound.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "aggregateRef") {
+      return;
+    }
+    expect(returnStmt.expr.symbol.kind).toBe("global");
+    expect(returnStmt.expr.symbol.name).toBe("g");
   });
 
   test("binds aggregate declaration initializers and nested aggregate-returning calls", () => {
@@ -1395,6 +1686,70 @@ describe("tsFrontendSemantic", () => {
     expect(returnStmt.expr.right.kind).toBe("ref");
   });
 
+  test("binds file-scope aggregate declaration initializers from aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(int c){ int side = 0; struct Foo y = g; struct Foo z = c ? g : alt; struct Foo w = id(g = makeA()); struct Foo q = id(((side = 1), (g = makeB()))); return y.a + z.b + w.a + q.b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-init-values.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-init-values.c");
+
+    const initY = bound.functions[3].body.statements[1];
+    expect(initY.kind).toBe("aggregateAssign");
+    if (initY.kind !== "aggregateAssign") return;
+    expect(initY.source.kind).toBe("aggregateRef");
+
+    const initZ = bound.functions[3].body.statements[2];
+    expect(initZ.kind).toBe("aggregateAssign");
+    if (initZ.kind !== "aggregateAssign") return;
+    expect(initZ.source.kind).toBe("conditional");
+
+    const initW = bound.functions[3].body.statements[3];
+    expect(initW.kind).toBe("aggregateAssign");
+    if (initW.kind !== "aggregateAssign") return;
+    expect(initW.source.kind).toBe("call");
+    if (initW.source.kind !== "call") return;
+    expect(initW.source.args[0]?.kind).toBe("aggregateAssignExpr");
+
+    const initQ = bound.functions[3].body.statements[4];
+    expect(initQ.kind).toBe("aggregateAssign");
+    if (initQ.kind !== "aggregateAssign") return;
+    expect(initQ.source.kind).toBe("call");
+    if (initQ.source.kind !== "call") return;
+    expect(initQ.source.args[0]?.kind).toBe("comma");
+    if (initQ.source.args[0]?.kind !== "comma") return;
+    expect(initQ.source.args[0].right.kind).toBe("aggregateAssignExpr");
+  });
+
+  test("binds file-scope union declaration initializers from aggregate values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar alt;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nunion Bar id(union Bar x){ return x; }\nint main(int c){ int side = 0; union Bar y = u; union Bar z = c ? u : alt; union Bar w = id(u = makeA()); union Bar q = id(((side = 1), (u = makeB()))); return y.a + z.a + w.a + q.a; }\n";
+    const parsed = parseProgram(source, "union-global-init-values.c");
+    const bound = analyzeProgram(parsed, source, "union-global-init-values.c");
+
+    const initY = bound.functions[3].body.statements[1];
+    expect(initY.kind).toBe("aggregateAssign");
+    if (initY.kind !== "aggregateAssign") return;
+    expect(initY.source.kind).toBe("aggregateRef");
+
+    const initZ = bound.functions[3].body.statements[2];
+    expect(initZ.kind).toBe("aggregateAssign");
+    if (initZ.kind !== "aggregateAssign") return;
+    expect(initZ.source.kind).toBe("conditional");
+
+    const initW = bound.functions[3].body.statements[3];
+    expect(initW.kind).toBe("aggregateAssign");
+    if (initW.kind !== "aggregateAssign") return;
+    expect(initW.source.kind).toBe("call");
+    if (initW.source.kind !== "call") return;
+    expect(initW.source.args[0]?.kind).toBe("aggregateAssignExpr");
+
+    const initQ = bound.functions[3].body.statements[4];
+    expect(initQ.kind).toBe("aggregateAssign");
+    if (initQ.kind !== "aggregateAssign") return;
+    expect(initQ.source.kind).toBe("call");
+    if (initQ.source.kind !== "call") return;
+    expect(initQ.source.args[0]?.kind).toBe("comma");
+    if (initQ.source.args[0]?.kind !== "comma") return;
+    expect(initQ.source.args[0].right.kind).toBe("aggregateAssignExpr");
+  });
+
   test("binds branch-local aggregate declaration initializers", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(int c){ if (c) { struct Foo y = make(); return y.a; } else { struct Foo z = make(); return z.b; } }\n";
     const parsed = parseProgram(source, "aggregate-branch-local-init.c");
@@ -1446,6 +1801,284 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.right.args[0]?.kind).toBe("aggregateAssignExpr");
+  });
+
+  test("binds file-scope aggregate assignment expression results", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ return (g = make()).a + take(g = make()); }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-expr-result.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-expr-result.c");
+    const stmt = bound.functions[2].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.source.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.left.source.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.left.source.target.kind).toBe("global");
+    expect(stmt.expr.right.kind).toBe("call");
+    if (stmt.expr.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.right.args[0]?.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].target.kind).toBe("global");
+  });
+
+  test("binds file-scope union assignment expression results", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; return x; }\nint take(union Bar x){ return x.a; }\nint main(){ return (u = make()).a + take(u = make()); }\n";
+    const parsed = parseProgram(source, "union-global-assign-expr-result.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-expr-result.c");
+    const stmt = bound.functions[2].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.kind !== "aggregateValueFieldAccess" || stmt.expr.left.source.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.left.source.target.kind).toBe("global");
+    expect(stmt.expr.right.kind).toBe("call");
+    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].target.kind).toBe("global");
+  });
+
+  test("binds file-scope aggregate assign-expression return pass-through", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo pass(){ return (g = make()); }\nint main(){ return pass().a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-return-pass-through.c");
+    const stmt = bound.functions[1].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.target.kind).toBe("global");
+  });
+
+  test("binds file-scope union assign-expression return pass-through", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; return x; }\nunion Bar pass(){ return (u = make()); }\nint main(){ return pass().a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-return-pass-through.c");
+    const stmt = bound.functions[1].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.target.kind).toBe("global");
+  });
+
+  test("binds file-scope address-of on fields from assign-expression aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ return first(&((g = make()).a)) + second(&((g = make()).b)); }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-field-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-field-address.c");
+    const stmt = bound.functions[3].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("call");
+    if (stmt.expr.left.kind !== "call" || stmt.expr.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.left.args[0].source.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.target.kind).toBe("global");
+    expect(stmt.expr.right.kind).toBe("call");
+    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.right.args[0].source.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.target.kind).toBe("global");
+  });
+
+  test("binds file-scope conditional and comma aggregate assign-expression values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint main(int c){ int side = 0; return (c ? (g = makeA()) : (g = makeB())).a + (((side = 1), (g = makeA()))).b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-conditional-comma.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-conditional-comma.c");
+    const stmt = bound.functions[2].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.kind !== "aggregateValueFieldAccess" || stmt.expr.left.source.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.expr.left.source.thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.left.source.elseExpr.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess" || stmt.expr.right.source.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.right.source.right.kind).toBe("aggregateAssignExpr");
+  });
+
+  test("binds file-scope address-of on fields from union assign-expression aggregate values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ return first(&((u = make()).a)) + second(&((u = make()).b)); }\n";
+    const parsed = parseProgram(source, "union-global-assign-field-address.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-field-address.c");
+    const stmt = bound.functions[3].body.statements[0];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("call");
+    if (stmt.expr.left.kind !== "call" || stmt.expr.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.left.args[0].source.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.left.args[0].source.target.kind).toBe("global");
+    expect(stmt.expr.right.kind).toBe("call");
+    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
+    if (stmt.expr.right.args[0].source.kind !== "aggregateAssignExpr") {
+      return;
+    }
+    expect(stmt.expr.right.args[0].source.target.kind).toBe("global");
+  });
+
+  test("binds file-scope conditional and comma union assign-expression values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nint main(int c){ int side = 0; return (c ? (u = makeA()) : (u = makeB())).a + (((side = 1), (u = makeA()))).a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-conditional-comma.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-conditional-comma.c");
+    const stmt = bound.functions[2].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.kind !== "aggregateValueFieldAccess" || stmt.expr.left.source.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.expr.left.source.thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.left.source.elseExpr.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess" || stmt.expr.right.source.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.right.source.right.kind).toBe("aggregateAssignExpr");
+  });
+
+  test("binds file-scope aggregate call and return paths from conditional and comma assign-expression values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass_cond(int c){ return c ? (g = makeA()) : (g = makeB()); }\nstruct Foo pass_comma(){ int side = 0; return ((side = 1), (g = makeA())); }\nint main(int c){ int side = 0; return take(c ? (g = makeA()) : (g = makeB())) + take(((side = 1), (g = makeA()))) + pass_cond(c).b + pass_comma().a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-call-return-composite.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-call-return-composite.c");
+    const mainStmt = bound.functions[5].body.statements[1];
+    expect(mainStmt.kind).toBe("return");
+    if (mainStmt.kind !== "return" || mainStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(mainStmt.expr.left.kind).toBe("additive");
+    expect(mainStmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (mainStmt.expr.left.kind !== "additive" || mainStmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(mainStmt.expr.right.source.kind).toBe("call");
+    expect(mainStmt.expr.left.left.kind).toBe("additive");
+    expect(mainStmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
+    if (mainStmt.expr.left.left.kind !== "additive" || mainStmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(mainStmt.expr.left.right.source.kind).toBe("call");
+    expect(mainStmt.expr.left.left.left.kind).toBe("call");
+    expect(mainStmt.expr.left.left.right.kind).toBe("call");
+    if (mainStmt.expr.left.left.left.kind !== "call" || mainStmt.expr.left.left.right.kind !== "call") {
+      return;
+    }
+    expect(mainStmt.expr.left.left.left.args[0]?.kind).toBe("conditional");
+    expect(mainStmt.expr.left.left.right.args[0]?.kind).toBe("comma");
+    if (mainStmt.expr.left.left.left.args[0]?.kind !== "conditional" || mainStmt.expr.left.left.right.args[0]?.kind !== "comma") {
+      return;
+    }
+    expect(mainStmt.expr.left.left.left.args[0].thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(mainStmt.expr.left.left.left.args[0].elseExpr.kind).toBe("aggregateAssignExpr");
+    expect(mainStmt.expr.left.left.right.args[0].right.kind).toBe("aggregateAssignExpr");
+
+    const passCondStmt = bound.functions[3].body.statements[0];
+    expect(passCondStmt.kind).toBe("return");
+    if (passCondStmt.kind !== "return" || passCondStmt.expr.kind !== "conditional") {
+      return;
+    }
+    expect(passCondStmt.expr.thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(passCondStmt.expr.elseExpr.kind).toBe("aggregateAssignExpr");
+
+    const passCommaStmt = bound.functions[4].body.statements[1];
+    expect(passCommaStmt.kind).toBe("return");
+    if (passCommaStmt.kind !== "return" || passCommaStmt.expr.kind !== "comma") {
+      return;
+    }
+    expect(passCommaStmt.expr.right.kind).toBe("aggregateAssignExpr");
+  });
+
+  test("binds file-scope union call and return paths from conditional and comma assign-expression values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass_cond(int c){ return c ? (u = makeA()) : (u = makeB()); }\nunion Bar pass_comma(){ int side = 0; return ((side = 1), (u = makeA())); }\nint main(int c){ int side = 0; return take(c ? (u = makeA()) : (u = makeB())) + take(((side = 1), (u = makeA()))) + pass_cond(c).a + pass_comma().a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-call-return-composite.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-call-return-composite.c");
+    const mainStmt = bound.functions[5].body.statements[1];
+    expect(mainStmt.kind).toBe("return");
+    if (mainStmt.kind !== "return" || mainStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(mainStmt.expr.left.kind).toBe("additive");
+    expect(mainStmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (mainStmt.expr.left.kind !== "additive" || mainStmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(mainStmt.expr.right.source.kind).toBe("call");
+    expect(mainStmt.expr.left.left.kind).toBe("additive");
+    expect(mainStmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
+    if (mainStmt.expr.left.left.kind !== "additive" || mainStmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(mainStmt.expr.left.right.source.kind).toBe("call");
+    expect(mainStmt.expr.left.left.left.kind).toBe("call");
+    expect(mainStmt.expr.left.left.right.kind).toBe("call");
+    if (mainStmt.expr.left.left.left.kind !== "call" || mainStmt.expr.left.left.right.kind !== "call") {
+      return;
+    }
+    expect(mainStmt.expr.left.left.left.args[0]?.kind).toBe("conditional");
+    expect(mainStmt.expr.left.left.right.args[0]?.kind).toBe("comma");
+    if (mainStmt.expr.left.left.left.args[0]?.kind !== "conditional" || mainStmt.expr.left.left.right.args[0]?.kind !== "comma") {
+      return;
+    }
+    expect(mainStmt.expr.left.left.left.args[0].thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(mainStmt.expr.left.left.left.args[0].elseExpr.kind).toBe("aggregateAssignExpr");
+    expect(mainStmt.expr.left.left.right.args[0].right.kind).toBe("aggregateAssignExpr");
+
+    const passCondStmt = bound.functions[3].body.statements[0];
+    expect(passCondStmt.kind).toBe("return");
+    if (passCondStmt.kind !== "return" || passCondStmt.expr.kind !== "conditional") {
+      return;
+    }
+    expect(passCondStmt.expr.thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(passCondStmt.expr.elseExpr.kind).toBe("aggregateAssignExpr");
+
+    const passCommaStmt = bound.functions[4].body.statements[1];
+    expect(passCommaStmt.kind).toBe("return");
+    if (passCommaStmt.kind !== "return" || passCommaStmt.expr.kind !== "comma") {
+      return;
+    }
+    expect(passCommaStmt.expr.right.kind).toBe("aggregateAssignExpr");
   });
 
   test("binds loop-local aggregate declaration initializers", () => {
@@ -1507,6 +2140,238 @@ describe("tsFrontendSemantic", () => {
     expect(stmt.expr.right.source.elseExpr.kind).toBe("call");
   });
 
+  test("binds file-scope chained aggregate value call paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass(int c){ return id(c ? g : alt); }\nint main(int c){ int side = 0; return id(id(g)).a + take(id(c ? g : alt)) + id(((side = 1), g)).b + pass(c).a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-chained-value-paths.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-chained-value-paths.c");
+    const passStmt = bound.functions[2].body.statements[0];
+    expect(passStmt.kind).toBe("return");
+    if (passStmt.kind !== "return" || passStmt.expr.kind !== "call") {
+      return;
+    }
+    expect(passStmt.expr.args[0]?.kind).toBe("conditional");
+    if (passStmt.expr.args[0]?.kind !== "conditional") {
+      return;
+    }
+    expect(passStmt.expr.args[0].thenExpr.kind).toBe("aggregateRef");
+    expect(passStmt.expr.args[0].elseExpr.kind).toBe("aggregateRef");
+
+    const stmt = bound.functions[3].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("additive");
+    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.kind).toBe("call");
+    if (stmt.expr.left.left.left.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.args[0]?.kind).toBe("call");
+    expect(stmt.expr.left.left.right.kind).toBe("call");
+    if (stmt.expr.left.left.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0]?.kind).toBe("call");
+    if (stmt.expr.left.left.right.args[0]?.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0].args[0]?.kind).toBe("conditional");
+    expect(stmt.expr.left.right.source.kind).toBe("call");
+    if (stmt.expr.left.right.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.right.source.args[0]?.kind).toBe("comma");
+    expect(stmt.expr.right.source.kind).toBe("call");
+  });
+
+  test("binds file-scope union chained aggregate value call paths", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar alt;\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass(int c){ return id(c ? u : alt); }\nint main(int c){ int side = 0; return id(id(u)).a + take(id(c ? u : alt)) + id(((side = 1), u)).a + pass(c).a; }\n";
+    const parsed = parseProgram(source, "union-global-chained-value-paths.c");
+    const bound = analyzeProgram(parsed, source, "union-global-chained-value-paths.c");
+    const passStmt = bound.functions[2].body.statements[0];
+    expect(passStmt.kind).toBe("return");
+    if (passStmt.kind !== "return" || passStmt.expr.kind !== "call") {
+      return;
+    }
+    expect(passStmt.expr.args[0]?.kind).toBe("conditional");
+    if (passStmt.expr.args[0]?.kind !== "conditional") {
+      return;
+    }
+    expect(passStmt.expr.args[0].thenExpr.kind).toBe("aggregateRef");
+    expect(passStmt.expr.args[0].elseExpr.kind).toBe("aggregateRef");
+
+    const stmt = bound.functions[3].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("additive");
+    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.kind).toBe("call");
+    if (stmt.expr.left.left.left.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.args[0]?.kind).toBe("call");
+    expect(stmt.expr.left.left.right.kind).toBe("call");
+    if (stmt.expr.left.left.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0]?.kind).toBe("call");
+    if (stmt.expr.left.left.right.args[0]?.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0].args[0]?.kind).toBe("conditional");
+    expect(stmt.expr.left.right.source.kind).toBe("call");
+    if (stmt.expr.left.right.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.right.source.args[0]?.kind).toBe("comma");
+    expect(stmt.expr.right.source.kind).toBe("call");
+  });
+
+  test("binds file-scope aggregate assign-expression nested call paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass(int c){ return id(c ? (g = makeA()) : (g = makeB())); }\nint main(int c){ int side = 0; return id(g = makeA()).a + take(id(g = makeB())) + id(((side = 1), (g = makeA()))).b + pass(c).a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-nested-call-paths.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-nested-call-paths.c");
+    const passStmt = bound.functions[4].body.statements[0];
+    expect(passStmt.kind).toBe("return");
+    if (passStmt.kind !== "return" || passStmt.expr.kind !== "call") {
+      return;
+    }
+    expect(passStmt.expr.args[0]?.kind).toBe("conditional");
+    if (passStmt.expr.args[0]?.kind !== "conditional") {
+      return;
+    }
+    expect(passStmt.expr.args[0].thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(passStmt.expr.args[0].elseExpr.kind).toBe("aggregateAssignExpr");
+
+    const stmt = bound.functions[5].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("additive");
+    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.kind).toBe("call");
+    if (stmt.expr.left.left.left.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.args[0]?.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.left.left.right.kind).toBe("call");
+    if (stmt.expr.left.left.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0]?.kind).toBe("call");
+    if (stmt.expr.left.left.right.args[0]?.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0].args[0]?.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.left.right.source.kind).toBe("call");
+    if (stmt.expr.left.right.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.right.source.args[0]?.kind).toBe("comma");
+    if (stmt.expr.left.right.source.args[0]?.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.left.right.source.args[0].right.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.right.source.kind).toBe("call");
+  });
+
+  test("binds file-scope union assign-expression nested call paths", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass(int c){ return id(c ? (u = makeA()) : (u = makeB())); }\nint main(int c){ int side = 0; return id(u = makeA()).a + take(id(u = makeB())) + id(((side = 1), (u = makeA()))).a + pass(c).a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-nested-call-paths.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-nested-call-paths.c");
+    const passStmt = bound.functions[4].body.statements[0];
+    expect(passStmt.kind).toBe("return");
+    if (passStmt.kind !== "return" || passStmt.expr.kind !== "call") {
+      return;
+    }
+    expect(passStmt.expr.args[0]?.kind).toBe("conditional");
+    if (passStmt.expr.args[0]?.kind !== "conditional") {
+      return;
+    }
+    expect(passStmt.expr.args[0].thenExpr.kind).toBe("aggregateAssignExpr");
+    expect(passStmt.expr.args[0].elseExpr.kind).toBe("aggregateAssignExpr");
+
+    const stmt = bound.functions[5].body.statements[1];
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
+      return;
+    }
+    expect(stmt.expr.left.left.kind).toBe("additive");
+    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
+    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.kind).toBe("call");
+    if (stmt.expr.left.left.left.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.left.source.args[0]?.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.left.left.right.kind).toBe("call");
+    if (stmt.expr.left.left.right.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0]?.kind).toBe("call");
+    if (stmt.expr.left.left.right.args[0]?.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.left.right.args[0].args[0]?.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.left.right.source.kind).toBe("call");
+    if (stmt.expr.left.right.source.kind !== "call") {
+      return;
+    }
+    expect(stmt.expr.left.right.source.args[0]?.kind).toBe("comma");
+    if (stmt.expr.left.right.source.args[0]?.kind !== "comma") {
+      return;
+    }
+    expect(stmt.expr.left.right.source.args[0].right.kind).toBe("aggregateAssignExpr");
+    expect(stmt.expr.right.source.kind).toBe("call");
+  });
+
   test("binds aggregate return pass-through for conditional, comma, and assign-expression values", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); return ((side = 1), y); }\nstruct Foo passthroughAssign(){ struct Foo z; return (z = makeB()); }\nint main(){ struct Foo x = pick(0); struct Foo y = passthroughComma(); struct Foo z = passthroughAssign(); return x.a + y.a + z.a; }\n";
     const parsed = parseProgram(source, "aggregate-return-pass-through.c");
@@ -1541,6 +2406,26 @@ describe("tsFrontendSemantic", () => {
     expect(mainInit.source.kind).toBe("call");
     const mainReturn = bound.functions[5].body.statements[3];
     expect(mainReturn.kind).toBe("return");
+  });
+
+  test("binds file-scope aggregate return pass-through for conditional and comma values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo pick(int c){ return c ? g : alt; }\nstruct Foo passComma(){ int side = 0; return ((side = 1), g); }\nint main(){ return pick(1).a + passComma().b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-return-pass-through.c");
+
+    const pickReturn = bound.functions[0].body.statements[0];
+    expect(pickReturn.kind).toBe("return");
+    if (pickReturn.kind !== "return") {
+      return;
+    }
+    expect(pickReturn.expr.kind).toBe("conditional");
+
+    const commaReturn = bound.functions[1].body.statements[1];
+    expect(commaReturn.kind).toBe("return");
+    if (commaReturn.kind !== "return") {
+      return;
+    }
+    expect(commaReturn.expr.kind).toBe("comma");
   });
 
   test("binds aggregate pointer member reads and writes", () => {
@@ -1990,6 +2875,68 @@ describe("tsFrontendSemantic", () => {
     const parsed = parseProgram(source, "do-while.c");
     const bound = analyzeProgram(parsed, source, "do-while.c");
     expect(bound.functions[0].body.statements[1]?.kind).toBe("doWhile");
+  });
+
+  test("binds nested aggregate field layouts for sizeof and scalar leaf access", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x; return sizeof(struct Outer) + x.tail; }\n";
+    const parsed = parseProgram(source, "nested-aggregate-layout.c");
+    const bound = analyzeProgram(parsed, source, "nested-aggregate-layout.c");
+    expect(bound.functions[0].locals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Outer", size: 4 });
+    const returnStmt = bound.functions[0].body.statements[0];
+    expect(returnStmt.kind).toBe("return");
+    if (returnStmt.kind !== "return" || returnStmt.expr.kind !== "additive") {
+      return;
+    }
+    expect(returnStmt.expr.right).toEqual({
+      kind: "aggregateFieldAccess",
+      symbol: bound.functions[0].locals[0],
+      offset: 3,
+      type: { kind: "scalar", name: "char", width: 1 },
+    });
+  });
+
+  test("binds nested aggregate member chains and brace initializers", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { 65, 66 }, 67 }; x.inner.a = x.inner.a + 1; return x.inner.a + x.inner.b + x.tail; }\n";
+    const parsed = parseProgram(source, "nested-aggregate-nested.c");
+    const bound = analyzeProgram(parsed, source, "nested-aggregate-nested.c");
+    const firstStmt = bound.functions[0].body.statements[0];
+    expect(firstStmt.kind).toBe("expr");
+    if (firstStmt.kind !== "expr" || firstStmt.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(firstStmt.expr.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+    const updateStmt = bound.functions[0].body.statements[3];
+    expect(updateStmt.kind).toBe("expr");
+    if (updateStmt.kind !== "expr" || updateStmt.expr.kind !== "derefAssign") {
+      return;
+    }
+    const returnStmt = bound.functions[0].body.statements[4];
+    expect(returnStmt.kind).toBe("return");
+  });
+
+  test("rejects direct non-scalar aggregate field access", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x; return x.inner; }\n";
+    const parsed = parseProgram(source, "nested-aggregate-reject.c");
+    expect(() => analyzeProgram(parsed, source, "nested-aggregate-reject.c")).toThrow(/only supports scalar field access/);
+  });
+
+  test("binds nested pointer-member and dereferenced-member chains", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a = 65; (*p).inner.b = 66; return p->inner.a + (*p).inner.b + p->tail; }\n";
+    const parsed = parseProgram(source, "nested-pointer-member.c");
+    const bound = analyzeProgram(parsed, source, "nested-pointer-member.c");
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[1]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[2]?.kind).toBe("return");
+  });
+
+  test("binds nested pointer-member compound assignment and incdec", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a += 1; ++(*p).inner.b; p->inner.a--; return p->inner.a + (*p).inner.b; }\n";
+    const parsed = parseProgram(source, "nested-pointer-member-ops.c");
+    const bound = analyzeProgram(parsed, source, "nested-pointer-member-ops.c");
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[1]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[2]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[3]?.kind).toBe("return");
   });
 
   test("rejects control-flow nesting deeper than the compiler limit", () => {

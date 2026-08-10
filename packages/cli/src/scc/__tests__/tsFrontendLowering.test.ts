@@ -697,6 +697,20 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tadd\thl,sp/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 
+  test("lowers file-scope aggregate assignment statements", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nunion Bar { char a; int b; };\nunion Bar u;\nstruct Foo makeFoo(){ struct Foo x; return x; }\nunion Bar makeBar(){ union Bar x; return x; }\nint main(){ g = makeFoo(); u = makeBar(); return 0; }\n";
+    const parsed = parseProgram(source, "aggregate-assign-global-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-global-value.c");
+    const spec = lowerSourceProgram(bound, "aggregate-assign-global-value.i", source, "aggregate-assign-global-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeFoo/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tmakeBar/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
   test("lowers conditional and comma aggregate assignment expressions", () => {
     const source = "struct Foo { char a; int b; };\nint main(int c){ int side = 1; struct Foo x; struct Foo y; struct Foo z; x = c ? y : z; x = (side = 2, y); return x.a + x.b + side; }\n";
     const parsed = parseProgram(source, "aggregate-assign-expr.c");
@@ -704,7 +718,7 @@ describe("tsFrontendLowering", () => {
     const spec = lowerSourceProgram(bound, "aggregate-assign-expr.i", source, "aggregate-assign-expr.c");
     const asm = emitProgram(spec);
 
-    expect((asm.match(/\tjp\tz,\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(6);
     expect(asm).toContain("\tld\thl,#2\n\tpush\thl");
   });
@@ -716,9 +730,37 @@ describe("tsFrontendLowering", () => {
     const spec = lowerSourceProgram(bound, "aggregate-value-member-read.i", source, "aggregate-value-member-read.c");
     const asm = emitProgram(spec);
 
-    expect((asm.match(/\tjp\tz,\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tld\tl,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope member reads from conditional and comma aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nint main(int c){ int side = 0; return (c ? g : alt).a + ((side = 1), g).b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-value-member-read.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-value-member-read.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-value-member-read.i", source, "aggregate-global-value-member-read.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope address-of on fields from conditional and comma aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(int c){ int side = 0; return first(&(c ? g : alt).a) + second(&((side = 1), g).b); }\n";
+    const parsed = parseProgram(source, "aggregate-global-value-field-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-value-field-address.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-value-field-address.i", source, "aggregate-global-value-field-address.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tfirst/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tsecond/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
   });
 
@@ -747,6 +789,30 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(1);
   });
 
+  test("lowers file-scope aggregate call arguments via temporary address passing", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nint take(struct Foo a){ return a.a + a.b; }\nint main(){ return take(g); }\n";
+    const parsed = parseProgram(source, "aggregate-call-global-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-call-global-value.c");
+    const spec = lowerSourceProgram(bound, "aggregate-call-global-value.i", source, "aggregate-call-global-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("g:\t.ds\t3");
+    expect(asm).toContain("\tld\thl,#g+0");
+  });
+
+  test("lowers file-scope union call arguments via temporary address passing", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar g;\nint take(union Bar a){ return a.a; }\nint main(){ return take(g); }\n";
+    const parsed = parseProgram(source, "union-call-global-value.c");
+    const bound = analyzeProgram(parsed, source, "union-call-global-value.c");
+    const spec = lowerSourceProgram(bound, "union-call-global-value.i", source, "union-call-global-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("g:\t.ds\t2");
+    expect(asm).toContain("\tld\thl,#g+0");
+  });
+
   test("lowers aggregate return statements and aggregate-returning value paths", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ struct Foo y; y = make(); return make().a; }\n";
     const parsed = parseProgram(source, "aggregate-return-value.c");
@@ -757,6 +823,30 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("lowers file-scope aggregate return statements", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo pick(){ return g; }\nint main(){ return pick().a; }\n";
+    const parsed = parseProgram(source, "aggregate-return-global-value.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-return-global-value.c");
+    const spec = lowerSourceProgram(bound, "aggregate-return-global-value.i", source, "aggregate-return-global-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tpick/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("g:\t.ds\t3");
+    expect(asm).toContain("\tld\thl,#g+0");
+  });
+
+  test("lowers file-scope union return statements", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar g;\nunion Bar pick(){ return g; }\nint main(){ return pick().a; }\n";
+    const parsed = parseProgram(source, "union-return-global-value.c");
+    const bound = analyzeProgram(parsed, source, "union-return-global-value.c");
+    const spec = lowerSourceProgram(bound, "union-return-global-value.i", source, "union-return-global-value.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tpick/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("g:\t.ds\t2");
+    expect(asm).toContain("\tld\thl,#g+0");
   });
 
   test("lowers aggregate declaration initializers and nested aggregate-returning calls", () => {
@@ -785,6 +875,38 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
+  test("lowers file-scope aggregate declaration initializers from aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(int c){ int side = 0; struct Foo y = g; struct Foo z = c ? g : alt; struct Foo w = id(g = makeA()); struct Foo q = id(((side = 1), (g = makeB()))); return y.a + z.b + w.a + q.b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-init-values.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-init-values.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-init-values.i", source, "aggregate-global-init-values.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(8);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope union declaration initializers from aggregate values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar alt;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nunion Bar id(union Bar x){ return x; }\nint main(int c){ int side = 0; union Bar y = u; union Bar z = c ? u : alt; union Bar w = id(u = makeA()); union Bar q = id(((side = 1), (u = makeB()))); return y.a + z.a + w.a + q.a; }\n";
+    const parsed = parseProgram(source, "union-global-init-values.c");
+    const bound = analyzeProgram(parsed, source, "union-global-init-values.c");
+    const spec = lowerSourceProgram(bound, "union-global-init-values.i", source, "union-global-init-values.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
   test("lowers aggregate return pass-through for conditional, comma, and assign-expression values", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo pick(int c){ struct Foo x = makeA(); struct Foo y = makeB(); return c ? x : y; }\nstruct Foo passthroughComma(){ int side = 0; struct Foo y = makeA(); return ((side = 1), y); }\nstruct Foo passthroughAssign(){ struct Foo z; return (z = makeB()); }\nint main(){ struct Foo x = pick(0); struct Foo y = passthroughComma(); struct Foo z = passthroughAssign(); return x.a + y.a + z.a; }\n";
     const parsed = parseProgram(source, "aggregate-return-pass-through.c");
@@ -799,6 +921,20 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tjp\tz,\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("lowers file-scope aggregate return pass-through for conditional and comma values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo pick(int c){ return c ? g : alt; }\nstruct Foo passComma(){ int side = 0; return ((side = 1), g); }\nint main(){ return pick(1).a + passComma().b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-return-pass-through.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-return-pass-through.i", source, "aggregate-global-return-pass-through.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tpick/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpassComma/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
   });
 
   test("lowers branch-local aggregate declaration initializers", () => {
@@ -825,6 +961,146 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
+  test("lowers file-scope aggregate assignment expression results", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ return (g = make()).a + take(g = make()); }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-expr-result.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-expr-result.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-expr-result.i", source, "aggregate-global-assign-expr-result.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("lowers file-scope union assignment expression results", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; return x; }\nint take(union Bar x){ return x.a; }\nint main(){ return (u = make()).a + take(u = make()); }\n";
+    const parsed = parseProgram(source, "union-global-assign-expr-result.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-expr-result.c");
+    const spec = lowerSourceProgram(bound, "union-global-assign-expr-result.i", source, "union-global-assign-expr-result.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("lowers file-scope aggregate assign-expression return pass-through", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo pass(){ return (g = make()); }\nint main(){ return pass().a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-return-pass-through.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-return-pass-through.i", source, "aggregate-global-assign-return-pass-through.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpass/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("lowers file-scope union assign-expression return pass-through", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; return x; }\nunion Bar pass(){ return (u = make()); }\nint main(){ return pass().a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-return-pass-through.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-return-pass-through.c");
+    const spec = lowerSourceProgram(bound, "union-global-assign-return-pass-through.i", source, "union-global-assign-return-pass-through.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpass/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers file-scope address-of on fields from assign-expression aggregate values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ return first(&((g = make()).a)) + second(&((g = make()).b)); }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-field-address.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-field-address.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-field-address.i", source, "aggregate-global-assign-field-address.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tfirst/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tsecond/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers file-scope conditional and comma aggregate assign-expression values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint main(int c){ int side = 0; return (c ? (g = makeA()) : (g = makeB())).a + (((side = 1), (g = makeA()))).b; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-conditional-comma.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-conditional-comma.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-conditional-comma.i", source, "aggregate-global-assign-conditional-comma.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope address-of on fields from union assign-expression aggregate values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar make(){ union Bar x; return x; }\nchar first(char *p){ return p[0]; }\nint second(int *p){ return p[0]; }\nint main(){ return first(&((u = make()).a)) + second(&((u = make()).b)); }\n";
+    const parsed = parseProgram(source, "union-global-assign-field-address.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-field-address.c");
+    const spec = lowerSourceProgram(bound, "union-global-assign-field-address.i", source, "union-global-assign-field-address.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tfirst/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tsecond/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers file-scope conditional and comma union assign-expression values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nint main(int c){ int side = 0; return (c ? (u = makeA()) : (u = makeB())).a + (((side = 1), (u = makeA()))).a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-conditional-comma.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-conditional-comma.c");
+    const spec = lowerSourceProgram(bound, "union-global-assign-conditional-comma.i", source, "union-global-assign-conditional-comma.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope aggregate call and return paths from conditional and comma assign-expression values", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass_cond(int c){ return c ? (g = makeA()) : (g = makeB()); }\nstruct Foo pass_comma(){ int side = 0; return ((side = 1), (g = makeA())); }\nint main(int c){ int side = 0; return take(c ? (g = makeA()) : (g = makeB())) + take(((side = 1), (g = makeA()))) + pass_cond(c).b + pass_comma().a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-call-return-composite.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-call-return-composite.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-call-return-composite.i", source, "aggregate-global-assign-call-return-composite.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tpass_cond/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpass_comma/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope union call and return paths from conditional and comma assign-expression values", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass_cond(int c){ return c ? (u = makeA()) : (u = makeB()); }\nunion Bar pass_comma(){ int side = 0; return ((side = 1), (u = makeA())); }\nint main(int c){ int side = 0; return take(c ? (u = makeA()) : (u = makeB())) + take(((side = 1), (u = makeA()))) + pass_cond(c).a + pass_comma().a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-call-return-composite.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-call-return-composite.c");
+    const spec = lowerSourceProgram(bound, "union-global-assign-call-return-composite.i", source, "union-global-assign-call-return-composite.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tpass_cond/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpass_comma/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
   test("lowers loop-local aggregate declaration initializers", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ int i = 0; while (i == 0) { struct Foo y = make(); i = y.a; } for (; i == 65; i = 66) { struct Foo z = make(); i = z.b; } do { struct Foo w = make(); i = w.a; } while (0); return i; }\n";
     const parsed = parseProgram(source, "aggregate-loop-local-init.c");
@@ -848,6 +1124,70 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers file-scope chained aggregate value call paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo alt;\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass(int c){ return id(c ? g : alt); }\nint main(int c){ int side = 0; return id(id(g)).a + take(id(c ? g : alt)) + id(((side = 1), g)).b + pass(c).a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-chained-value-paths.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-chained-value-paths.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-chained-value-paths.i", source, "aggregate-global-chained-value-paths.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpass/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope union chained aggregate value call paths", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar alt;\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass(int c){ return id(c ? u : alt); }\nint main(int c){ int side = 0; return id(id(u)).a + take(id(c ? u : alt)) + id(((side = 1), u)).a + pass(c).a; }\n";
+    const parsed = parseProgram(source, "union-global-chained-value-paths.c");
+    const bound = analyzeProgram(parsed, source, "union-global-chained-value-paths.c");
+    const spec = lowerSourceProgram(bound, "union-global-chained-value-paths.i", source, "union-global-chained-value-paths.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tcall\tpass/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tld\thl,#alt\+0/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope aggregate assign-expression nested call paths", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nstruct Foo pass(int c){ return id(c ? (g = makeA()) : (g = makeB())); }\nint main(int c){ int side = 0; return id(g = makeA()).a + take(id(g = makeB())) + id(((side = 1), (g = makeA()))).b + pass(c).a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-nested-call-paths.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-nested-call-paths.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-nested-call-paths.i", source, "aggregate-global-assign-nested-call-paths.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
+  });
+
+  test("lowers file-scope union assign-expression nested call paths", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar u;\nunion Bar makeA(){ union Bar x; return x; }\nunion Bar makeB(){ union Bar x; return x; }\nunion Bar id(union Bar x){ return x; }\nint take(union Bar x){ return x.a; }\nunion Bar pass(int c){ return id(c ? (u = makeA()) : (u = makeB())); }\nint main(int c){ int side = 0; return id(u = makeA()).a + take(id(u = makeB())) + id(((side = 1), (u = makeA()))).a + pass(c).a; }\n";
+    const parsed = parseProgram(source, "union-global-assign-nested-call-paths.c");
+    const bound = analyzeProgram(parsed, source, "union-global-assign-nested-call-paths.c");
+    const spec = lowerSourceProgram(bound, "union-global-assign-nested-call-paths.i", source, "union-global-assign-nested-call-paths.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmakeA/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tcall\tmakeB/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tld\thl,#u\+0/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    expect((asm.match(/\tjp\tz,\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tld\thl,#1\n\tpush\thl");
   });
 
   test("lowers aggregate pointer member reads and writes", () => {
@@ -1123,6 +1463,145 @@ describe("tsFrontendLowering", () => {
 
     expect(asm).toContain("\tcall\t.lt");
     expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(asm).toContain("\tadd\thl,de");
+  });
+
+  test("lowers file-scope aggregate field reads and writes", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nint main(){ g.a = 65; g.b = 66; return g.a + g.b; }\n";
+    const parsed = parseProgram(source, "global-aggregate-fields.c");
+    const bound = analyzeProgram(parsed, source, "global-aggregate-fields.c");
+    const spec = lowerSourceProgram(bound, "global-aggregate-fields.i", source, "global-aggregate-fields.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("g:");
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("lowers nested file-scope aggregate field reads and writes", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer g;\nint main(){ g.inner.a = 65; g.inner.b = 66; g.tail = 67; return g.inner.a + g.inner.b + g.tail; }\n";
+    const parsed = parseProgram(source, "global-nested-aggregate-fields.c");
+    const bound = analyzeProgram(parsed, source, "global-nested-aggregate-fields.c");
+    const spec = lowerSourceProgram(bound, "global-nested-aggregate-fields.i", source, "global-nested-aggregate-fields.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("g:");
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("lowers file-scope aggregate brace initializers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g = { 65, 66 };\nint main(){ return g.a + g.b; }\n";
+    const parsed = parseProgram(source, "global-aggregate-init.c");
+    const bound = analyzeProgram(parsed, source, "global-aggregate-init.c");
+    const spec = lowerSourceProgram(bound, "global-aggregate-init.i", source, "global-aggregate-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("g:");
+    expect(asm).toContain(".db\t65,66,0");
+  });
+
+  test("lowers nested file-scope aggregate brace initializers", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer g = { { 65, 66 }, 67 };\nint main(){ return g.inner.a + g.inner.b + g.tail; }\n";
+    const parsed = parseProgram(source, "global-nested-aggregate-init.c");
+    const bound = analyzeProgram(parsed, source, "global-nested-aggregate-init.c");
+    const spec = lowerSourceProgram(bound, "global-nested-aggregate-init.i", source, "global-nested-aggregate-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("g:");
+    expect(asm).toContain(".db\t65,66,0,67");
+  });
+
+  test("lowers file-scope pointer declarations and assignments", () => {
+    const source = "char buf[3] = { 65, 36, 0 };\nchar *gp;\nint main(){ gp = buf; return gp[0]; }\n";
+    const parsed = parseProgram(source, "global-pointer.c");
+    const bound = analyzeProgram(parsed, source, "global-pointer.c");
+    const spec = lowerSourceProgram(bound, "global-pointer.i", source, "global-pointer.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\t.area\t_BSS");
+    expect(asm).toContain("gp:\t.ds\t2");
+    expect(asm).toContain("buf:");
+  });
+
+  test("lowers file-scope function pointers and indirect calls", () => {
+    const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint (*fp)(void);\nint main(){ fp = &putA; fp(); fp = &putB; return fp(); }\n";
+    const parsed = parseProgram(source, "global-function-pointer.c");
+    const bound = analyzeProgram(parsed, source, "global-function-pointer.c");
+    const spec = lowerSourceProgram(bound, "global-function-pointer.i", source, "global-function-pointer.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\t.area\t_BSS");
+    expect(asm).toContain("fp:\t.ds\t2");
+    expect(asm).toContain("ld\t(fp),hl");
+    expect(asm).toContain("jp\t(hl)");
+  });
+
+  test("lowers file-scope initialized function pointers", () => {
+    const source = "int putA(){ return 65; }\nint (*fp)(void) = &putA;\nint main(){ return fp(); }\n";
+    const parsed = parseProgram(source, "global-function-pointer-init.c");
+    const bound = analyzeProgram(parsed, source, "global-function-pointer-init.c");
+    const spec = lowerSourceProgram(bound, "global-function-pointer-init.i", source, "global-function-pointer-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("fp:");
+    expect(asm).toContain(".dw\tputA+0");
+    expect(asm).toContain("jp\t(hl)");
+  });
+
+  test("lowers uninitialized file-scope aggregate storage into bss", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nint main(){ g.a = 65; g.b = 66; return g.a + g.b; }\n";
+    const parsed = parseProgram(source, "global-aggregate-bss.c");
+    const bound = analyzeProgram(parsed, source, "global-aggregate-bss.c");
+    const spec = lowerSourceProgram(bound, "global-aggregate-bss.i", source, "global-aggregate-bss.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\t.area\t_BSS");
+    expect(asm).toContain("g:\t.ds\t3");
+  });
+
+  test("lowers uninitialized file-scope scalar storage into bss", () => {
+    const source = "int g;\nint main(){ g = 65; return g; }\n";
+    const parsed = parseProgram(source, "global-scalar-bss.c");
+    const bound = analyzeProgram(parsed, source, "global-scalar-bss.c");
+    const spec = lowerSourceProgram(bound, "global-scalar-bss.i", source, "global-scalar-bss.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\t.area\t_BSS");
+    expect(asm).toContain("g:\t.ds\t2");
+  });
+
+  test("lowers uninitialized file-scope char array storage into bss", () => {
+    const source = "char buf[3];\nint main(){ buf[0] = 65; return buf[0]; }\n";
+    const parsed = parseProgram(source, "global-array-bss.c");
+    const bound = analyzeProgram(parsed, source, "global-array-bss.c");
+    const spec = lowerSourceProgram(bound, "global-array-bss.i", source, "global-array-bss.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\t.area\t_BSS");
+    expect(asm).toContain("buf:\t.ds\t3");
+  });
+
+  test("lowers nested pointer-member and dereferenced-member chains", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a = 65; (*p).inner.b = 66; return p->inner.a + (*p).inner.b + p->tail; }\n";
+    const parsed = parseProgram(source, "nested-pointer-member.c");
+    const bound = analyzeProgram(parsed, source, "nested-pointer-member.c");
+    const spec = lowerSourceProgram(bound, "nested-pointer-member.i", source, "nested-pointer-member.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lowers nested pointer-member compound assignment and incdec", () => {
+    const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(struct Outer *p){ p->inner.a = 65; (*p).inner.b = 65; p->inner.a += 1; ++(*p).inner.b; p->inner.a--; return p->inner.a + (*p).inner.b; }\n";
+    const parsed = parseProgram(source, "nested-pointer-member-ops.c");
+    const bound = analyzeProgram(parsed, source, "nested-pointer-member-ops.c");
+    const spec = lowerSourceProgram(bound, "nested-pointer-member-ops.i", source, "nested-pointer-member-ops.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect(asm).toContain("\tadd\thl,de");
   });
 });

@@ -123,6 +123,15 @@ function splitTopLevelSemicolonStatements(sourceText: string): string[] {
     }
     if (ch === "}") {
       braceDepth -= 1;
+      if (braceDepth === 0 && parenDepth === 0 && bracketDepth === 0) {
+        let lookahead = index + 1;
+        while (lookahead < sourceText.length && /\s/.test(sourceText[lookahead])) {
+          lookahead += 1;
+        }
+        if (lookahead < sourceText.length && sourceText[lookahead] !== ";") {
+          start = lookahead;
+        }
+      }
       continue;
     }
     if (ch === "(") {
@@ -288,7 +297,7 @@ function parseAggregateFields(context: ParseContext, bodyText: string): SourceAg
         context,
         fieldMatch[1],
       );
-      if (!fieldType || fieldType.kind !== "scalar") {
+      if (!fieldType || fieldType.kind === "void" || fieldType.kind === "functionPointer") {
         throw new Error(`Unsupported aggregate field '${part}'.`);
       }
       return {
@@ -772,6 +781,38 @@ export function parseExpression(context: ParseContext, exprText: string, functio
         },
       };
     }
+    const chainedMemberAccess = splitLastPostfixMemberLikeAccess(lhs);
+    if (chainedMemberAccess && !/^[A-Za-z_]\w*$/.test(chainedMemberAccess.targetText)) {
+      const target = parseExpression(
+        context,
+        chainedMemberAccess.targetText,
+        functionName,
+        trimmedOffset + lhs.indexOf(chainedMemberAccess.targetText),
+      );
+      return chainedMemberAccess.op === "->"
+        ? {
+          kind: "pointerMemberExprAssign",
+          target,
+          field: chainedMemberAccess.field,
+          expr: {
+            kind: "binary",
+            left: { kind: "pointerMemberExprAccess", target, field: chainedMemberAccess.field },
+            op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+            right: rhs,
+          },
+        }
+        : {
+          kind: "memberExprAssign",
+          target,
+          field: chainedMemberAccess.field,
+          expr: {
+            kind: "binary",
+            left: { kind: "memberExprAccess", target, field: chainedMemberAccess.field },
+            op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+            right: rhs,
+          },
+        };
+    }
     const arrayAccess = parseArrayAccess(lhs);
     if (arrayAccess) {
       const indexExpr = parseExpression(context, arrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(arrayAccess.indexText));
@@ -860,6 +901,28 @@ export function parseExpression(context: ParseContext, exprText: string, functio
         field: memberAccess.field,
         expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
       };
+    }
+    const chainedMemberAccess = splitLastPostfixMemberLikeAccess(lhs);
+    if (chainedMemberAccess && !/^[A-Za-z_]\w*$/.test(chainedMemberAccess.targetText)) {
+      const target = parseExpression(
+        context,
+        chainedMemberAccess.targetText,
+        functionName,
+        trimmedOffset + lhs.indexOf(chainedMemberAccess.targetText),
+      );
+      return chainedMemberAccess.op === "->"
+        ? {
+          kind: "pointerMemberExprAssign",
+          target,
+          field: chainedMemberAccess.field,
+          expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+        }
+        : {
+          kind: "memberExprAssign",
+          target,
+          field: chainedMemberAccess.field,
+          expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+        };
     }
     const arrayAccess = parseArrayAccess(lhs);
     if (arrayAccess) {
@@ -1083,6 +1146,18 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       op: prefixPointerMemberExpr[1] as "++" | "--",
     };
   }
+  const prefixChainedPointerMemberExpr = /^(\+\+|--)\s*(.+->.+)$/.exec(trimmed);
+  if (prefixChainedPointerMemberExpr) {
+    const target = parsePrimaryExpr(context, prefixChainedPointerMemberExpr[2], functionName, offset + trimmed.indexOf(prefixChainedPointerMemberExpr[2]));
+    if (target.kind === "pointerMemberExprAccess") {
+      return {
+        kind: "prePointerMemberExprIncDec",
+        target: target.target,
+        field: target.field,
+        op: prefixChainedPointerMemberExpr[1] as "++" | "--",
+      };
+    }
+  }
   const prefixPointerMemberIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)$/.exec(trimmed);
   if (prefixPointerMemberIncDecMatch) {
     return {
@@ -1107,6 +1182,18 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       field: target.field,
       op: prefixMemberExpr[1] as "++" | "--",
     };
+  }
+  const prefixChainedMemberExpr = /^(\+\+|--)\s*(.+\..+)$/.exec(trimmed);
+  if (prefixChainedMemberExpr) {
+    const target = parsePrimaryExpr(context, prefixChainedMemberExpr[2], functionName, offset + trimmed.indexOf(prefixChainedMemberExpr[2]));
+    if (target.kind === "memberExprAccess") {
+      return {
+        kind: "preMemberExprIncDec",
+        target: target.target,
+        field: target.field,
+        op: prefixChainedMemberExpr[1] as "++" | "--",
+      };
+    }
   }
   const prefixMemberIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)$/.exec(trimmed);
   if (prefixMemberIncDecMatch) {
@@ -1158,6 +1245,18 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       op: postfixPointerMemberExpr[2] as "++" | "--",
     };
   }
+  const postfixChainedPointerMemberExpr = /^(.+->.+)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixChainedPointerMemberExpr) {
+    const target = parsePrimaryExpr(context, postfixChainedPointerMemberExpr[1], functionName, offset + trimmed.indexOf(postfixChainedPointerMemberExpr[1]));
+    if (target.kind === "pointerMemberExprAccess") {
+      return {
+        kind: "postPointerMemberExprIncDec",
+        target: target.target,
+        field: target.field,
+        op: postfixChainedPointerMemberExpr[2] as "++" | "--",
+      };
+    }
+  }
   const postfixPointerMemberIncDecMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
   if (postfixPointerMemberIncDecMatch) {
     return {
@@ -1182,6 +1281,18 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       field: target.field,
       op: postfixMemberExpr[2] as "++" | "--",
     };
+  }
+  const postfixChainedMemberExpr = /^(.+\..+)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixChainedMemberExpr) {
+    const target = parsePrimaryExpr(context, postfixChainedMemberExpr[1], functionName, offset + trimmed.indexOf(postfixChainedMemberExpr[1]));
+    if (target.kind === "memberExprAccess") {
+      return {
+        kind: "postMemberExprIncDec",
+        target: target.target,
+        field: target.field,
+        op: postfixChainedMemberExpr[2] as "++" | "--",
+      };
+    }
   }
   const postfixMemberIncDecMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
   if (postfixMemberIncDecMatch) {
@@ -1259,6 +1370,10 @@ function parsePrimaryExpr(context: ParseContext, exprText: string, functionName:
       name: memberAccess.name,
       field: memberAccess.field,
     };
+  }
+  const chainedMemberAccess = parseChainedMemberLikeAccess(context, trimmed, functionName, offset);
+  if (chainedMemberAccess) {
+    return chainedMemberAccess;
   }
   if (/^[A-Za-z_]\w*$/.test(trimmed)) {
     const enumValue = context.enumConstants.get(trimmed);
@@ -1394,7 +1509,9 @@ function parseDeclaration(context: ParseContext, statementText: string):
 
 function splitTopLevelArgs(argsText: string): Array<{ text: string; offset: number }> {
   const parts: Array<{ text: string; offset: number }> = [];
-  let depth = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
   let inString = false;
   let start = 0;
   for (let index = 0; index < argsText.length; index += 1) {
@@ -1407,14 +1524,30 @@ function splitTopLevelArgs(argsText: string): Array<{ text: string; offset: numb
       continue;
     }
     if (ch === "(") {
-      depth += 1;
+      parenDepth += 1;
       continue;
     }
     if (ch === ")") {
-      depth -= 1;
+      parenDepth -= 1;
       continue;
     }
-    if (ch === "," && depth === 0) {
+    if (ch === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      braceDepth -= 1;
+      continue;
+    }
+    if (ch === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (ch === "]") {
+      bracketDepth -= 1;
+      continue;
+    }
+    if (ch === "," && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
       const text = argsText.slice(start, index).trim();
       if (text.length > 0) {
         parts.push({ text, offset: start + argsText.slice(start, index).indexOf(text) });
@@ -2315,6 +2448,23 @@ function parseSimpleStatement(
       },
     };
   }
+  const prefixChainedPointerMemberExpr = /^(\+\+|--)\s*(.+->.+)$/.exec(trimmed);
+  if (prefixChainedPointerMemberExpr) {
+    const target = parsePrimaryExpr(context, prefixChainedPointerMemberExpr[2], functionName, offset + trimmed.indexOf(prefixChainedPointerMemberExpr[2]));
+    if (target.kind === "pointerMemberExprAccess") {
+      return {
+        kind: "pointerMemberExprAssign",
+        target: target.target,
+        field: target.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "pointerMemberExprAccess", target: target.target, field: target.field },
+          op: prefixChainedPointerMemberExpr[1] === "++" ? "+" : "-",
+          right: { kind: "const", value: 1 },
+        },
+      };
+    }
+  }
   const prefixMemberExprIncDecMatch = /^(\+\+|--)\s*(\(.+\)\s*\.\s*([A-Za-z_]\w*))$/.exec(trimmed);
   if (prefixMemberExprIncDecMatch) {
     const target = parsePrimaryExpr(context, prefixMemberExprIncDecMatch[2], functionName, offset + trimmed.indexOf(prefixMemberExprIncDecMatch[2]));
@@ -2349,6 +2499,23 @@ function parseSimpleStatement(
         right: { kind: "const", value: 1 },
       },
     };
+  }
+  const prefixChainedMemberExpr = /^(\+\+|--)\s*(.+\..+)$/.exec(trimmed);
+  if (prefixChainedMemberExpr) {
+    const target = parsePrimaryExpr(context, prefixChainedMemberExpr[2], functionName, offset + trimmed.indexOf(prefixChainedMemberExpr[2]));
+    if (target.kind === "memberExprAccess") {
+      return {
+        kind: "memberExprAssign",
+        target: target.target,
+        field: target.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "memberExprAccess", target: target.target, field: target.field },
+          op: prefixChainedMemberExpr[1] === "++" ? "+" : "-",
+          right: { kind: "const", value: 1 },
+        },
+      };
+    }
   }
   const prefixArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
   if (prefixArrayIncDecMatch) {
@@ -2453,6 +2620,35 @@ function parseSimpleStatement(
       };
     }
   }
+  if (memberExprCompoundAssign) {
+    const lhs = memberExprCompoundAssign.leftText.trim();
+    const chainedMemberAccess = splitLastPostfixMemberLikeAccess(lhs);
+    if (chainedMemberAccess?.op === "." && !/^[A-Za-z_]\w*$/.test(chainedMemberAccess.targetText)) {
+      const target = parseExpression(
+        context,
+        chainedMemberAccess.targetText,
+        functionName,
+        offset + statementText.indexOf(chainedMemberAccess.targetText),
+      );
+      const rhs = parseExpression(
+        context,
+        memberExprCompoundAssign.rightText,
+        functionName,
+        offset + statementText.indexOf(memberExprCompoundAssign.rightText),
+      );
+      return {
+        kind: "memberExprAssign",
+        target,
+        field: chainedMemberAccess.field,
+        expr: {
+          kind: "binary",
+          left: { kind: "memberExprAccess", target, field: chainedMemberAccess.field },
+          op: compoundAssignOpToBinaryOp(memberExprCompoundAssign.op),
+          right: rhs,
+        },
+      };
+    }
+  }
   const memberCompoundAssignMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
   if (memberCompoundAssignMatch) {
     const rhs = parseExpression(context, memberCompoundAssignMatch[4], functionName, offset + statementText.indexOf(memberCompoundAssignMatch[4]));
@@ -2530,6 +2726,21 @@ function parseSimpleStatement(
       },
     };
   }
+  const postfixChainedPointerMemberExpr = /^(.+->.+)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixChainedPointerMemberExpr) {
+    const target = parsePrimaryExpr(context, postfixChainedPointerMemberExpr[1], functionName, offset + trimmed.indexOf(postfixChainedPointerMemberExpr[1]));
+    if (target.kind === "pointerMemberExprAccess") {
+      return {
+        kind: "expr",
+        expr: {
+          kind: "postPointerMemberExprIncDec",
+          target: target.target,
+          field: target.field,
+          op: postfixChainedPointerMemberExpr[2] as "++" | "--",
+        },
+      };
+    }
+  }
   const memberIncDecMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
   if (memberIncDecMatch) {
     return {
@@ -2564,6 +2775,21 @@ function parseSimpleStatement(
         right: { kind: "const", value: 1 },
       },
     };
+  }
+  const postfixChainedMemberExpr = /^(.+\..+)\s*(\+\+|--)$/.exec(trimmed);
+  if (postfixChainedMemberExpr) {
+    const target = parsePrimaryExpr(context, postfixChainedMemberExpr[1], functionName, offset + trimmed.indexOf(postfixChainedMemberExpr[1]));
+    if (target.kind === "memberExprAccess") {
+      return {
+        kind: "expr",
+        expr: {
+          kind: "postMemberExprIncDec",
+          target: target.target,
+          field: target.field,
+          op: postfixChainedMemberExpr[2] as "++" | "--",
+        },
+      };
+    }
   }
   const arrayIncDecMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
   if (arrayIncDecMatch) {
@@ -2636,6 +2862,25 @@ function parseSimpleStatement(
           offset + statementText.indexOf(memberExprAccess.targetText),
         ),
         field: memberExprAccess.field,
+        expr: parseExpression(
+          context,
+          memberExprAssign.rightText,
+          functionName,
+          offset + statementText.indexOf(memberExprAssign.rightText),
+        ),
+      };
+    }
+    const chainedMemberAccess = splitLastPostfixMemberLikeAccess(lhs);
+    if (chainedMemberAccess?.op === "." && !/^[A-Za-z_]\w*$/.test(chainedMemberAccess.targetText)) {
+      return {
+        kind: "memberExprAssign",
+        target: parseExpression(
+          context,
+          chainedMemberAccess.targetText,
+          functionName,
+          offset + statementText.indexOf(chainedMemberAccess.targetText),
+        ),
+        field: chainedMemberAccess.field,
         expr: parseExpression(
           context,
           memberExprAssign.rightText,
@@ -2978,6 +3223,24 @@ function buildAggregateInitializerStatements(
       expr: initializer.expr,
     }];
   }
+  return buildAggregateInitializerStatementsForTarget(
+    context,
+    { kind: "ref", name },
+    type,
+    initializer,
+    functionName,
+    offset,
+  );
+}
+
+function buildAggregateInitializerStatementsForTarget(
+  context: ParseContext,
+  target: SourceExpr,
+  type: Extract<SourceType, { kind: "aggregate" }>,
+  initializer: Extract<SourceInitializer, { kind: "list" }>,
+  functionName: string,
+  offset: number,
+): SourceStmt[] {
   const layout = lookupAggregateDef(context, type);
   if (!layout) {
     throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not know ${type.aggregateKind} ${type.name} in ${functionName}().`, {
@@ -2995,11 +3258,34 @@ function buildAggregateInitializerStatements(
   for (let index = 0; index < layout.fields.length; index += 1) {
     const field = layout.fields[index];
     const item = initializer.items[index];
-    statements.push({
-      kind: "memberAssign",
-      name,
-      field: field.name,
-      expr: item ? initializerItemToExpr(context, item, functionName, offset) : { kind: "const", value: 0 },
+    if (field.type.kind === "scalar" || field.type.kind === "pointer") {
+      statements.push(makeAggregateFieldAssignStmt(
+        target,
+        field.name,
+        item ? initializerItemToExpr(context, item, functionName, offset) : { kind: "const", value: 0 },
+      ));
+      continue;
+    }
+    if (field.type.kind === "aggregate") {
+      if (item?.kind === "expr") {
+        throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support aggregate-valued field initializers for '${field.name}' in ${functionName}().`, {
+          file: context.file,
+          offset,
+        });
+      }
+      statements.push(...buildAggregateInitializerStatementsForTarget(
+        context,
+        makeAggregateFieldAccessExpr(target, field.name),
+        field.type,
+        (item?.kind === "list" ? item : { kind: "list", items: [] }) satisfies Extract<SourceInitializer, { kind: "list" }>,
+        functionName,
+        offset,
+      ));
+      continue;
+    }
+    throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support nested array or function-pointer field initializers for '${field.name}' in ${functionName}().`, {
+      file: context.file,
+      offset,
     });
   }
   return statements;
@@ -3182,6 +3468,79 @@ function parseExpressionMemberAccess(text: string): { targetText: string; field:
     field: match[2],
   };
 }
+
+function parseChainedMemberLikeAccess(
+  context: ParseContext,
+  text: string,
+  functionName: string,
+  offset: number,
+): SourceExpr | null {
+  const split = splitLastPostfixMemberLikeAccess(text);
+  if (!split) {
+    return null;
+  }
+  const target = parseExpression(context, split.targetText, functionName, offset + text.indexOf(split.targetText));
+  return split.op === "->"
+    ? { kind: "pointerMemberExprAccess", target, field: split.field }
+    : { kind: "memberExprAccess", target, field: split.field };
+}
+
+function splitLastPostfixMemberLikeAccess(text: string): { targetText: string; field: string; op: "." | "->" } | null {
+  const trimmed = text.trim();
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  for (let index = trimmed.length - 1; index >= 0; index -= 1) {
+    const ch = trimmed[index];
+    if (ch === ")") {
+      parenDepth += 1;
+      continue;
+    }
+    if (ch === "(") {
+      parenDepth -= 1;
+      continue;
+    }
+    if (ch === "]") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (ch === "[") {
+      bracketDepth -= 1;
+      continue;
+    }
+    if (parenDepth !== 0 || bracketDepth !== 0) {
+      continue;
+    }
+    if (ch === "." && index > 0) {
+      const targetText = trimmed.slice(0, index).trim();
+      const field = trimmed.slice(index + 1).trim();
+      if (targetText.length > 0 && /^[A-Za-z_]\w*$/.test(field)) {
+        return { targetText, field, op: "." };
+      }
+      continue;
+    }
+    if (ch === ">" && index > 0 && trimmed[index - 1] === "-") {
+      const targetText = trimmed.slice(0, index - 1).trim();
+      const field = trimmed.slice(index + 1).trim();
+      if (targetText.length > 0 && /^[A-Za-z_]\w*$/.test(field)) {
+        return { targetText, field, op: "->" };
+      }
+    }
+  }
+  return null;
+}
+
+function makeAggregateFieldAccessExpr(target: SourceExpr, field: string): SourceExpr {
+  return target.kind === "ref"
+    ? { kind: "memberAccess", name: target.name, field }
+    : { kind: "memberExprAccess", target, field };
+}
+
+function makeAggregateFieldAssignStmt(target: SourceExpr, field: string, expr: SourceExpr): SourceStmt {
+  return target.kind === "ref"
+    ? { kind: "memberAssign", name: target.name, field, expr }
+    : { kind: "memberExprAssign", target, field, expr };
+}
+
 
 function compoundAssignOpToBinaryOp(op: string): BinaryOp {
   switch (op) {
