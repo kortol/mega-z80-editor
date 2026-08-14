@@ -918,7 +918,11 @@ function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
     if (arg.kind === "expr") {
       lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
     } else {
-      lines.push(...emitAggregateProducerAddressArg(arg.source, arg.tempOffset, { ...ctx, stackDelta }));
+      lines.push(...emitAggregateProducerConsumer(
+        arg.source,
+        { kind: "addressArg", tempOffset: arg.tempOffset },
+        { ...ctx, stackDelta },
+      ));
     }
     lines.push("\tpush\thl");
     stackDelta += 2;
@@ -939,6 +943,28 @@ function emitAggregateProducerAddressArg(
 
 function inferAggregateTempSize(source: AggregateValueSpec): number {
   return source.size;
+}
+
+type AggregateEmitConsumer =
+  | { kind: "addressArg"; tempOffset: number }
+  | { kind: "fieldRead"; tempOffset: number; fieldOffset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; tempOffset: number; fieldOffset: number };
+
+function emitAggregateProducerConsumer(
+  source: AggregateValueSpec,
+  consumer: AggregateEmitConsumer,
+  ctx: EmitExprContext,
+): string[] {
+  switch (consumer.kind) {
+    case "addressArg":
+      return emitAggregateProducerAddressArg(source, consumer.tempOffset, ctx);
+    case "fieldRead":
+      return emitAggregateProducerFieldRead(source, consumer.tempOffset, consumer.fieldOffset, consumer.width, ctx);
+    case "fieldAddress":
+      return emitAggregateProducerFieldAddress(source, consumer.tempOffset, consumer.fieldOffset, ctx);
+    default:
+      return assertNever(consumer);
+  }
 }
 
 function emitReserveBytes(count: number): string[] {
@@ -1311,7 +1337,11 @@ function emitAggregateValueFieldAccessExpr(
   width: ValueWidth,
   ctx: EmitExprContext,
 ): string[] {
-  return emitAggregateProducerFieldRead(source, tempOffset, fieldOffset, width, ctx);
+  return emitAggregateProducerConsumer(
+    source,
+    { kind: "fieldRead", tempOffset, fieldOffset, width },
+    ctx,
+  );
 }
 
 function emitAggregateProducerFieldRead(
@@ -1336,7 +1366,11 @@ function emitAggregateValueFieldAddressExpr(
   fieldOffset: number,
   ctx: EmitExprContext,
 ): string[] {
-  return emitAggregateProducerFieldAddress(source, tempOffset, fieldOffset, ctx);
+  return emitAggregateProducerConsumer(
+    source,
+    { kind: "fieldAddress", tempOffset, fieldOffset },
+    ctx,
+  );
 }
 
 function emitAggregateProducerFieldAddress(
