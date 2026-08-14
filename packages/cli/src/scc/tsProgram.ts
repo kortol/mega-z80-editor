@@ -13,14 +13,10 @@ export type ProgramSpec = {
 export type AggregateValueSpec =
   | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; name: string; size: number }
-  | { kind: "aggregateAssignExpr"; effectTarget: AggregateAssignEffectTargetSpec; valueOffset: number; source: AggregateValueSpec; size: number }
+  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" | "globalSymbol" }>; valueOffset: number; source: AggregateValueSpec; size: number }
   | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
   | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
-
-export type AggregateAssignEffectTargetSpec =
-  | { scope: "local"; offset: number }
-  | { scope: "global"; name: string };
 
 export type AggregateDestinationSpec =
   | { kind: "localSlot"; offset: number; size: number }
@@ -97,14 +93,10 @@ export type RefIR = {
 export type AggregateValueIR =
   | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; slot: string; size: number }
-  | { kind: "aggregateAssignExpr"; effectTarget: AggregateAssignEffectTargetIR; valueSlot: number; source: AggregateValueIR; size: number }
+  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationIR, { kind: "localSlot" | "globalSymbol" }>; valueSlot: number; source: AggregateValueIR; size: number }
   | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
   | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
   | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
-
-export type AggregateAssignEffectTargetIR =
-  | { scope: "local"; slot: number }
-  | { scope: "global"; name: string };
 
 export type AggregateDestinationIR =
   | { kind: "localSlot"; slot: number; size: number }
@@ -624,9 +616,9 @@ function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): 
     case "aggregateAssignExpr":
       return {
         kind: "aggregateAssignExpr",
-        effectTarget: expr.effectTarget.scope === "local"
-          ? { scope: "local", offset: getLocalOffset(layout, expr.effectTarget.slot) }
-          : { scope: "global", name: expr.effectTarget.name },
+        effectDestination: expr.effectDestination.kind === "localSlot"
+          ? { kind: "localSlot", offset: getLocalOffset(layout, expr.effectDestination.slot), size: expr.size }
+          : { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size },
         valueOffset: getLocalOffset(layout, expr.valueSlot),
         source: lowerAggregateValueIR(expr.source, layout),
         size: expr.size,
@@ -1548,30 +1540,20 @@ function emitAggregateAssignExprEffectToTarget(
   source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
   ctx: EmitExprContext,
 ): string[] {
-  if (source.effectTarget.scope === "local") {
-    return emitAggregateAssignExprLocalEffect(source.valueOffset, source.size, source.effectTarget.offset, ctx);
+  const effectDestination = getAggregateAssignEffectDestination(source);
+  if (effectDestination.kind === "localSlot" && effectDestination.offset === source.valueOffset) {
+    return [];
   }
-  return emitAggregateAssignExprGlobalEffect(source.valueOffset, source.size, source.effectTarget.name, ctx);
+  return emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, effectDestination, ctx);
 }
 
-function emitAggregateAssignExprLocalEffect(
-  valueOffset: number,
-  size: number,
-  effectOffset: number,
-  ctx: EmitExprContext,
-): string[] {
-  return effectOffset === valueOffset
-    ? []
-    : emitAggregateCopyFromLocal(valueOffset, effectOffset, size, ctx);
-}
-
-function emitAggregateAssignExprGlobalEffect(
-  valueOffset: number,
-  size: number,
-  effectName: string,
-  ctx: EmitExprContext,
-): string[] {
-  return emitAggregateCopyLocalToGlobal(valueOffset, effectName, size, ctx);
+function getAggregateAssignEffectDestination(
+  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+): AggregateEmitDestination {
+  if (source.effectDestination.kind === "localSlot") {
+    return source.effectDestination;
+  }
+  return { kind: "pointer", pointer: { kind: "globalAddress", name: source.effectDestination.name }, size: source.size };
 }
 
 function emitAggregateCallToDestination(

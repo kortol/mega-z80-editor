@@ -1521,9 +1521,9 @@ function lowerAggregateValueExpr(
     case "aggregateAssignExpr":
       return {
         kind: "aggregateAssignExpr",
-        effectTarget: expr.target.kind === "local"
-          ? { scope: "local", slot: expr.target.slot }
-          : { scope: "global", name: expr.target.name },
+        effectDestination: expr.target.kind === "local"
+          ? { kind: "localSlot", slot: expr.target.slot, size: expr.type.size }
+          : { kind: "globalSymbol", name: expr.target.name, size: expr.type.size },
         valueSlot: expr.target.kind === "local" ? expr.target.slot : allocateTempLocal(functionState, expr.type.size),
         source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
         size: expr.type.size,

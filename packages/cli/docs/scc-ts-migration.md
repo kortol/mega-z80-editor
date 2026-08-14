@@ -705,9 +705,10 @@ aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変
   - ただし aggregate value 自体を scalar expression と同列に読む一般値モデルはまだない
 - `tsProgram.ts`
   - aggregate temporary local slot と aggregate argument / return ABI は導入済み
-  - `AggregateDestinationSpec/IR` と `materializeAggregateValue(destination, source)` は導入済み
+  - `AggregateDestinationSpec/IR` と producer materialize path は導入済み
   - `AggregateConsumerSpec/IR` により field-read / field-address / aggregate call-arg は型上も consumer として統一した
-  - ただし `emitAggregateValueToLocal()` が依然として source tree evaluator として残っており、完全な consumer-driven emit への移行は未了
+  - `aggregateAssignExpr` の emit も `value materialization / effect writeback / destination copy` に分離した
+  - ただし field consumer は依然として temp-local materialize 前提で、consumer-driven emit の最終形までは未了
 - `tsFrontendLowering.ts`
   - local/global/return sink は `materializeAggregateProducer()` ベースへ寄せた
   - local aggregate copy, aggregate-valued member read, aggregate call / return ABI は lower 済み
@@ -723,7 +724,7 @@ aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変
 - `lowering`
   - `lowerAggregateAssignToLocalSlot()` / `lowerAggregateReturnToReturnSlot()` / aggregate call arg lowering が sink ごとに別々の copy 戦略を持つ
 - `tsProgram`
-  - `emitAggregateValueToLocal()` が source tree を再帰的に解釈し直し、emit 側で aggregate evaluator を再実装している
+  - producer materialize / consumer emit はだいぶ整理されたが、field consumer は temp-local materialize 前提が残る
 
 この形だと、新しい aggregate value path を 1 つ追加するたびに、
 
@@ -773,8 +774,8 @@ aggregate value を「expression」ではなく「producer」として統一し�
    - `lowerAggregateAssignToLocalSlot()` / `lowerAggregateReturnToReturnSlot()` / aggregate call arg lowering は、この共通 materialize API の薄い wrapper に落とす
 
 3. `tsProgram`
-   - `emitAggregateValueToLocal()` のような emit-time evaluator をやめる
    - aggregate producer の分岐評価は lowering 完了時点までに終える
+   - assign-expression の effect/value は emit helper 上でも destination model へ寄せる
    - emit は「copy bytes from place A to place B」と「call with address args」に集中させる
 
 #### Destination Model
@@ -789,7 +790,7 @@ aggregate sink は destination を first-class にした方がよい。
 `aggregateAssignExpr` の本質も「target に副作用を書き込みつつ、value としては materialized temp を返す」なので、
 
 - current:
-  - `target + tempSlot + source`
+  - `effect destination + value slot + source`
 - target:
   - `effect destination + value destination + source`
 
@@ -888,17 +889,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 いま残っている真の blocker は次の 4 つ。
 
-`1. emit-time evaluator が残っている`
-
-- `emitAggregateValueToLocal()` が producer tree を再帰解釈している
-- `emitAggregateValueToPointer()` も一部で同じ source 分岐を持っている
-- 90% に上げるには、emit の責務を
-  - byte copy
-  - address push
-  - call dispatch
-  のみへ縮める必要がある
-
-`2. field consumer が temp-local 前提`
+`1. field consumer が temp-local 前提`
 
 - field-read / field-address は helper 化されたが、依然として temp local materialize を前提にしている
 - 一般化の最終形は
@@ -906,17 +897,16 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
   - pointer destination だけで足りる consumer
   を分離すること
 
-`3. assign-expression の effect/value 二面性が IR で分離されていない`
+`2. assign-expression の effect/value 二面性が完全には destination 化されていない`
 
-- `aggregateAssignExpr` は「副作用の書き込み先」と「値として流す先」を同時に持つ
-- 現在は `target + tempOffset + source` で表している
+- `aggregateAssignExpr` は `effectTarget + valueOffset + source` へ正規化され、lowering/emit helper も分離済み
 - 90% へ上げるには
   - `effectDestination`
   - `valueDestination`
   - `source`
-  の 3 要素へ整理した方がよい
+  の 3 要素を first-class destination として揃えた方がよい
 
-`4. aggregate consumer が型として独立していない`
+`3. aggregate consumer が型として独立していない`
 
 - field-read / field-address / aggregateAddress push が Expr/CallArg の特例として散っている
 - これを producer consumer model として束ねる必要がある
@@ -931,20 +921,19 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `Step B. Emit consumer layer の抽出`
 
-- `emitAggregateValueToLocal()` と `emitAggregateValueToPointer()` の source 分岐重複を解消する
 - 目標 API:
   - `emitAggregateProducerMaterialize(source, destination)`
   - `emitAggregateProducerConsumer(source, consumer)`
-- ここで emit-time evaluator を 1 箇所へ閉じ込める
+- ここで temp-local 前提 consumer を 1 箇所へ閉じ込める
 
 `Step C. Assign-expression の正規化`
 
-- `aggregateAssignExpr` を
+- `aggregateAssignExpr` の helper 分離は済んだので
   - `effect destination`
   - `value destination`
   - `source`
-  へ分解できる形へ整理する
-- local/global の特例をここへ閉じ込める
+  を型としても揃えられるかを詰める
+- local/global の特例を destination helper へ閉じ込める
 
 `Step D. Field consumer の一般化`
 
@@ -972,7 +961,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `2. aggregateAssignExpr 正規化`
 
-- IR 上の `target + tempOffset + source` 形を見直す
+- IR 上の `effect destination + value slot + source` 形をさらに destination model へ寄せる
 - effect/value 分離モデルへ寄せる
 
 `3. field consumer 抽象化`
