@@ -956,7 +956,7 @@ function emitAggregateProducerAddressArg(
   ctx: EmitExprContext,
 ): string[] {
   return [
-    ...emitAggregateValueToTempLocal(source, tempOffset, inferAggregateTempSize(source), ctx),
+    ...emitAggregateProducerToTempLocal(source, tempOffset, inferAggregateTempSize(source), ctx),
     ...emitExprToHl({ kind: "localAddress", offset: tempOffset }, ctx),
   ];
 }
@@ -1382,7 +1382,7 @@ function emitAggregateProducerFieldRead(
     ? { kind: "localChar", offset: tempOffset + fieldOffset }
     : { kind: "localInt", offset: tempOffset + fieldOffset };
   return [
-    ...emitAggregateValueToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAccess(fieldOffset, width), ctx),
+    ...emitAggregateProducerToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAccess(fieldOffset, width), ctx),
     ...emitExprToHl(loadExpr, ctx),
   ];
 }
@@ -1407,12 +1407,12 @@ function emitAggregateProducerFieldAddress(
   ctx: EmitExprContext,
 ): string[] {
   return [
-    ...emitAggregateValueToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAddress(fieldOffset), ctx),
+    ...emitAggregateProducerToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAddress(fieldOffset), ctx),
     ...emitLoadStackAddrToHl(tempOffset + fieldOffset, ctx),
   ];
 }
 
-function emitAggregateValueToTempLocal(
+function emitAggregateProducerToTempLocal(
   source: AggregateValueSpec,
   tempOffset: number,
   size: number,
@@ -1485,10 +1485,6 @@ function emitAggregateProducerToDestination(
     default:
       return assertNever(source);
   }
-}
-
-function emitAggregateValueToLocal(source: AggregateValueSpec, targetOffset: number, ctx: EmitExprContext): string[] {
-  return emitAggregateProducerToDestination(source, { kind: "localSlot", offset: targetOffset, size: source.size }, ctx);
 }
 
 function emitAggregateRefToDestination(

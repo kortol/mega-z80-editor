@@ -353,8 +353,8 @@ Phase 10 は進行中です。現時点では source-driven path に以下を追
   - `++q->a;`
   - `q->b--;`
   - `return (x.a += 3) + (++x.b) + (p->a = 4) + (p->b--);`
-  - still rejected: `struct Foo **pp;`
-  - still rejected: `union Bar **pp;`
+  - `struct Foo **pp;`
+  - `union Bar **pp;`
   - still rejected: `&(&x)`
   - `return x;` where `x` is `struct`/`union`
   - `x = y;` where `x` and `y` are matching local `struct`/`union`
@@ -675,6 +675,7 @@ aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変
 - `file-scope declaration`
   - scalar は `int g = 65;`
   - pointer は `char *gp; gp = buf; outchar(gp[0]);`、`int (*fp)(void); fp = &putA; fp();`、`int (*fp)(void) = &putA; fp();` まで source-path runtime pass したため `S`
+  - pointer には `struct Foo *p` / `union Bar *q` に加えて `struct Foo **pp = &p;` / `union Bar **qq = &q;`、`if (pp) return (pp != 0) + (qq != 0);`、`int check(struct Foo *p, union Bar *q){ if (p) return q != 0; return p == 0; }` も semantic / lowering / source-path runtime pass 済み
   - aggregate lvalue は `struct Foo g; g.a = 65; g.b = 66; outchar(g.a); outchar(g.b);` と `g = makeFoo(); u = makeBar();` まで source-path runtime pass したため `S`
   - aggregate value は `take(g)`、`return g;`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`return ((side = 1), g);`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`return (g = make())`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))` を `struct/union` ともに source-path runtime pass し、`producer / destination / consumer` 経路でも通るため主要列は `S`
   - aggregate brace initializer も `struct Foo g = { 65, 66 };` と `struct Outer g = { { 65, 66 }, 67 };` で source-path runtime pass

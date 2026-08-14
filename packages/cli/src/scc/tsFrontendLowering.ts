@@ -749,16 +749,47 @@ function materializeAggregateProducer(
       if (destination.kind === "localSlot") {
         return [lowerAggregateCallIntoLocalSlot(destination.slot, source, externs, definedFunctions, sourceText, state, functionState, file)];
       }
-      {
-        const tempSlot = allocateTempLocal(functionState, aggregateType.size);
-        return [
-          lowerAggregateCallIntoLocalSlot(tempSlot, source, externs, definedFunctions, sourceText, state, functionState, file),
-          ...copyAggregateLocalSlotToDestination(tempSlot, aggregateType, destination),
-        ];
-      }
+      return materializeAggregateProducerViaTempLocal(
+        source,
+        aggregateType,
+        destination,
+        externs,
+        definedFunctions,
+        sourceText,
+        state,
+        functionState,
+        file,
+      );
     default:
       return assertNever(source);
   }
+}
+
+function materializeAggregateProducerViaTempLocal(
+  source: BoundAggregateValueExpr,
+  tempType: SemanticAggregateType,
+  destination: AggregateDestination,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh[] {
+  const tempSlot = allocateTempLocal(functionState, tempType.size);
+  return [
+    ...materializeAggregateProducer(
+      source,
+      { kind: "localSlot", slot: tempSlot, type: tempType },
+      externs,
+      definedFunctions,
+      sourceText,
+      state,
+      functionState,
+      file,
+    ),
+    ...copyAggregateLocalSlotToDestination(tempSlot, tempType, destination),
+  ];
 }
 
 function lowerAggregateSourceAddressToDestination(
@@ -1005,22 +1036,6 @@ function lowerAggregateReturnToReturnSlot(
     functionState,
     file,
   );
-}
-
-function lowerAggregateReturnViaTempLocal(
-  source: BoundAggregateValueExpr,
-  externs: Set<string>,
-  definedFunctions: Set<string>,
-  sourceText: string,
-  state: LoweringState,
-  functionState: FunctionLoweringState,
-  file?: string,
-): StmtIRHigh[] {
-  const tempSlot = allocateTempLocal(functionState, source.type.size);
-  return [
-    ...lowerAggregateAssignToLocalSlot(tempSlot, source.type, source, externs, definedFunctions, sourceText, state, functionState, file),
-    ...lowerAggregateCopyLocalToReturnSlot(tempSlot, source.type.size),
-  ];
 }
 
 function getAggregateFieldStores(type: BoundLocalSymbol["type"]): Array<{ offset: number; width: 1 | 2 }> {
