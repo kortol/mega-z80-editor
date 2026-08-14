@@ -705,34 +705,16 @@ function materializeAggregateProducer(
         destination,
       );
     case "aggregateAssignExpr":
-      if (source.target.kind === "local") {
-        const effectDestination: AggregateDestination = {
-          kind: "localSlot",
-          slot: source.target.slot,
-          type: source.target.type,
-        };
-        return [
-          ...materializeAggregateProducer(source.source, effectDestination, externs, definedFunctions, sourceText, state, functionState, file),
-          ...copyAggregateLocalSlotToDestination(source.target.slot, source.target.type, destination),
-        ];
-      }
-      {
-        const tempSlot = allocateTempLocal(functionState, source.type.size);
-        return [
-          ...materializeAggregateProducer(
-            source.source,
-            { kind: "localSlot", slot: tempSlot, type: source.target.type },
-            externs,
-            definedFunctions,
-            sourceText,
-            state,
-            functionState,
-            file,
-          ),
-          ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, source.target.name, source.target.type),
-          ...copyAggregateLocalSlotToDestination(tempSlot, source.target.type, destination),
-        ];
-      }
+      return materializeAggregateAssignExprProducer(
+        source,
+        destination,
+        externs,
+        definedFunctions,
+        sourceText,
+        state,
+        functionState,
+        file,
+      );
     case "comma":
       return [
         { kind: "evalExpr", expr: lowerExpr(source.left, externs, definedFunctions, sourceText, state, functionState, file) },
@@ -789,6 +771,71 @@ function materializeAggregateProducerViaTempLocal(
       file,
     ),
     ...copyAggregateLocalSlotToDestination(tempSlot, tempType, destination),
+  ];
+}
+
+function materializeAggregateAssignExprProducer(
+  source: Extract<BoundAggregateValueExpr, { kind: "aggregateAssignExpr" }>,
+  destination: AggregateDestination,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh[] {
+  if (source.target.kind === "local") {
+    return [
+      ...materializeAggregateProducer(
+        source.source,
+        { kind: "localSlot", slot: source.target.slot, type: source.target.type },
+        externs,
+        definedFunctions,
+        sourceText,
+        state,
+        functionState,
+        file,
+      ),
+      ...copyAggregateLocalSlotToDestination(source.target.slot, source.target.type, destination),
+    ];
+  }
+
+  return materializeAggregateAssignExprViaTempLocal(
+    source,
+    destination,
+    externs,
+    definedFunctions,
+    sourceText,
+    state,
+    functionState,
+    file,
+  );
+}
+
+function materializeAggregateAssignExprViaTempLocal(
+  source: Extract<BoundAggregateValueExpr, { kind: "aggregateAssignExpr" }>,
+  destination: AggregateDestination,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): StmtIRHigh[] {
+  const tempSlot = allocateTempLocal(functionState, source.type.size);
+  return [
+    ...materializeAggregateProducer(
+      source.source,
+      { kind: "localSlot", slot: tempSlot, type: source.target.type },
+      externs,
+      definedFunctions,
+      sourceText,
+      state,
+      functionState,
+      file,
+    ),
+    ...lowerAggregateCopyLocalSlotToGlobal(tempSlot, source.target.name, source.target.type),
+    ...copyAggregateLocalSlotToDestination(tempSlot, source.target.type, destination),
   ];
 }
 

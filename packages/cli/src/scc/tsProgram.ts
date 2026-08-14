@@ -1522,26 +1522,56 @@ function emitAggregateAssignExprToDestination(
   destination: AggregateEmitDestination,
   ctx: EmitExprContext,
 ): string[] {
-  const effectDestination: AggregateEmitDestination = {
-    kind: "localSlot",
-    offset: source.valueOffset,
-    size: source.size,
-  };
   return [
-    ...emitAggregateProducerToDestination(source.source, effectDestination, ctx),
-    ...emitAggregateAssignExprEffect(source, ctx),
+    ...emitAggregateAssignExprValue(source, ctx),
+    ...emitAggregateAssignExprEffectToTarget(source, ctx),
     ...emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, destination, ctx),
   ];
 }
 
-function emitAggregateAssignExprEffect(
+function emitAggregateAssignExprValue(
+  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  ctx: EmitExprContext,
+): string[] {
+  return emitAggregateProducerToDestination(
+    source.source,
+    {
+      kind: "localSlot",
+      offset: source.valueOffset,
+      size: source.size,
+    },
+    ctx,
+  );
+}
+
+function emitAggregateAssignExprEffectToTarget(
   source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
   ctx: EmitExprContext,
 ): string[] {
   if (source.effectTarget.scope === "local") {
-    return source.effectTarget.offset === source.valueOffset ? [] : emitAggregateCopyFromLocal(source.valueOffset, source.effectTarget.offset, source.size, ctx);
+    return emitAggregateAssignExprLocalEffect(source.valueOffset, source.size, source.effectTarget.offset, ctx);
   }
-  return emitAggregateCopyLocalToGlobal(source.valueOffset, source.effectTarget.name, source.size, ctx);
+  return emitAggregateAssignExprGlobalEffect(source.valueOffset, source.size, source.effectTarget.name, ctx);
+}
+
+function emitAggregateAssignExprLocalEffect(
+  valueOffset: number,
+  size: number,
+  effectOffset: number,
+  ctx: EmitExprContext,
+): string[] {
+  return effectOffset === valueOffset
+    ? []
+    : emitAggregateCopyFromLocal(valueOffset, effectOffset, size, ctx);
+}
+
+function emitAggregateAssignExprGlobalEffect(
+  valueOffset: number,
+  size: number,
+  effectName: string,
+  ctx: EmitExprContext,
+): string[] {
+  return emitAggregateCopyLocalToGlobal(valueOffset, effectName, size, ctx);
 }
 
 function emitAggregateCallToDestination(
