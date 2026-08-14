@@ -703,8 +703,11 @@ source-driven compile path の最初の slice はかなり限定しています�
   - assign-expression result は通るようになったが、general aggregate value model への統合はまだない
 - `tsProgram.ts`
   - aggregate temporary local slot と aggregate argument / return ABI は導入済み
-  - ただし aggregate value 専用の経路が増えており、一般値モデルへの統合は未着手
+  - `AggregateDestinationSpec/IR` と `materializeAggregateValue(destination, source)` は導入済み
+  - field-read / field-address / aggregate call-arg の temp-local path も helper へ共通化した
+  - ただし `emitAggregateValueToLocal()` が依然として source tree evaluator として残っており、一般値モデルへの統合は未了
 - `tsFrontendLowering.ts`
+  - local/global/return sink は `materializeAggregateProducer()` ベースへ寄せた
   - local aggregate copy, aggregate-valued member read, aggregate call / return ABI は lower 済み
   - branch / conditional / comma / assign-expression result / return pass-through をまたぐ aggregate temporary path は source path で通る
   - aggregate-returning function の `conditional` / `comma` は P0 で runtime ABI を安定化し、`struct/union` ともに CP/M 実行確認済み
@@ -831,6 +834,172 @@ aggregate sink は destination を first-class にした方がよい。
 - local/global の違いが destination へ閉じる
 - `call` / `return` / initializer / field access が同じ producer model を共有する
 - docs の aggregate value matrix が `P` から `S` へ上がるための構造的準備が整う
+
+### Aggregate Value Generalization To 90%
+
+2026-08-14 時点で 90% に届いていない主因は、未対応機能の総数ではなく、aggregate value がまだ「多数の専用経路の集合」として実装されていることです。
+
+- 現状:
+  - `BoundAggregateValueExpr` は producer tree として機能している
+  - lowering は `destination` ベースへかなり寄った
+  - emit は `destination` を理解するようになった
+  - ただし local temp materialize へ戻す旧経路が残っている
+- 90% 到達条件:
+  - aggregate value を「専用 path の束」ではなく「一般化された materializable value」として扱える
+  - matrix 上の aggregate value `local declaration / file-scope declaration / read as expression / assign statement / assign expression result / member / conditional / comma / call argument / return value` を構造的に `S` 判定できる
+
+#### Target End State
+
+aggregate value 一般化の終点は、次の 3 層に分離された状態とする。
+
+`1. Producer`
+
+- aggregate source tree は producer としてだけ表現する
+- 値の種類:
+  - `aggregateRef`
+  - `aggregateAssignExpr`
+  - `call`
+  - `conditional`
+  - `comma`
+
+`2. Consumer`
+
+- producer を消費する操作は明示的な consumer とする
+- consumer の種類:
+  - `materialize(destination)`
+  - `fieldRead(offset, width)`
+  - `fieldAddress(offset)`
+  - `addressArg(temp)`
+
+`3. Destination`
+
+- materialize 先は destination として閉じる
+- destination の種類:
+  - `localSlot`
+  - `globalSymbol`
+  - `returnSlot`
+  - `tempLocal`
+
+この形にすると、`call argument` / `return` / initializer / assign / field access は、全部「producer をどう消費するか」の差に落ちる。
+
+#### Remaining Structural Gaps
+
+いま残っている真の blocker は次の 4 つ。
+
+`1. emit-time evaluator が残っている`
+
+- `emitAggregateValueToLocal()` が producer tree を再帰解釈している
+- `emitAggregateValueToPointer()` も一部で同じ source 分岐を持っている
+- 90% に上げるには、emit の責務を
+  - byte copy
+  - address push
+  - call dispatch
+  のみへ縮める必要がある
+
+`2. field consumer が temp-local 前提`
+
+- field-read / field-address は helper 化されたが、依然として temp local materialize を前提にしている
+- 一般化の最終形は
+  - `materialize temp` が必要な consumer
+  - pointer destination だけで足りる consumer
+  を分離すること
+
+`3. assign-expression の effect/value 二面性が IR で分離されていない`
+
+- `aggregateAssignExpr` は「副作用の書き込み先」と「値として流す先」を同時に持つ
+- 現在は `target + tempOffset + source` で表している
+- 90% へ上げるには
+  - `effectDestination`
+  - `valueDestination`
+  - `source`
+  の 3 要素へ整理した方がよい
+
+`4. aggregate consumer が型として独立していない`
+
+- field-read / field-address / aggregateAddress push が Expr/CallArg の特例として散っている
+- これを producer consumer model として束ねる必要がある
+
+#### 90% Roadmap
+
+`Step A. Producer/consumer 命名の統一`
+
+- `AggregateValueIR/Spec` の comments と docs を producer 前提へ寄せる
+- aggregate consumer を docs 上で first-class に定義する
+- これは設計整理だが、以後の変更の判断基準になる
+
+`Step B. Emit consumer layer の抽出`
+
+- `emitAggregateValueToLocal()` と `emitAggregateValueToPointer()` の source 分岐重複を解消する
+- 目標 API:
+  - `emitAggregateProducerMaterialize(source, destination)`
+  - `emitAggregateProducerConsumer(source, consumer)`
+- ここで emit-time evaluator を 1 箇所へ閉じ込める
+
+`Step C. Assign-expression の正規化`
+
+- `aggregateAssignExpr` を
+  - `effect destination`
+  - `value destination`
+  - `source`
+  へ分解できる形へ整理する
+- local/global の特例をここへ閉じ込める
+
+`Step D. Field consumer の一般化`
+
+- `aggregateValueFieldAccess` / `aggregateValueFieldAddress` を temp-local helper 呼び出しから一段上げる
+- 目標は「field consumer」として扱うこと
+- temp local は consumer 実装の詳細へ落とす
+
+`Step E. Matrix を P から S へ上げる判定`
+
+- 次を source-path runtime だけでなく構造上も一般化済みと判断できたら `S`
+  - local / file-scope aggregate initializer from value
+  - field read / address from conditional/comma/assign-expression
+  - call arg from aggregate producer
+  - return from aggregate producer
+  - nested aggregate producer composition
+
+#### Task Slice For Next Turns
+
+次ターン以降は細切れ reject ではなく、次の順で進める。
+
+`1. emit 層の統合`
+
+- `emitAggregateValueToLocal()` と `emitAggregateValueToPointer()` の重複除去
+- source 分岐を 1 箇所へ寄せる
+
+`2. aggregateAssignExpr 正規化`
+
+- IR 上の `target + tempOffset + source` 形を見直す
+- effect/value 分離モデルへ寄せる
+
+`3. field consumer 抽象化`
+
+- `aggregateValueFieldAccess`
+- `aggregateValueFieldAddress`
+- `aggregateAddress`
+  を consumer 観点で整理する
+
+`4. matrix 更新条件の充足`
+
+- aggregate value の `P` を、根拠付きで `S` へ上げられるかを確認する
+
+#### Progress Estimate
+
+2026-08-14 時点の aggregate value 一般化進捗は次のように見積もる。
+
+- producer tree 導入: `85%`
+- lowering destination 統一: `80%`
+- emit destination 統一: `65%`
+- aggregate consumer 一般化: `45%`
+- aggregate value 全体の設計収束: `60%`
+
+したがって、Full C Coverage に対する真直度を 90% へ上げるには、
+
+- aggregate value の機能追加より
+- aggregate value の consumer/destination 一般化
+
+を優先する。
 
 ### Implementation Order
 

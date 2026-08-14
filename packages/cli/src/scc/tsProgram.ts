@@ -1331,73 +1331,43 @@ function getAggregateTempSizeForFieldAddress(fieldOffset: number): number {
   return fieldOffset + 1;
 }
 
+type AggregateEmitDestination =
+  | { kind: "localSlot"; offset: number; size: number }
+  | { kind: "pointer"; pointer: ExprSpec; size: number };
+
 function emitAggregateValueToDestination(source: AggregateValueSpec, destination: AggregateDestinationSpec, ctx: EmitExprContext): string[] {
+  return emitAggregateProducerToDestination(source, lowerAggregateEmitDestination(destination), ctx);
+}
+
+function lowerAggregateEmitDestination(destination: AggregateDestinationSpec): AggregateEmitDestination {
   switch (destination.kind) {
     case "localSlot":
-      return emitAggregateValueToLocal(source, destination.offset, ctx);
+      return destination;
     case "globalSymbol":
-      return emitAggregateValueToPointer(source, { kind: "globalAddress", name: destination.name }, destination.size, ctx);
+      return { kind: "pointer", pointer: { kind: "globalAddress", name: destination.name }, size: destination.size };
     case "returnSlot":
-      return emitAggregateValueToPointer(source, { kind: "argInt", offset: 0 }, destination.size, ctx);
+      return { kind: "pointer", pointer: { kind: "argInt", offset: 0 }, size: destination.size };
     default:
       return assertNever(destination);
   }
 }
 
-function emitAggregateValueToPointer(
+function emitAggregateProducerToDestination(
   source: AggregateValueSpec,
-  destinationPointer: ExprSpec,
-  size: number,
+  destination: AggregateEmitDestination,
   ctx: EmitExprContext,
 ): string[] {
   switch (source.kind) {
     case "aggregateRef":
-      if (source.scope === "local") {
-        return emitAggregateCopyFromPointerToPointer(
-          { kind: "localAddress", offset: source.offset },
-          destinationPointer,
-          source.size,
-          ctx,
-        );
-      }
-      if (source.scope === "arg") {
-        return emitAggregateCopyFromPointerToPointer(
-          { kind: "argInt", offset: source.offset },
-          destinationPointer,
-          source.size,
-          ctx,
-        );
-      }
-      const globalSource = source as Extract<AggregateValueSpec, { kind: "aggregateRef"; scope: "global" }>;
-      return emitAggregateCopyFromPointerToPointer(
-        { kind: "globalAddress", name: globalSource.name },
-        destinationPointer,
-        globalSource.size,
-        ctx,
-      );
+      return emitAggregateRefToDestination(source, destination, ctx);
     case "aggregateAssignExpr":
-      return [
-        ...emitAggregateValueToLocal(source.source, source.tempOffset, ctx),
-        ...(source.target.scope === "local"
-          ? (source.target.offset === source.tempOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, source.target.offset, source.size, ctx))
-          : emitAggregateCopyLocalToGlobal(source.tempOffset, source.target.name, source.size, ctx)),
-        ...emitAggregateCopyFromPointerToPointer(
-          { kind: "localAddress", offset: source.tempOffset },
-          destinationPointer,
-          source.size,
-          ctx,
-        ),
-      ];
+      return emitAggregateAssignExprToDestination(source, destination, ctx);
     case "call":
-      return [
-        ...emitPushArgs([{ kind: "expr", expr: destinationPointer }, ...(source.args ?? [])], ctx),
-        `\tcall\t${source.target}`,
-        ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
-      ];
+      return emitAggregateCallToDestination(source, destination, ctx);
     case "comma":
       return [
         ...emitExprToHl(source.left, ctx),
-        ...emitAggregateValueToPointer(source.right, destinationPointer, size, ctx),
+        ...emitAggregateProducerToDestination(source.right, destination, ctx),
       ];
     case "conditional": {
       const elseLabel = allocateExprLabel(ctx);
@@ -1407,10 +1377,10 @@ function emitAggregateValueToPointer(
         "\tld\ta,h",
         "\tor\tl",
         `\tjp\tz,${elseLabel}`,
-        ...emitAggregateValueToPointer(source.thenExpr, destinationPointer, size, ctx),
+        ...emitAggregateProducerToDestination(source.thenExpr, destination, ctx),
         `\tjp\t${endLabel}`,
         `${elseLabel}:`,
-        ...emitAggregateValueToPointer(source.elseExpr, destinationPointer, size, ctx),
+        ...emitAggregateProducerToDestination(source.elseExpr, destination, ctx),
         `${endLabel}:`,
       ];
     }
@@ -1420,56 +1390,123 @@ function emitAggregateValueToPointer(
 }
 
 function emitAggregateValueToLocal(source: AggregateValueSpec, targetOffset: number, ctx: EmitExprContext): string[] {
-  switch (source.kind) {
-    case "aggregateRef":
-      if (source.scope === "local") {
-        return emitAggregateCopyFromLocal(source.offset, targetOffset, source.size, ctx);
-      }
-      if (source.scope === "arg") {
-        return emitAggregateCopyFromArgAddress(source.offset, targetOffset, source.size, ctx);
-      }
-      return emitAggregateCopyFromGlobal(
-        (source as Extract<AggregateValueSpec, { kind: "aggregateRef"; scope: "global" }>).name,
-        targetOffset,
-        source.size,
+  return emitAggregateProducerToDestination(source, { kind: "localSlot", offset: targetOffset, size: source.size }, ctx);
+}
+
+function emitAggregateRefToDestination(
+  source: Extract<AggregateValueSpec, { kind: "aggregateRef" }>,
+  destination: AggregateEmitDestination,
+  ctx: EmitExprContext,
+): string[] {
+  if (source.scope === "local") {
+    return emitAggregateCopyFromSourcePointerToDestination(
+      { kind: "localAddress", offset: source.offset },
+      destination,
+      source.size,
+      ctx,
+    );
+  }
+  if (source.scope === "arg") {
+    return emitAggregateCopyFromSourcePointerToDestination(
+      { kind: "argInt", offset: source.offset },
+      destination,
+      source.size,
+      ctx,
+    );
+  }
+  const globalSource = source as Extract<AggregateValueSpec, { kind: "aggregateRef"; scope: "global" }>;
+  return emitAggregateCopyFromSourcePointerToDestination(
+    { kind: "globalAddress", name: globalSource.name },
+    destination,
+    globalSource.size,
+    ctx,
+  );
+}
+
+function emitAggregateAssignExprToDestination(
+  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  destination: AggregateEmitDestination,
+  ctx: EmitExprContext,
+): string[] {
+  const effectDestination: AggregateEmitDestination = {
+    kind: "localSlot",
+    offset: source.tempOffset,
+    size: source.size,
+  };
+  return [
+    ...emitAggregateProducerToDestination(source.source, effectDestination, ctx),
+    ...emitAggregateAssignExprEffect(source, ctx),
+    ...emitAggregateCopyLocalSlotToDestination(source.tempOffset, source.size, destination, ctx),
+  ];
+}
+
+function emitAggregateAssignExprEffect(
+  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  ctx: EmitExprContext,
+): string[] {
+  if (source.target.scope === "local") {
+    return source.target.offset === source.tempOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, source.target.offset, source.size, ctx);
+  }
+  return emitAggregateCopyLocalToGlobal(source.tempOffset, source.target.name, source.size, ctx);
+}
+
+function emitAggregateCallToDestination(
+  source: Extract<AggregateValueSpec, { kind: "call" }>,
+  destination: AggregateEmitDestination,
+  ctx: EmitExprContext,
+): string[] {
+  return [
+    ...emitPushArgs([{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) }, ...(source.args ?? [])], ctx),
+    `\tcall\t${source.target}`,
+    ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
+  ];
+}
+
+function getAggregateDestinationPointerExpr(destination: AggregateEmitDestination): ExprSpec {
+  switch (destination.kind) {
+    case "localSlot":
+      return { kind: "localAddress", offset: destination.offset };
+    case "pointer":
+      return destination.pointer;
+    default:
+      return assertNever(destination);
+  }
+}
+
+function emitAggregateCopyFromSourcePointerToDestination(
+  sourcePointer: ExprSpec,
+  destination: AggregateEmitDestination,
+  size: number,
+  ctx: EmitExprContext,
+): string[] {
+  switch (destination.kind) {
+    case "localSlot":
+      return emitAggregateCopyFromPointerToPointer(sourcePointer, { kind: "localAddress", offset: destination.offset }, size, ctx);
+    case "pointer":
+      return emitAggregateCopyFromPointerToPointer(sourcePointer, destination.pointer, size, ctx);
+    default:
+      return assertNever(destination);
+  }
+}
+
+function emitAggregateCopyLocalSlotToDestination(
+  sourceOffset: number,
+  size: number,
+  destination: AggregateEmitDestination,
+  ctx: EmitExprContext,
+): string[] {
+  switch (destination.kind) {
+    case "localSlot":
+      return sourceOffset === destination.offset ? [] : emitAggregateCopyFromLocal(sourceOffset, destination.offset, size, ctx);
+    case "pointer":
+      return emitAggregateCopyFromPointerToPointer(
+        { kind: "localAddress", offset: sourceOffset },
+        destination.pointer,
+        size,
         ctx,
       );
-    case "aggregateAssignExpr":
-      return [
-        ...emitAggregateValueToLocal(source.source, source.tempOffset, ctx),
-        ...(source.target.scope === "local"
-          ? (source.target.offset === source.tempOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, source.target.offset, source.size, ctx))
-          : emitAggregateCopyLocalToGlobal(source.tempOffset, source.target.name, source.size, ctx)),
-        ...(source.tempOffset === targetOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, targetOffset, source.size, ctx)),
-      ];
-    case "call":
-      return [
-        ...emitPushArgs([{ kind: "expr", expr: { kind: "localAddress", offset: targetOffset } }, ...(source.args ?? [])], ctx),
-        `\tcall\t${source.target}`,
-        ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
-      ];
-    case "comma":
-      return [
-        ...emitExprToHl(source.left, ctx),
-        ...emitAggregateValueToLocal(source.right, targetOffset, ctx),
-      ];
-    case "conditional": {
-      const elseLabel = allocateExprLabel(ctx);
-      const endLabel = allocateExprLabel(ctx);
-      return [
-        ...emitExprToHl(source.condition, ctx),
-        "\tld\ta,h",
-        "\tor\tl",
-        `\tjp\tz,${elseLabel}`,
-        ...emitAggregateValueToLocal(source.thenExpr, targetOffset, ctx),
-        `\tjp\t${endLabel}`,
-        `${elseLabel}:`,
-        ...emitAggregateValueToLocal(source.elseExpr, targetOffset, ctx),
-        `${endLabel}:`,
-      ];
-    }
     default:
-      return assertNever(source);
+      return assertNever(destination);
   }
 }
 
