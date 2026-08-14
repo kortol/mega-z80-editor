@@ -13,10 +13,14 @@ export type ProgramSpec = {
 export type AggregateValueSpec =
   | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; name: string; size: number }
-  | { kind: "aggregateAssignExpr"; target: { scope: "local"; offset: number } | { scope: "global"; name: string }; tempOffset: number; source: AggregateValueSpec; size: number }
+  | { kind: "aggregateAssignExpr"; effectTarget: AggregateAssignEffectTargetSpec; valueOffset: number; source: AggregateValueSpec; size: number }
   | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
   | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
+
+export type AggregateAssignEffectTargetSpec =
+  | { scope: "local"; offset: number }
+  | { scope: "global"; name: string };
 
 export type AggregateDestinationSpec =
   | { kind: "localSlot"; offset: number; size: number }
@@ -89,10 +93,14 @@ export type RefIR = {
 export type AggregateValueIR =
   | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; slot: string; size: number }
-  | { kind: "aggregateAssignExpr"; target: { scope: "local"; slot: number } | { scope: "global"; name: string }; tempSlot: number; source: AggregateValueIR; size: number }
+  | { kind: "aggregateAssignExpr"; effectTarget: AggregateAssignEffectTargetIR; valueSlot: number; source: AggregateValueIR; size: number }
   | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
   | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
   | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
+
+export type AggregateAssignEffectTargetIR =
+  | { scope: "local"; slot: number }
+  | { scope: "global"; name: string };
 
 export type AggregateDestinationIR =
   | { kind: "localSlot"; slot: number; size: number }
@@ -618,10 +626,10 @@ function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): 
     case "aggregateAssignExpr":
       return {
         kind: "aggregateAssignExpr",
-        target: expr.target.scope === "local"
-          ? { scope: "local", offset: getLocalOffset(layout, expr.target.slot) }
-          : { scope: "global", name: expr.target.name },
-        tempOffset: getLocalOffset(layout, expr.tempSlot),
+        effectTarget: expr.effectTarget.scope === "local"
+          ? { scope: "local", offset: getLocalOffset(layout, expr.effectTarget.slot) }
+          : { scope: "global", name: expr.effectTarget.name },
+        valueOffset: getLocalOffset(layout, expr.valueSlot),
         source: lowerAggregateValueIR(expr.source, layout),
         size: expr.size,
       };
@@ -910,13 +918,23 @@ function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
     if (arg.kind === "expr") {
       lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
     } else {
-      lines.push(...emitAggregateValueToTempLocal(arg.source, arg.tempOffset, inferAggregateTempSize(arg.source), { ...ctx, stackDelta }));
-      lines.push(...emitExprToHl({ kind: "localAddress", offset: arg.tempOffset }, { ...ctx, stackDelta }));
+      lines.push(...emitAggregateProducerAddressArg(arg.source, arg.tempOffset, { ...ctx, stackDelta }));
     }
     lines.push("\tpush\thl");
     stackDelta += 2;
   }
   return lines;
+}
+
+function emitAggregateProducerAddressArg(
+  source: AggregateValueSpec,
+  tempOffset: number,
+  ctx: EmitExprContext,
+): string[] {
+  return [
+    ...emitAggregateValueToTempLocal(source, tempOffset, inferAggregateTempSize(source), ctx),
+    ...emitExprToHl({ kind: "localAddress", offset: tempOffset }, ctx),
+  ];
 }
 
 function inferAggregateTempSize(source: AggregateValueSpec): number {
@@ -1293,6 +1311,16 @@ function emitAggregateValueFieldAccessExpr(
   width: ValueWidth,
   ctx: EmitExprContext,
 ): string[] {
+  return emitAggregateProducerFieldRead(source, tempOffset, fieldOffset, width, ctx);
+}
+
+function emitAggregateProducerFieldRead(
+  source: AggregateValueSpec,
+  tempOffset: number,
+  fieldOffset: number,
+  width: ValueWidth,
+  ctx: EmitExprContext,
+): string[] {
   const loadExpr: ExprSpec = width === 1
     ? { kind: "localChar", offset: tempOffset + fieldOffset }
     : { kind: "localInt", offset: tempOffset + fieldOffset };
@@ -1303,6 +1331,15 @@ function emitAggregateValueFieldAccessExpr(
 }
 
 function emitAggregateValueFieldAddressExpr(
+  source: AggregateValueSpec,
+  tempOffset: number,
+  fieldOffset: number,
+  ctx: EmitExprContext,
+): string[] {
+  return emitAggregateProducerFieldAddress(source, tempOffset, fieldOffset, ctx);
+}
+
+function emitAggregateProducerFieldAddress(
   source: AggregateValueSpec,
   tempOffset: number,
   fieldOffset: number,
@@ -1430,13 +1467,13 @@ function emitAggregateAssignExprToDestination(
 ): string[] {
   const effectDestination: AggregateEmitDestination = {
     kind: "localSlot",
-    offset: source.tempOffset,
+    offset: source.valueOffset,
     size: source.size,
   };
   return [
     ...emitAggregateProducerToDestination(source.source, effectDestination, ctx),
     ...emitAggregateAssignExprEffect(source, ctx),
-    ...emitAggregateCopyLocalSlotToDestination(source.tempOffset, source.size, destination, ctx),
+    ...emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, destination, ctx),
   ];
 }
 
@@ -1444,10 +1481,10 @@ function emitAggregateAssignExprEffect(
   source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
   ctx: EmitExprContext,
 ): string[] {
-  if (source.target.scope === "local") {
-    return source.target.offset === source.tempOffset ? [] : emitAggregateCopyFromLocal(source.tempOffset, source.target.offset, source.size, ctx);
+  if (source.effectTarget.scope === "local") {
+    return source.effectTarget.offset === source.valueOffset ? [] : emitAggregateCopyFromLocal(source.valueOffset, source.effectTarget.offset, source.size, ctx);
   }
-  return emitAggregateCopyLocalToGlobal(source.tempOffset, source.target.name, source.size, ctx);
+  return emitAggregateCopyLocalToGlobal(source.valueOffset, source.effectTarget.name, source.size, ctx);
 }
 
 function emitAggregateCallToDestination(
