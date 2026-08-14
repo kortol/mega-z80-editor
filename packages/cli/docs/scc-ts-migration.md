@@ -667,6 +667,7 @@ source-driven compile path の最初の slice はかなり限定しています�
 `aggregate lvalue` は `x`, `*p`, `(c ? p : q)->field` のように storage location を持つ側を指す。
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
 `compare` と `logical truthiness` の aggregate 列は未実装ではなく、`struct/union` を scalar のように比較・条件評価しない方針として `N` を維持する。
+`read as expression` の aggregate value 列は、`(c ? x : y).field` や `&(g = make()).a` のような consumer 経由の read は実質 `S` だが、aggregate value 自体を scalar `Expr` と同列に読む一般値モデルは未了なので `P` を維持する。
 
 2026-08-10 時点の matrix 補足:
 
