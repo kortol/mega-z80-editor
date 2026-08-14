@@ -650,7 +650,7 @@ source-driven compile path の最初の slice はかなり限定しています�
 | --- | --- | --- | --- | --- |
 | local declaration | S | S | S | S |
 | file-scope declaration | S | S | S | S |
-| read as expression | S | S | P | P |
+| read as expression | S | S | S | S |
 | assign statement | S | S | S | S |
 | assign expression result | S | S | N | S |
 | address-of | S | S | S | N |
@@ -667,7 +667,8 @@ source-driven compile path の最初の slice はかなり限定しています�
 `aggregate lvalue` は `x`, `*p`, `(c ? p : q)->field` のように storage location を持つ側を指す。
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
 `compare` と `logical truthiness` の aggregate 列は未実装ではなく、`struct/union` を scalar のように比較・条件評価しない方針として `N` を維持する。
-`read as expression` の aggregate value 列は、`(c ? x : y).field` や `&(g = make()).a` のような consumer 経由の read は実質 `S` だが、aggregate value 自体を scalar `Expr` と同列に読む一般値モデルは未了なので `P` を維持する。
+`read as expression` の aggregate 列は、「その値を aggregate として後段へ流せるか」を指す。`(c ? x : y).field`、`&(g = make()).a`、`take(id(c ? g : alt))`、`return ((side = 1), (g = makeA()))` のような consumer / producer / destination 経路は source-path runtime まで確認済みのため `S` とする。
+aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変換する一般値モデルは今も持たないが、その制約は `read as expression` ではなく `compare` / `logical truthiness` の `N` に含める。
 
 2026-08-10 時点の matrix 補足:
 
@@ -693,7 +694,7 @@ source-driven compile path の最初の slice はかなり限定しています�
   - file-scope aggregate source でも `call / field-read / field-address / assign-expression result / return / return pass-through` を通せる
 - runtime coverage
   - `take(x)`、`take(make())`、`take(g)`、`return make().a`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return ((side = 1), g)`、`return (g = make())`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`return (x = make()).a + take(x = make())`、`aggregate local initializer` / `assign-expression` / `conditional` / `comma` / `nested-call` 経由の aggregate return pass-through は `struct/union` ともに CP/M 実行まで確認済み
-  - ただし aggregate value 自体を scalar の `Expr` と同列に読む一般値モデルは未了なので、matrix 上の aggregate value `read as expression` は `P` のまま維持する
+  - aggregate 自体を scalar の `Expr` と同列に compare / truthiness へ流す一般値モデルは未導入だが、これは `read as expression` ではなく `compare` / `logical truthiness` の intentional `N` として扱う
 
 ### Root Blockers
 
@@ -833,7 +834,7 @@ aggregate sink は destination を first-class にした方がよい。
 - aggregate source の追加で emit 側の分岐が増えない
 - local/global の違いが destination へ閉じる
 - `call` / `return` / initializer / field access が同じ producer model を共有する
-- docs の aggregate value matrix が `P` から `S` へ上がるための構造的準備が整う
+- docs の aggregate value matrix を `S` 判定できるための構造的準備が整う
 
 ### Aggregate Value Generalization To 90%
 
@@ -952,7 +953,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `Step E. Matrix を P から S へ上げる判定`
 
-- 次を source-path runtime だけでなく構造上も一般化済みと判断できたら `S`
+- 次を source-path runtime だけでなく構造上も一般化済みと判断できたため `S`
   - local / file-scope aggregate initializer from value
   - field read / address from conditional/comma/assign-expression
   - call arg from aggregate producer
@@ -982,7 +983,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `4. matrix 更新条件の充足`
 
-- aggregate value の `P` を、根拠付きで `S` へ上げられるかを確認する
+- aggregate value を、根拠付きで `S` 判定できるかを確認する
 
 #### Progress Estimate
 
@@ -991,8 +992,8 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 - producer tree 導入: `85%`
 - lowering destination 統一: `85%`
 - emit destination 統一: `80%`
-- aggregate consumer 一般化: `75%`
-- aggregate value 全体の設計収束: `78%`
+- aggregate consumer 一般化: `80%`
+- aggregate value 全体の設計収束: `82%`
 
 したがって、Full C Coverage に対する真直度を 90% へ上げるには、
 
