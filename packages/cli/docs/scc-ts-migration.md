@@ -648,21 +648,21 @@ source-driven compile path の最初の slice はかなり限定しています�
 
 | path / operation | scalar value | pointer value | aggregate lvalue | aggregate value |
 | --- | --- | --- | --- | --- |
-| local declaration | S | S | S | P |
-| file-scope declaration | S | S | S | P |
+| local declaration | S | S | S | S |
+| file-scope declaration | S | S | S | S |
 | read as expression | S | S | P | P |
-| assign statement | S | S | S | P |
-| assign expression result | S | S | N | P |
+| assign statement | S | S | S | S |
+| assign expression result | S | S | N | S |
 | address-of | S | S | S | N |
-| member / deref member | N/A | S | S | P |
+| member / deref member | N/A | S | S | S |
 | pre/post inc/dec | S | S | S for scalar fields | N |
 | compare | S | S | N | N |
 | logical truthiness | S | S | N | N |
-| conditional `c ? x : y` | S | S | N | P |
-| comma `(x, y)` | S | S | N | P |
-| call argument | S | S | N | P |
+| conditional `c ? x : y` | S | S | N | S |
+| comma `(x, y)` | S | S | N | S |
+| call argument | S | S | N | S |
 | indirect call target | N/A | S | N/A | N/A |
-| return value | S | S | N | P |
+| return value | S | S | N | S |
 
 `aggregate lvalue` は `x`, `*p`, `(c ? p : q)->field` のように storage location を持つ側を指す。
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
@@ -674,7 +674,7 @@ source-driven compile path の最初の slice はかなり限定しています�
   - scalar は `int g = 65;`
   - pointer は `char *gp; gp = buf; outchar(gp[0]);`、`int (*fp)(void); fp = &putA; fp();`、`int (*fp)(void) = &putA; fp();` まで source-path runtime pass したため `S`
   - aggregate lvalue は `struct Foo g; g.a = 65; g.b = 66; outchar(g.a); outchar(g.b);` と `g = makeFoo(); u = makeBar();` まで source-path runtime pass したため `S`
-  - aggregate value は `take(g)`、`return g;`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`return ((side = 1), g);`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`return (g = make())`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))` を `struct/union` ともに source-path runtime pass したため `P`
+  - aggregate value は `take(g)`、`return g;`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`return ((side = 1), g);`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`return (g = make())`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))` を `struct/union` ともに source-path runtime pass し、`producer / destination / consumer` 経路でも通るため主要列は `S`
   - aggregate brace initializer も `struct Foo g = { 65, 66 };` と `struct Outer g = { { 65, 66 }, 67 };` で source-path runtime pass
 - `indirect call target`
   - `int (*fp)(void) = &putA; fp(); fp = &putB; fp();`、`int (*fp)(void); fp = &putA; fp();`、`int (*fp)(void) = &putA; fp();` は source path runtime pass
@@ -692,20 +692,19 @@ source-driven compile path の最初の slice はかなり限定しています�
   - file-scope aggregate source でも `call / field-read / field-address / assign-expression result / return / return pass-through` を通せる
 - runtime coverage
   - `take(x)`、`take(make())`、`take(g)`、`return make().a`、`(c ? g : alt).a`、`&(c ? g : alt).a`、`struct Foo y = g;`、`struct Foo z = c ? g : alt;`、`struct Foo w = id(g = makeA());`、`struct Foo q = id(((side = 1), (g = makeB())));`、`id(id(g)).a`、`take(id(c ? g : alt))`、`id(((side = 1), g)).b`、`return id(c ? g : alt)`、`(g = makeA()).a`、`id(g = makeA()).a`、`take(id(g = makeB()))`、`id(((side = 1), (g = makeA()))).b`、`return id(c ? (g = makeA()) : (g = makeB()))`、`&(g = makeA()).a`、`take(g = makeB())`、`take(c ? (g = makeA()) : (g = makeB()))`、`take(((side = 1), (g = makeA())))`、`return ((side = 1), g)`、`return (g = make())`、`return c ? (g = makeA()) : (g = makeB())`、`return ((side = 1), (g = makeA()))`、`c ? (g = makeA()) : (g = makeB())`、`((side = 1), (g = makeA()))`、`return (x = make()).a + take(x = make())`、`aggregate local initializer` / `assign-expression` / `conditional` / `comma` / `nested-call` 経由の aggregate return pass-through は `struct/union` ともに CP/M 実行まで確認済み
-  - ただし aggregate value 自体の一般値モデル統合は未了なので matrix 上の aggregate value `call argument` / `return value` は `P` のまま維持する
+  - ただし aggregate value 自体を scalar の `Expr` と同列に読む一般値モデルは未了なので、matrix 上の aggregate value `read as expression` は `P` のまま維持する
 
 ### Root Blockers
 
 - `tsFrontendSemantic.ts`
   - aggregate value path は `call` / `conditional` / `comma` / assign-expression result / field-read / field-address / nested-call / return pass-through まで入った
-  - ただし aggregate value 自体を scalar expression と同列に扱う汎化はまだない
   - compare / truthiness は intentional reject を維持する
-  - assign-expression result は通るようになったが、general aggregate value model への統合はまだない
+  - ただし aggregate value 自体を scalar expression と同列に読む一般値モデルはまだない
 - `tsProgram.ts`
   - aggregate temporary local slot と aggregate argument / return ABI は導入済み
   - `AggregateDestinationSpec/IR` と `materializeAggregateValue(destination, source)` は導入済み
-  - field-read / field-address / aggregate call-arg の temp-local path も helper へ共通化した
-  - ただし `emitAggregateValueToLocal()` が依然として source tree evaluator として残っており、一般値モデルへの統合は未了
+  - `AggregateConsumerSpec/IR` により field-read / field-address / aggregate call-arg は型上も consumer として統一した
+  - ただし `emitAggregateValueToLocal()` が依然として source tree evaluator として残っており、完全な consumer-driven emit への移行は未了
 - `tsFrontendLowering.ts`
   - local/global/return sink は `materializeAggregateProducer()` ベースへ寄せた
   - local aggregate copy, aggregate-valued member read, aggregate call / return ABI は lower 済み
@@ -989,10 +988,10 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 2026-08-14 時点の aggregate value 一般化進捗は次のように見積もる。
 
 - producer tree 導入: `85%`
-- lowering destination 統一: `80%`
-- emit destination 統一: `65%`
-- aggregate consumer 一般化: `45%`
-- aggregate value 全体の設計収束: `60%`
+- lowering destination 統一: `85%`
+- emit destination 統一: `80%`
+- aggregate consumer 一般化: `75%`
+- aggregate value 全体の設計収束: `78%`
 
 したがって、Full C Coverage に対する真直度を 90% へ上げるには、
 
