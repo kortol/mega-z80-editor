@@ -892,21 +892,24 @@ function lowerAggregateCallIntoLocalSlot(
   return {
     kind: "evalExpr",
     expr: {
-      kind: "call",
-      target: source.target.name,
-      args: [
-        { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
-        ...source.args.map((arg) => isAggregateCallArg(arg)
-          ? {
-            kind: "aggregateAddress" as const,
-            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-            tempSlot: allocateTempLocal(functionState, arg.type.size),
+        kind: "call",
+        target: source.target.name,
+        args: [
+          { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
+          ...source.args.map((arg) => isAggregateCallArg(arg)
+            ? {
+            kind: "aggregateConsumer" as const,
+            consumer: {
+              kind: "addressArg" as const,
+              source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+              tempSlot: allocateTempLocal(functionState, arg.type.size),
+            },
           }
           : {
             kind: "expr" as const,
             expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
           }),
-      ],
+        ],
     },
   };
 }
@@ -1166,20 +1169,26 @@ function lowerExpr(
     case "aggregateValueFieldAccess": {
       const tempSlot = allocateTempLocal(functionState, expr.source.type.size);
       return {
-        kind: "aggregateValueFieldAccess",
-        source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
-        tempSlot,
-        offset: expr.offset,
-        width: expr.type.width,
+        kind: "aggregateConsumer",
+        consumer: {
+          kind: "fieldRead",
+          source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
+          tempSlot,
+          offset: expr.offset,
+          width: expr.type.width,
+        },
       };
     }
     case "aggregateValueFieldAddress": {
       const tempSlot = allocateTempLocal(functionState, expr.source.type.size);
       return {
-        kind: "aggregateValueFieldAddress",
-        source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
-        tempSlot,
-        offset: expr.offset,
+        kind: "aggregateConsumer",
+        consumer: {
+          kind: "fieldAddress",
+          source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
+          tempSlot,
+          offset: expr.offset,
+        },
       };
     }
     case "pointerAdd":
@@ -1261,9 +1270,12 @@ function lowerExpr(
         target: expr.target.name,
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
-            kind: "aggregateAddress",
-            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-            tempSlot: allocateTempLocal(functionState, arg.type.size),
+            kind: "aggregateConsumer",
+            consumer: {
+              kind: "addressArg",
+              source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+              tempSlot: allocateTempLocal(functionState, arg.type.size),
+            },
           }
           : {
             kind: "expr",
@@ -1276,9 +1288,12 @@ function lowerExpr(
         target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
-            kind: "aggregateAddress",
-            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-            tempSlot: allocateTempLocal(functionState, arg.type.size),
+            kind: "aggregateConsumer",
+            consumer: {
+              kind: "addressArg",
+              source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+              tempSlot: allocateTempLocal(functionState, arg.type.size),
+            },
           }
           : {
             kind: "expr",
@@ -1457,9 +1472,12 @@ function lowerAggregateValueExpr(
         target: expr.target.name,
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
-            kind: "aggregateAddress",
-            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-            tempSlot: allocateTempLocal(functionState, arg.type.size),
+            kind: "aggregateConsumer",
+            consumer: {
+              kind: "addressArg",
+              source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+              tempSlot: allocateTempLocal(functionState, arg.type.size),
+            },
           }
           : {
             kind: "expr",

@@ -27,9 +27,14 @@ export type AggregateDestinationSpec =
   | { kind: "globalSymbol"; name: string; size: number }
   | { kind: "returnSlot"; size: number };
 
+export type AggregateConsumerSpec =
+  | { kind: "addressArg"; source: AggregateValueSpec; tempOffset: number }
+  | { kind: "fieldRead"; source: AggregateValueSpec; tempOffset: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; source: AggregateValueSpec; tempOffset: number; offset: number };
+
 export type CallArgSpec =
   | { kind: "expr"; expr: ExprSpec }
-  | { kind: "aggregateAddress"; source: AggregateValueSpec; tempOffset: number };
+  | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerSpec, { kind: "addressArg" }> };
 
 export type ExprSpec =
   | { kind: "const"; value: number }
@@ -64,8 +69,7 @@ export type ExprSpec =
   | { kind: "divmod"; left: ExprSpec; right: ExprSpec; result: "quotient" | "remainder" }
   | { kind: "compare"; left: ExprSpec; right: ExprSpec; helper: string }
   | { kind: "additive"; left: ExprSpec; right: ExprSpec; op: "+" | "-" }
-  | { kind: "aggregateValueFieldAccess"; source: AggregateValueSpec; tempOffset: number; offset: number; width: ValueWidth }
-  | { kind: "aggregateValueFieldAddress"; source: AggregateValueSpec; tempOffset: number; offset: number }
+  | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerSpec, { kind: "fieldRead" | "fieldAddress" }> }
   | { kind: "localChar"; offset: number }
   | { kind: "localInt"; offset: number }
   | { kind: "argChar"; offset: number }
@@ -107,9 +111,14 @@ export type AggregateDestinationIR =
   | { kind: "globalSymbol"; name: string; size: number }
   | { kind: "returnSlot"; size: number };
 
+export type AggregateConsumerIR =
+  | { kind: "addressArg"; source: AggregateValueIR; tempSlot: number }
+  | { kind: "fieldRead"; source: AggregateValueIR; tempSlot: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; source: AggregateValueIR; tempSlot: number; offset: number };
+
 export type CallArgIR =
   | { kind: "expr"; expr: ExprIR }
-  | { kind: "aggregateAddress"; source: AggregateValueIR; tempSlot: number };
+  | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerIR, { kind: "addressArg" }> };
 
 export type ExprIR =
   | { kind: "const"; value: number }
@@ -143,8 +152,7 @@ export type ExprIR =
   | { kind: "divmod"; left: ExprIR; right: ExprIR; result: "quotient" | "remainder" }
   | { kind: "compare"; left: ExprIR; right: ExprIR; helper: string }
   | { kind: "additive"; left: ExprIR; right: ExprIR; op: "+" | "-" }
-  | { kind: "aggregateValueFieldAccess"; source: AggregateValueIR; tempSlot: number; offset: number; width: ValueWidth }
-  | { kind: "aggregateValueFieldAddress"; source: AggregateValueIR; tempSlot: number; offset: number }
+  | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerIR, { kind: "fieldRead" | "fieldAddress" }> }
   | { kind: "globalRef"; name: string; width: ValueWidth }
   | { kind: "call"; target: string; args?: CallArgIR[] };
 
@@ -569,20 +577,10 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         right: lowerExprIR(expr.right, layout),
         op: expr.op,
       };
-    case "aggregateValueFieldAccess":
+    case "aggregateConsumer":
       return {
-        kind: "aggregateValueFieldAccess",
-        source: lowerAggregateValueIR(expr.source, layout),
-        tempOffset: getLocalOffset(layout, expr.tempSlot),
-        offset: expr.offset,
-        width: expr.width,
-      };
-    case "aggregateValueFieldAddress":
-      return {
-        kind: "aggregateValueFieldAddress",
-        source: lowerAggregateValueIR(expr.source, layout),
-        tempOffset: getLocalOffset(layout, expr.tempSlot),
-        offset: expr.offset,
+        kind: "aggregateConsumer",
+        consumer: lowerAggregateConsumerIR(expr.consumer, layout) as Extract<AggregateConsumerSpec, { kind: "fieldRead" | "fieldAddress" }>,
       };
     case "call":
       return {
@@ -673,16 +671,40 @@ function lowerAggregateDestinationIR(destination: AggregateDestinationIR, layout
   }
 }
 
+function lowerAggregateConsumerIR(consumer: AggregateConsumerIR, layout: FunctionLayout): AggregateConsumerSpec {
+  switch (consumer.kind) {
+    case "addressArg":
+      return {
+        kind: "addressArg",
+        source: lowerAggregateValueIR(consumer.source, layout),
+        tempOffset: getLocalOffset(layout, consumer.tempSlot),
+      };
+    case "fieldRead":
+      return {
+        kind: "fieldRead",
+        source: lowerAggregateValueIR(consumer.source, layout),
+        tempOffset: getLocalOffset(layout, consumer.tempSlot),
+        offset: consumer.offset,
+        width: consumer.width,
+      };
+    case "fieldAddress":
+      return {
+        kind: "fieldAddress",
+        source: lowerAggregateValueIR(consumer.source, layout),
+        tempOffset: getLocalOffset(layout, consumer.tempSlot),
+        offset: consumer.offset,
+      };
+    default:
+      return assertNever(consumer);
+  }
+}
+
 function lowerCallArgIR(arg: CallArgIR, layout: FunctionLayout): CallArgSpec {
   switch (arg.kind) {
     case "expr":
       return { kind: "expr", expr: lowerExprIR(arg.expr, layout) };
-    case "aggregateAddress":
-      return {
-        kind: "aggregateAddress",
-        source: lowerAggregateValueIR(arg.source, layout),
-        tempOffset: getLocalOffset(layout, arg.tempSlot),
-      };
+    case "aggregateConsumer":
+      return { kind: "aggregateConsumer", consumer: lowerAggregateConsumerIR(arg.consumer, layout) as Extract<AggregateConsumerSpec, { kind: "addressArg" }> };
     default:
       return assertNever(arg);
   }
@@ -871,10 +893,8 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return emitHelperCompare(expr.left, expr.right, expr.helper, ctx);
     case "additive":
       return emitAdditiveExpr(expr.left, expr.right, expr.op, ctx);
-    case "aggregateValueFieldAccess":
-      return emitAggregateValueFieldAccessExpr(expr.source, expr.tempOffset, expr.offset, expr.width, ctx);
-    case "aggregateValueFieldAddress":
-      return emitAggregateValueFieldAddressExpr(expr.source, expr.tempOffset, expr.offset, ctx);
+    case "aggregateConsumer":
+      return emitAggregateConsumerExpr(expr.consumer, ctx);
     case "localChar":
     case "argChar":
       return emitLoadStackByteToHl(expr.offset, ctx);
@@ -919,8 +939,8 @@ function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
       lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
     } else {
       lines.push(...emitAggregateProducerConsumer(
-        arg.source,
-        { kind: "addressArg", tempOffset: arg.tempOffset },
+        arg.consumer.source,
+        { kind: "addressArg", tempOffset: arg.consumer.tempOffset },
         { ...ctx, stackDelta },
       ));
     }
@@ -947,8 +967,15 @@ function inferAggregateTempSize(source: AggregateValueSpec): number {
 
 type AggregateEmitConsumer =
   | { kind: "addressArg"; tempOffset: number }
-  | { kind: "fieldRead"; tempOffset: number; fieldOffset: number; width: ValueWidth }
-  | { kind: "fieldAddress"; tempOffset: number; fieldOffset: number };
+  | { kind: "fieldRead"; tempOffset: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; tempOffset: number; offset: number };
+
+function emitAggregateConsumerExpr(
+  consumer: Extract<AggregateConsumerSpec, { kind: "fieldRead" | "fieldAddress" }>,
+  ctx: EmitExprContext,
+): string[] {
+  return emitAggregateProducerConsumer(consumer.source, consumer, ctx);
+}
 
 function emitAggregateProducerConsumer(
   source: AggregateValueSpec,
@@ -959,9 +986,9 @@ function emitAggregateProducerConsumer(
     case "addressArg":
       return emitAggregateProducerAddressArg(source, consumer.tempOffset, ctx);
     case "fieldRead":
-      return emitAggregateProducerFieldRead(source, consumer.tempOffset, consumer.fieldOffset, consumer.width, ctx);
+      return emitAggregateProducerFieldRead(source, consumer.tempOffset, consumer.offset, consumer.width, ctx);
     case "fieldAddress":
-      return emitAggregateProducerFieldAddress(source, consumer.tempOffset, consumer.fieldOffset, ctx);
+      return emitAggregateProducerFieldAddress(source, consumer.tempOffset, consumer.offset, ctx);
     default:
       return assertNever(consumer);
   }
@@ -1339,7 +1366,7 @@ function emitAggregateValueFieldAccessExpr(
 ): string[] {
   return emitAggregateProducerConsumer(
     source,
-    { kind: "fieldRead", tempOffset, fieldOffset, width },
+    { kind: "fieldRead", tempOffset, offset: fieldOffset, width },
     ctx,
   );
 }
@@ -1368,7 +1395,7 @@ function emitAggregateValueFieldAddressExpr(
 ): string[] {
   return emitAggregateProducerConsumer(
     source,
-    { kind: "fieldAddress", tempOffset, fieldOffset },
+    { kind: "fieldAddress", tempOffset, offset: fieldOffset },
     ctx,
   );
 }
