@@ -1026,6 +1026,141 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\thl,#g\+0/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
+  test("does not add an extra stack temp for assign-expression field consumers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ return (g = make()).a; }\n";
+    const parsed = parseProgram(source, "aggregate-global-assign-field-read-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-global-assign-field-read-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "aggregate-global-assign-field-read-no-extra-temp.i", source, "aggregate-global-assign-field-read-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(3);
+    expect(mainBody).not.toContain("\tld\thl,#3\n\tadd\thl,sp");
+  });
+
+  test("uses only the ABI return slot temp for aggregate call field consumers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ return make().a; }\n";
+    const parsed = parseProgram(source, "aggregate-call-field-read-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-call-field-read-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "aggregate-call-field-read-no-extra-temp.i", source, "aggregate-call-field-read-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(3);
+    expect(mainBody).not.toContain("\tld\thl,#3\n\tadd\thl,sp");
+  });
+
+  test("uses only the ABI return slot temp for aggregate call field address consumers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nchar first(char *p){ return p[0]; }\nint main(){ return first(&(make().a)); }\n";
+    const parsed = parseProgram(source, "aggregate-call-field-address-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-call-field-address-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "aggregate-call-field-address-no-extra-temp.i", source, "aggregate-call-field-address-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(3);
+    expect(mainBody).not.toContain("\tld\thl,#3\n\tadd\thl,sp");
+  });
+
+  test("uses only one ABI return slot for conditional aggregate call field consumers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint main(int c){ return (c ? makeA() : makeB()).a; }\n";
+    const parsed = parseProgram(source, "aggregate-conditional-call-field-read-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-conditional-call-field-read-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "aggregate-conditional-call-field-read-no-extra-temp.i", source, "aggregate-conditional-call-field-read-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(3);
+    expect(mainBody).not.toContain("\tld\thl,#3\n\tadd\thl,sp");
+  });
+
+  test("uses only the ABI return slot temp for aggregate call arguments", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.a; }\nint main(){ return take(make()); }\n";
+    const parsed = parseProgram(source, "aggregate-call-arg-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-call-arg-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "aggregate-call-arg-no-extra-temp.i", source, "aggregate-call-arg-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(3);
+    expect(mainBody).not.toContain("\tld\thl,#3\n\tadd\thl,sp");
+  });
+
+  test("uses one ABI return slot per nested aggregate call producer", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(){ return id(make()).a; }\n";
+    const parsed = parseProgram(source, "aggregate-nested-call-field-read-abi-slots.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-nested-call-field-read-abi-slots.c");
+    const spec = lowerSourceProgram(bound, "aggregate-nested-call-field-read-abi-slots.i", source, "aggregate-nested-call-field-read-abi-slots.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(6);
+    expect((mainBody.match(/\tld\thl,#3\n\tadd\thl,sp/g) ?? []).length).toBe(2);
+  });
+
+  test("uses only the ABI return slot temp for union call field consumers", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar make(){ union Bar x; return x; }\nint main(){ return make().a; }\n";
+    const parsed = parseProgram(source, "union-call-field-read-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "union-call-field-read-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "union-call-field-read-no-extra-temp.i", source, "union-call-field-read-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(2);
+    expect(mainBody).not.toContain("\tld\thl,#2\n\tadd\thl,sp");
+  });
+
+  test("uses only the ABI return slot temp for union call field address consumers", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar make(){ union Bar x; return x; }\nchar first(char *p){ return p[0]; }\nint main(){ return first(&(make().a)); }\n";
+    const parsed = parseProgram(source, "union-call-field-address-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "union-call-field-address-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "union-call-field-address-no-extra-temp.i", source, "union-call-field-address-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(2);
+    expect(mainBody).not.toContain("\tld\thl,#2\n\tadd\thl,sp");
+  });
+
+  test("uses only the ABI return slot temp for union call arguments", () => {
+    const source = "union Bar { char a; int b; };\nunion Bar make(){ union Bar x; return x; }\nint take(union Bar x){ return x.a; }\nint main(){ return take(make()); }\n";
+    const parsed = parseProgram(source, "union-call-arg-no-extra-temp.c");
+    const bound = analyzeProgram(parsed, source, "union-call-arg-no-extra-temp.c");
+    const spec = lowerSourceProgram(bound, "union-call-arg-no-extra-temp.i", source, "union-call-arg-no-extra-temp.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(2);
+    expect(mainBody).not.toContain("\tld\thl,#2\n\tadd\thl,sp");
+  });
+
+  test("uses one ABI return slot per nested aggregate call field address producer", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nchar first(char *p){ return p[0]; }\nint main(){ return first(&(id(make()).a)); }\n";
+    const parsed = parseProgram(source, "aggregate-nested-call-field-address-abi-slots.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-nested-call-field-address-abi-slots.c");
+    const spec = lowerSourceProgram(bound, "aggregate-nested-call-field-address-abi-slots.i", source, "aggregate-nested-call-field-address-abi-slots.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(6);
+    expect((mainBody.match(/\tld\thl,#3\n\tadd\thl,sp/g) ?? []).length).toBe(2);
+    expect((mainBody.match(/\tld\thl,#2\n\tadd\thl,sp/g) ?? []).length).toBe(2);
+  });
+
+  test("uses one shared ABI return slot for conditional nested aggregate call field consumers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(int c){ return (c ? id(makeA()) : id(makeB())).a; }\n";
+    const parsed = parseProgram(source, "aggregate-conditional-nested-call-field-read-abi-slots.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-conditional-nested-call-field-read-abi-slots.c");
+    const spec = lowerSourceProgram(bound, "aggregate-conditional-nested-call-field-read-abi-slots.i", source, "aggregate-conditional-nested-call-field-read-abi-slots.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(9);
+    expect((mainBody.match(/\tld\thl,#6\n\tadd\thl,sp/g) ?? []).length).toBe(4);
+    expect((mainBody.match(/\tld\thl,#5\n\tadd\thl,sp/g) ?? []).length).toBe(2);
+    expect((mainBody.match(/\tld\thl,#2\n\tadd\thl,sp/g) ?? []).length).toBe(2);
+  });
+
   test("lowers file-scope conditional and comma aggregate assign-expression values", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint main(int c){ int side = 0; return (c ? (g = makeA()) : (g = makeB())).a + (((side = 1), (g = makeA()))).b; }\n";
     const parsed = parseProgram(source, "aggregate-global-assign-conditional-comma.c");

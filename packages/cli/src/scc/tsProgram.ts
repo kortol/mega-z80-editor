@@ -25,8 +25,8 @@ export type AggregateDestinationSpec =
 
 export type AggregateConsumerSpec =
   | { kind: "addressArg"; source: AggregateValueSpec; tempOffset: number }
-  | { kind: "fieldRead"; source: AggregateValueSpec; tempOffset: number; offset: number; width: ValueWidth }
-  | { kind: "fieldAddress"; source: AggregateValueSpec; tempOffset: number; offset: number };
+  | { kind: "fieldRead"; source: AggregateValueSpec; tempOffset?: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; source: AggregateValueSpec; tempOffset?: number; offset: number };
 
 export type CallArgSpec =
   | { kind: "expr"; expr: ExprSpec }
@@ -105,8 +105,8 @@ export type AggregateDestinationIR =
 
 export type AggregateConsumerIR =
   | { kind: "addressArg"; source: AggregateValueIR; tempSlot: number }
-  | { kind: "fieldRead"; source: AggregateValueIR; tempSlot: number; offset: number; width: ValueWidth }
-  | { kind: "fieldAddress"; source: AggregateValueIR; tempSlot: number; offset: number };
+  | { kind: "fieldRead"; source: AggregateValueIR; tempSlot?: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; source: AggregateValueIR; tempSlot?: number; offset: number };
 
 export type CallArgIR =
   | { kind: "expr"; expr: ExprIR }
@@ -675,7 +675,7 @@ function lowerAggregateConsumerIR(consumer: AggregateConsumerIR, layout: Functio
       return {
         kind: "fieldRead",
         source: lowerAggregateValueIR(consumer.source, layout),
-        tempOffset: getLocalOffset(layout, consumer.tempSlot),
+        tempOffset: consumer.tempSlot !== undefined ? getLocalOffset(layout, consumer.tempSlot) : undefined,
         offset: consumer.offset,
         width: consumer.width,
       };
@@ -683,7 +683,7 @@ function lowerAggregateConsumerIR(consumer: AggregateConsumerIR, layout: Functio
       return {
         kind: "fieldAddress",
         source: lowerAggregateValueIR(consumer.source, layout),
-        tempOffset: getLocalOffset(layout, consumer.tempSlot),
+        tempOffset: consumer.tempSlot !== undefined ? getLocalOffset(layout, consumer.tempSlot) : undefined,
         offset: consumer.offset,
       };
     default:
@@ -959,8 +959,8 @@ function inferAggregateTempSize(source: AggregateValueSpec): number {
 
 type AggregateEmitConsumer =
   | { kind: "addressArg"; tempOffset: number }
-  | { kind: "fieldRead"; tempOffset: number; offset: number; width: ValueWidth }
-  | { kind: "fieldAddress"; tempOffset: number; offset: number };
+  | { kind: "fieldRead"; tempOffset?: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; tempOffset?: number; offset: number };
 
 function emitAggregateConsumerExpr(
   consumer: Extract<AggregateConsumerSpec, { kind: "fieldRead" | "fieldAddress" }>,
@@ -1365,16 +1365,24 @@ function emitAggregateValueFieldAccessExpr(
 
 function emitAggregateProducerFieldRead(
   source: AggregateValueSpec,
-  tempOffset: number,
+  tempOffset: number | undefined,
   fieldOffset: number,
   width: ValueWidth,
   ctx: EmitExprContext,
 ): string[] {
+  const pointerLines = tryEmitAggregateProducerFieldPointerToHl(source, tempOffset, fieldOffset, ctx);
+  if (pointerLines) {
+    return [
+      ...pointerLines,
+      ...(width === 1 ? emitDerefByteFromCurrentHl() : emitDerefWordFromCurrentHl()),
+    ];
+  }
+  const requiredTempOffset = requireAggregateConsumerTempOffset(source, tempOffset);
   const loadExpr: ExprSpec = width === 1
-    ? { kind: "localChar", offset: tempOffset + fieldOffset }
-    : { kind: "localInt", offset: tempOffset + fieldOffset };
+    ? { kind: "localChar", offset: requiredTempOffset + fieldOffset }
+    : { kind: "localInt", offset: requiredTempOffset + fieldOffset };
   return [
-    ...emitAggregateProducerToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAccess(fieldOffset, width), ctx),
+    ...emitAggregateProducerToTempLocal(source, requiredTempOffset, getAggregateTempSizeForFieldAccess(fieldOffset, width), ctx),
     ...emitExprToHl(loadExpr, ctx),
   ];
 }
@@ -1394,13 +1402,18 @@ function emitAggregateValueFieldAddressExpr(
 
 function emitAggregateProducerFieldAddress(
   source: AggregateValueSpec,
-  tempOffset: number,
+  tempOffset: number | undefined,
   fieldOffset: number,
   ctx: EmitExprContext,
 ): string[] {
+  const pointerLines = tryEmitAggregateProducerFieldPointerToHl(source, tempOffset, fieldOffset, ctx);
+  if (pointerLines) {
+    return pointerLines;
+  }
+  const requiredTempOffset = requireAggregateConsumerTempOffset(source, tempOffset);
   return [
-    ...emitAggregateProducerToTempLocal(source, tempOffset, getAggregateTempSizeForFieldAddress(fieldOffset), ctx),
-    ...emitLoadStackAddrToHl(tempOffset + fieldOffset, ctx),
+    ...emitAggregateProducerToTempLocal(source, requiredTempOffset, getAggregateTempSizeForFieldAddress(fieldOffset), ctx),
+    ...emitLoadStackAddrToHl(requiredTempOffset + fieldOffset, ctx),
   ];
 }
 
@@ -1411,6 +1424,119 @@ function emitAggregateProducerToTempLocal(
   ctx: EmitExprContext,
 ): string[] {
   return emitAggregateValueToDestination(source, { kind: "localSlot", offset: tempOffset, size }, ctx);
+}
+
+function requireAggregateConsumerTempOffset(
+  source: AggregateValueSpec,
+  tempOffset: number | undefined,
+): number {
+  if (tempOffset === undefined) {
+    throw new Error(`Aggregate consumer for '${source.kind}' requires a temporary local.`);
+  }
+  return tempOffset;
+}
+
+function tryEmitAggregateProducerFieldPointerToHl(
+  source: AggregateValueSpec,
+  tempOffset: number | undefined,
+  fieldOffset: number,
+  ctx: EmitExprContext,
+): string[] | null {
+  switch (source.kind) {
+    case "aggregateRef":
+      return emitExprToHl(getAggregateFieldPointerFromRef(source, fieldOffset), ctx);
+    case "aggregateAssignExpr":
+      return [
+        ...emitAggregateAssignExprValue(source, ctx),
+        ...emitAggregateAssignExprEffectToTarget(source, ctx),
+        ...emitExprToHl(getAggregateFieldPointerFromAssignDestination(source.effectDestination, fieldOffset), ctx),
+      ];
+    case "call": {
+      const requiredTempOffset = requireAggregateConsumerTempOffset(source, tempOffset);
+      return [
+        ...emitAggregateCallToDestination(source, { kind: "localSlot", offset: requiredTempOffset, size: source.size }, ctx),
+        ...emitLoadStackAddrToHl(requiredTempOffset + fieldOffset, ctx),
+      ];
+    }
+    case "comma": {
+      const right = tryEmitAggregateProducerFieldPointerToHl(source.right, tempOffset, fieldOffset, ctx);
+      return right ? [...emitExprToHl(source.left, ctx), ...right] : null;
+    }
+    case "conditional": {
+      const thenLines = tryEmitAggregateProducerFieldPointerToHl(source.thenExpr, tempOffset, fieldOffset, ctx);
+      const elseLines = tryEmitAggregateProducerFieldPointerToHl(source.elseExpr, tempOffset, fieldOffset, ctx);
+      if (!thenLines || !elseLines) {
+        return null;
+      }
+      const elseLabel = allocateExprLabel(ctx);
+      const endLabel = allocateExprLabel(ctx);
+      return [
+        ...emitExprToHl(source.condition, ctx),
+        "\tld\ta,h",
+        "\tor\tl",
+        `\tjp\tz,${elseLabel}`,
+        ...thenLines,
+        `\tjp\t${endLabel}`,
+        `${elseLabel}:`,
+        ...elseLines,
+        `${endLabel}:`,
+      ];
+    }
+    default:
+      return null;
+  }
+}
+
+function getAggregateFieldPointerFromRef(
+  source: Extract<AggregateValueSpec, { kind: "aggregateRef" }>,
+  fieldOffset: number,
+): ExprSpec {
+  return getAggregateFieldPointerFromBasePointer(getAggregateRefPointerExpr(source), fieldOffset);
+}
+
+function getAggregateFieldPointerFromAssignDestination(
+  destination: Extract<AggregateDestinationSpec, { kind: "localSlot" | "globalSymbol" }>,
+  fieldOffset: number,
+): ExprSpec {
+  return getAggregateFieldPointerFromBasePointer(
+    destination.kind === "localSlot"
+      ? { kind: "localAddress", offset: destination.offset }
+      : { kind: "globalAddress", name: destination.name },
+    fieldOffset,
+  );
+}
+
+function getAggregateRefPointerExpr(source: Extract<AggregateValueSpec, { kind: "aggregateRef" }>): ExprSpec {
+  return source.scope === "global"
+    ? { kind: "globalAddress", name: source.name }
+    : source.scope === "local"
+      ? { kind: "localAddress", offset: source.offset }
+      : { kind: "argInt", offset: source.offset };
+}
+
+function getAggregateFieldPointerFromBasePointer(basePointer: ExprSpec, fieldOffset: number): ExprSpec {
+  return {
+    kind: "pointerAdd",
+    pointer: basePointer,
+    index: { kind: "const", value: fieldOffset },
+    scale: 1,
+  };
+}
+
+function emitDerefByteFromCurrentHl(): string[] {
+  return [
+    "\tld\tl,(hl)",
+    "\tld\th,#0",
+  ];
+}
+
+function emitDerefWordFromCurrentHl(): string[] {
+  return [
+    "\tld\ta,(hl)",
+    "\tinc\thl",
+    "\tld\th,(hl)",
+    "\tld\tl,a",
+  ];
 }
 
 function getAggregateTempSizeForFieldAccess(fieldOffset: number, width: ValueWidth): number {

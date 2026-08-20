@@ -27,6 +27,7 @@ import {
   ProgramSpec,
   RefIR,
   StmtIRHigh,
+  ValueWidth,
   lowerFunctionIR,
 } from "./tsProgram";
 
@@ -1229,28 +1230,34 @@ function lowerExpr(
         },
       };
     case "aggregateValueFieldAccess": {
-      const tempSlot = allocateTempLocal(functionState, expr.source.type.size);
       return {
         kind: "aggregateConsumer",
-        consumer: {
-          kind: "fieldRead",
-          source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
-          tempSlot,
-          offset: expr.offset,
-          width: expr.type.width,
-        },
+        consumer: lowerAggregateFieldReadConsumer(
+          expr.source,
+          expr.offset,
+          expr.type.width,
+          externs,
+          definedFunctions,
+          sourceText,
+          state,
+          functionState,
+          file,
+        ),
       };
     }
     case "aggregateValueFieldAddress": {
-      const tempSlot = allocateTempLocal(functionState, expr.source.type.size);
       return {
         kind: "aggregateConsumer",
-        consumer: {
-          kind: "fieldAddress",
-          source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
-          tempSlot,
-          offset: expr.offset,
-        },
+        consumer: lowerAggregateFieldAddressConsumer(
+          expr.source,
+          expr.offset,
+          externs,
+          definedFunctions,
+          sourceText,
+          state,
+          functionState,
+          file,
+        ),
       };
     }
     case "pointerAdd":
@@ -1565,6 +1572,65 @@ function lowerAggregateValueExpr(
     default:
       return assertNever(expr);
   }
+}
+
+function aggregateValueNeedsFieldConsumerTemp(source: AggregateValueIR): boolean {
+  switch (source.kind) {
+    case "aggregateRef":
+    case "aggregateAssignExpr":
+      return false;
+    case "call":
+      return true;
+    case "comma":
+      return aggregateValueNeedsFieldConsumerTemp(source.right);
+    case "conditional":
+      return aggregateValueNeedsFieldConsumerTemp(source.thenExpr)
+        || aggregateValueNeedsFieldConsumerTemp(source.elseExpr);
+  }
+}
+
+function lowerAggregateFieldReadConsumer(
+  sourceExpr: BoundAggregateValueExpr,
+  offset: number,
+  width: ValueWidth,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): Extract<ExprIR, { kind: "aggregateConsumer" }>["consumer"] {
+  const source = lowerAggregateValueExpr(sourceExpr, externs, definedFunctions, sourceText, state, functionState, file);
+  return {
+    kind: "fieldRead",
+    source,
+    tempSlot: aggregateValueNeedsFieldConsumerTemp(source)
+      ? allocateTempLocal(functionState, sourceExpr.type.size)
+      : undefined,
+    offset,
+    width,
+  };
+}
+
+function lowerAggregateFieldAddressConsumer(
+  sourceExpr: BoundAggregateValueExpr,
+  offset: number,
+  externs: Set<string>,
+  definedFunctions: Set<string>,
+  sourceText: string,
+  state: LoweringState,
+  functionState: FunctionLoweringState,
+  file?: string,
+): Extract<ExprIR, { kind: "aggregateConsumer" }>["consumer"] {
+  const source = lowerAggregateValueExpr(sourceExpr, externs, definedFunctions, sourceText, state, functionState, file);
+  return {
+    kind: "fieldAddress",
+    source,
+    tempSlot: aggregateValueNeedsFieldConsumerTemp(source)
+      ? allocateTempLocal(functionState, sourceExpr.type.size)
+      : undefined,
+    offset,
+  };
 }
 
 function lowerAggregateSourceAddressExpr(

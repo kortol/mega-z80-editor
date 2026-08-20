@@ -708,12 +708,14 @@ aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変
   - `AggregateDestinationSpec/IR` と producer materialize path は導入済み
   - `AggregateConsumerSpec/IR` により field-read / field-address / aggregate call-arg は型上も consumer として統一した
   - `aggregateAssignExpr` の emit も `value materialization / effect writeback / destination copy` に分離した
-  - ただし field consumer は依然として temp-local materialize 前提で、consumer-driven emit の最終形までは未了
+  - field consumer は direct field pointer 経路を持ち、`aggregateRef` / `conditional` / `comma` / `aggregateAssignExpr` は temp-local materialize 前提を外した
+  - `call` producer は ABI 必須の return slot temp のみを使い、field consumer 都合の追加 temp は major path で不要になった
 - `tsFrontendLowering.ts`
   - local/global/return sink は `materializeAggregateProducer()` ベースへ寄せた
   - local aggregate copy, aggregate-valued member read, aggregate call / return ABI は lower 済み
   - branch / conditional / comma / assign-expression result / return pass-through をまたぐ aggregate temporary path は source path で通る
   - aggregate-returning function の `conditional` / `comma` は P0 で runtime ABI を安定化し、`struct/union` ともに CP/M 実行確認済み
+  - field consumer lowering は helper 化され、`call` / `assignExpr` / `ref` 系の temp 判定を前段で扱う形に整理された
 
 ### Aggregate Value Redesign
 
@@ -724,7 +726,7 @@ aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変
 - `lowering`
   - `lowerAggregateAssignToLocalSlot()` / `lowerAggregateReturnToReturnSlot()` / aggregate call arg lowering が sink ごとに別々の copy 戦略を持つ
 - `tsProgram`
-  - producer materialize / consumer emit はだいぶ整理されたが、field consumer は temp-local materialize 前提が残る
+  - producer materialize / consumer emit はだいぶ整理され、field consumer も direct pointer と ABI-only temp の二系統に整理された
 
 この形だと、新しい aggregate value path を 1 つ追加するたびに、
 
@@ -846,7 +848,8 @@ aggregate sink は destination を first-class にした方がよい。
   - `BoundAggregateValueExpr` は producer tree として機能している
   - lowering は `destination` ベースへかなり寄った
   - emit は `destination` を理解するようになった
-  - ただし local temp materialize へ戻す旧経路が残っている
+  - `fieldRead` / `fieldAddress` / aggregate call-arg の主要経路は source-path runtime と asm shape の両方で固定済み
+  - ただし consumer/destination の最終形に対して docs と helper 名の整理、残り surface への展開は未了
 - 90% 到達条件:
   - aggregate value を「専用 path の束」ではなく「一般化された materializable value」として扱える
   - matrix 上の aggregate value `local declaration / file-scope declaration / read as expression / assign statement / assign expression result / member / conditional / comma / call argument / return value` を構造的に `S` 判定できる
@@ -889,13 +892,14 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 いま残っている真の blocker は次の 4 つ。
 
-`1. field consumer が temp-local 前提`
+`1. call producer が field consumer helper 内で特別扱いのまま`
 
-- field-read / field-address は helper 化されたが、依然として temp local materialize を前提にしている
-- 一般化の最終形は
-  - `materialize temp` が必要な consumer
-  - pointer destination だけで足りる consumer
-  を分離すること
+- field-read / field-address は direct pointer 化され、`aggregateAssignExpr` も consumer temp 不要で通る
+- `call` は ABI 必須の return slot を使うため temp 自体は残るが、
+  - ABI 由来の temp
+  - consumer 都合の余計な temp
+  は major path で分離できた
+- 残りはこの構造を helper / docs / broader path へさらに明示化すること
 
 `2. assign-expression の effect/value 二面性が完全には destination 化されていない`
 
@@ -906,10 +910,10 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
   - `source`
   の 3 要素を first-class destination として揃えた方がよい
 
-`3. aggregate consumer が型として独立していない`
+`3. aggregate consumer が完全には first-class API 化されていない`
 
-- field-read / field-address / aggregateAddress push が Expr/CallArg の特例として散っている
-- これを producer consumer model として束ねる必要がある
+- field-read / field-address / aggregateAddress push は型上は consumer として揃った
+- ただし public helper / comments / docs ではまだ aggregate value terminology が混在している
 
 #### 90% Roadmap
 
@@ -940,6 +944,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 - `aggregateValueFieldAccess` / `aggregateValueFieldAddress` を temp-local helper 呼び出しから一段上げる
 - 目標は「field consumer」として扱うこと
 - temp local は consumer 実装の詳細へ落とす
+- 2026-08-20 時点で `assignExpr` / `call` / `conditional` / `comma` / nested call major path までは asm/runtime で固定済み
 
 `Step E. Matrix を P から S へ上げる判定`
 
@@ -977,13 +982,13 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 #### Progress Estimate
 
-2026-08-14 時点の aggregate value 一般化進捗は次のように見積もる。
+2026-08-20 時点の aggregate value 一般化進捗は次のように見積もる。
 
-- producer tree 導入: `85%`
-- lowering destination 統一: `85%`
-- emit destination 統一: `80%`
-- aggregate consumer 一般化: `80%`
-- aggregate value 全体の設計収束: `82%`
+- producer tree 導入: `90%`
+- lowering destination 統一: `88%`
+- emit destination 統一: `86%`
+- aggregate consumer 一般化: `88%`
+- aggregate value 全体の設計収束: `87%`
 
 したがって、Full C Coverage に対する真直度を 90% へ上げるには、
 
@@ -1010,12 +1015,27 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
    - [x] `&p` where `p` is a local pointer
    - [x] `&(&x)` は引き続き reject
 5. `remaining C surface`
-   - [x] local `char` array string initializers
-   - [x] `char buf[] = "AB";` の length 推論
-   - [x] `char buf[4] = "AB";` の zero-fill
-   - [x] `char buf[2] = "AB";` の exact-fit
-   - [x] overflowing string initializer は reject
-   - [ ] arrays / unary operators / initializer forms / declarations の残りを広げる
+  - [x] local `char` array string initializers
+  - [x] `char buf[] = "AB";` の length 推論
+  - [x] `char buf[4] = "AB";` の zero-fill
+  - [x] `char buf[2] = "AB";` の exact-fit
+  - [x] overflowing string initializer は reject
+  - [ ] arrays / unary operators / initializer forms / declarations の残りを広げる
+
+### 2026-08-20 Aggregate Consumer Status
+
+- `assign-expression field consumer` は asm テストで「追加 stack temp なし」を固定済み
+- `call producer field consumer` は asm テストで「ABI return slot 分のみ」を固定済み
+- `struct/union` ともに
+  - `make().a`
+  - `&(make().a)`
+  - `take(make())`
+  - `id(make()).a`
+  - `first(&(id(make()).a))`
+  - `(c ? makeA() : makeB()).a`
+  - `(c ? id(makeA()) : id(makeB())).a`
+  を source-path runtime まで確認済み
+- このため、major path に関しては「field consumer が temp-local materialize 前提」という表現はもう当たらない
 
 ### Phase 10 Exit Criteria
 

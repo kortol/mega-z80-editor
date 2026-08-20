@@ -3010,6 +3010,26 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-value-field-address", programRel, [], 4000)).toBe("CDE");
   });
 
+  test("source mode aggregate call field consumers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-call-field-consumer-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-call-field-consumer-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nchar first(char *p){ return p[0]; }\nint main(){ outchar(make().a); outchar(first(&(make().a))); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-call-field-consumer", programRel, [], 4000)).toBe("AA");
+  });
+
+  test("source mode union call field consumers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-call-field-consumer-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-call-field-consumer-source.c",
+      "union Bar { char a; int b; };\nunion Bar make(){ union Bar x; x.a = 65; return x; }\nchar first(char *p){ return p[0]; }\nint main(){ outchar(make().a); outchar(first(&(make().a))); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-call-field-consumer", programRel, [], 4000)).toBe("AA");
+  });
+
   test("source mode file-scope address-of on fields from conditional and comma aggregate values link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-value-field-address-link-"));
     const programRel = compileSourceRel(
@@ -3050,6 +3070,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-call", programRel, [], 4000)).toBe("B");
   });
 
+  test("source mode aggregate call-arg producer links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-call-producer-arg-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-call-producer-arg-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nint take(struct Foo x){ return x.a; }\nint main(){ outchar(take(make())); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-call-producer-arg", programRel, [], 4000)).toBe("A");
+  });
+
   test("source mode file-scope aggregate call arguments link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-call-global-link-"));
     const programRel = compileSourceRel(
@@ -3068,6 +3098,16 @@ describe("TsSccCompilerAdapter", () => {
       "union Bar { char a; int b; };\nunion Bar g;\nint take(union Bar a){ return a.a; }\nint main(){ g.a = 65; outchar(take(g)); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-union-call-global", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode union call-arg producer links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-union-call-producer-arg-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-union-call-producer-arg-source.c",
+      "union Bar { char a; int b; };\nunion Bar make(){ union Bar x; x.a = 65; return x; }\nint take(union Bar x){ return x.a; }\nint main(){ outchar(take(make())); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-union-call-producer-arg", programRel, [], 4000)).toBe("A");
   });
 
   test("source mode aggregate return values link and produce CP/M output", () => {
@@ -3110,6 +3150,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-return-nested", programRel, [], 4000)).toBe("BAB");
   });
 
+  test("source mode nested aggregate call field-address producer links and produces CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-nested-call-field-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-nested-call-field-address-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo id(struct Foo x){ return x; }\nchar first(char *p){ return p[0]; }\nint main(){ outchar(first(&(id(make()).a))); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-nested-call-field-address", programRel, [], 4000)).toBe("A");
+  });
+
   test("source mode conditional and comma aggregate-returning call value paths link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-return-conditional-comma-link-"));
     const programRel = compileSourceRel(
@@ -3118,6 +3168,26 @@ describe("TsSccCompilerAdapter", () => {
       "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nint main(int c){ int side = 0; struct Foo y = c ? make() : id(make()); outchar(take(c ? make() : y)); outchar(((side = 1), make()).b); outchar(side + 64); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "stmt-aggregate-return-conditional-comma", programRel, [], 4000)).toBe("ABA");
+  });
+
+  test("source mode conditional aggregate call field consumers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-conditional-call-field-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-conditional-call-field-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nint main(){ int c = 0; outchar((c ? makeA() : makeB()).a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-conditional-call-field", programRel, [], 4000)).toBe("C");
+  });
+
+  test("source mode conditional nested aggregate call field consumers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-conditional-nested-call-field-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-conditional-nested-call-field-source.c",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 66; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 67; x.b = 68; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(){ int c = 0; outchar((c ? id(makeA()) : id(makeB())).a); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-conditional-nested-call-field", programRel, [], 4000)).toBe("C");
   });
 
   test("source mode file-scope aggregate declaration initializers from aggregate values link and produce CP/M output", () => {

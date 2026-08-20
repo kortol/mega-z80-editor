@@ -168,7 +168,8 @@ program
 });
 program
     .command("cc <input> <output>")
-    .description("Compile Small-C source into mz80 output via dcpp + sccz80")
+    .description("Compile Small-C source into mz80 output")
+    .option("--compiler <kind>", "Compiler backend: sccz80 | ts", "sccz80")
     .option("--runtime <name>", `Bundled runtime to link (${runtime_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--library <path>", "Add a .lib/.a archive to the link", collect, [])
     .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])
@@ -202,8 +203,13 @@ program
         logger.error(`Unknown SCC runtime: ${opts.runtime}`);
         process.exit(1);
     }
+    if (opts.compiler !== "sccz80" && opts.compiler !== "ts") {
+        logger.error(`Unknown SCC compiler: ${opts.compiler}`);
+        process.exit(1);
+    }
     try {
         (0, mz80_cc_1.compileSccProgramFromCli)(logger, input, output, {
+            compiler: opts.compiler,
             runtime: opts.runtime,
             library: opts.library,
             include: opts.include,

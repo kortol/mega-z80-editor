@@ -95,7 +95,6 @@ export type SourceInitializer =
     kind: "list";
     items: SourceInitializer[];
   };
-};
 
 export type SourceBlock = {
   kind: "block";

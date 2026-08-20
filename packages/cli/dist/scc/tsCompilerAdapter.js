@@ -8,6 +8,10 @@ const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const mz80_as_1 = require("../cli/mz80-as");
 const fixtures_1 = require("./fixtures");
+const tsFrontendLowering_1 = require("./tsFrontendLowering");
+const tsFrontendParser_1 = require("./tsFrontendParser");
+const tsFrontendSemantic_1 = require("./tsFrontendSemantic");
+const tsProgram_1 = require("./tsProgram");
 const translateAsm_1 = require("./translateAsm");
 class TsSccCompilerAdapter {
     fixtureId;
@@ -18,13 +22,7 @@ class TsSccCompilerAdapter {
         if (this.fixtureId) {
             return compileFromFixture(logger, opts, this.fixtureId);
         }
-        const fixtureLabel = this.fixtureId ? ` using fixture ${this.fixtureId}` : "";
-        const fixtureNotes = this.fixtureId
-            ? ` Reference fixture: ${describeFixture(this.fixtureId)}.`
-            : "";
-        throw new Error(`TsSccCompilerAdapter is not implemented for ${opts.inputFile}${fixtureLabel}.`
-            + " Implement frontend parsing, fragment lowering, SCC helper lowering, and mz80 code emission first."
-            + fixtureNotes);
+        return compileFromSource(logger, opts);
     }
 }
 exports.TsSccCompilerAdapter = TsSccCompilerAdapter;
@@ -66,8 +64,601 @@ function compileFromFixture(logger, opts, fixtureId) {
         stageDir,
     };
 }
+function compileFromSource(logger, opts) {
+    const resolvedInput = node_path_1.default.resolve(opts.inputFile);
+    const stageRoot = node_path_1.default.resolve(opts.tempDir);
+    const stem = sanitizeStageStem(node_path_1.default.basename(resolvedInput, node_path_1.default.extname(resolvedInput)).toLowerCase());
+    const stageDir = node_path_1.default.join(stageRoot, stem);
+    const preprocessedFile = node_path_1.default.join(stageDir, `${stem}.i`);
+    const sccAsmFile = node_path_1.default.join(stageDir, `${stem}.scc.asm`);
+    const asmFile = node_path_1.default.join(stageDir, `${stem}.asm`);
+    const relFile = opts.outputRelFile ? node_path_1.default.resolve(opts.outputRelFile) : node_path_1.default.join(stageDir, `${stem}.rel`);
+    const sourceText = node_fs_1.default.readFileSync(resolvedInput, "utf8");
+    const parsed = (0, tsFrontendParser_1.parseProgram)(sourceText, resolvedInput);
+    const bound = (0, tsFrontendSemantic_1.analyzeProgram)(parsed, sourceText, resolvedInput);
+    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, sourceText, resolvedInput);
+    node_fs_1.default.mkdirSync(stageDir, { recursive: true });
+    node_fs_1.default.writeFileSync(preprocessedFile, sourceText, "utf8");
+    node_fs_1.default.writeFileSync(sccAsmFile, (0, tsProgram_1.emitProgram)(spec), "utf8");
+    node_fs_1.default.writeFileSync(asmFile, (0, translateAsm_1.translateSccAsm)(node_fs_1.default.readFileSync(sccAsmFile, "utf8"), { moduleName: node_path_1.default.basename(preprocessedFile) }), "utf8");
+    node_fs_1.default.mkdirSync(node_path_1.default.dirname(relFile), { recursive: true });
+    const ctx = (0, mz80_as_1.assemble)(logger, asmFile, relFile, {
+        relVersion: 2,
+        verbose: opts.verbose,
+        sym: opts.sym,
+        lst: false,
+        smap: opts.smap,
+    });
+    if (ctx.errors.length > 0) {
+        throw new Error(`TS source assembly failed for ${resolvedInput}: ${ctx.errors.map((entry) => entry.message).join("; ")}`);
+    }
+    return {
+        inputFile: resolvedInput,
+        preprocessedFile,
+        sccAsmFile,
+        asmFile,
+        relFile,
+        stageDir,
+    };
+}
 function sanitizeStageStem(stem) {
     return stem.replace(/[^a-z0-9_.$@]/gi, "_");
+}
+function parseSubsetProgram(sourceText) {
+    const normalized = stripLineComments(sourceText);
+    const functions = [];
+    const headerPattern = /\b(int|char)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
+    let match;
+    while ((match = headerPattern.exec(normalized)) !== null) {
+        const bodyStart = headerPattern.lastIndex;
+        const bodyEnd = findMatchingBraceIndex(normalized, bodyStart - 1);
+        const bodyText = normalized.slice(bodyStart, bodyEnd);
+        const parsedBody = parseSubsetBody(bodyText, match[2]);
+        functions.push({
+            name: match[2],
+            returnType: match[1],
+            params: parseSubsetParams(match[3], match[2]),
+            locals: parsedBody.locals,
+            body: parsedBody.statements,
+        });
+        headerPattern.lastIndex = bodyEnd + 1;
+    }
+    if (functions.length === 0) {
+        throw new Error("TsSccCompilerAdapter Phase C subset could not find any supported function definitions.");
+    }
+    return { functions };
+}
+function stripLineComments(sourceText) {
+    return sourceText.replace(/\/\/.*$/gm, "");
+}
+function findMatchingBraceIndex(sourceText, openBraceIndex) {
+    let depth = 0;
+    for (let index = openBraceIndex; index < sourceText.length; index += 1) {
+        const ch = sourceText[index];
+        if (ch === "{") {
+            depth += 1;
+            continue;
+        }
+        if (ch === "}") {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+    throw new Error("TsSccCompilerAdapter Phase C subset found an unmatched '{' in source input.");
+}
+function parseSubsetBody(bodyText, functionName) {
+    const trimmed = bodyText.trim();
+    const ifElseIfBraceBlockMatch = /^if\s*\(([\s\S]+?)\)\s*\{([\s\S]*?)\}\s*else\s*(if[\s\S]+)$/.exec(trimmed);
+    if (ifElseIfBraceBlockMatch) {
+        const thenBranch = parseSubsetBranchBlock(ifElseIfBraceBlockMatch[2], functionName);
+        const elseBranch = parseSubsetElseBody(ifElseIfBraceBlockMatch[3], functionName);
+        return {
+            locals: [...thenBranch.locals, ...elseBranch.locals],
+            statements: [{
+                    kind: "if",
+                    condition: parseSubsetExpr(ifElseIfBraceBlockMatch[1], functionName),
+                    thenBody: thenBranch.statements,
+                    elseBody: elseBranch.statements,
+                }],
+        };
+    }
+    const ifElseIfReturnMatch = /^if\s*\(([\s\S]+?)\)\s*return\s+(.+?)\s*;\s*else\s*(if[\s\S]+)$/.exec(trimmed);
+    if (ifElseIfReturnMatch) {
+        const elseBranch = parseSubsetElseBody(ifElseIfReturnMatch[3], functionName);
+        return {
+            locals: elseBranch.locals,
+            statements: [{
+                    kind: "if",
+                    condition: parseSubsetExpr(ifElseIfReturnMatch[1], functionName),
+                    thenBody: [parseReturnStmt(ifElseIfReturnMatch[2], functionName)],
+                    elseBody: elseBranch.statements,
+                }],
+        };
+    }
+    const ifElseBraceBlockMatch = /^if\s*\(([\s\S]+?)\)\s*\{([\s\S]*?)\}\s*else\s*\{([\s\S]*?)\}\s*$/.exec(trimmed);
+    if (ifElseBraceBlockMatch) {
+        const thenBranch = parseSubsetBranchBlock(ifElseBraceBlockMatch[2], functionName);
+        const elseBranch = parseSubsetBranchBlock(ifElseBraceBlockMatch[3], functionName);
+        return {
+            locals: [...thenBranch.locals, ...elseBranch.locals],
+            statements: [{
+                    kind: "if",
+                    condition: parseSubsetExpr(ifElseBraceBlockMatch[1], functionName),
+                    thenBody: thenBranch.statements,
+                    elseBody: elseBranch.statements,
+                }],
+        };
+    }
+    const ifFallthroughBraceBlockMatch = /^if\s*\(([\s\S]+?)\)\s*\{([\s\S]*?)\}\s*return\s+(.+?)\s*;?\s*$/.exec(trimmed);
+    if (ifFallthroughBraceBlockMatch) {
+        const thenBranch = parseSubsetBranchBlock(ifFallthroughBraceBlockMatch[2], functionName);
+        return {
+            locals: thenBranch.locals,
+            statements: [{
+                    kind: "if",
+                    condition: parseSubsetExpr(ifFallthroughBraceBlockMatch[1], functionName),
+                    thenBody: thenBranch.statements,
+                    elseBody: [parseReturnStmt(ifFallthroughBraceBlockMatch[3], functionName)],
+                }],
+        };
+    }
+    const ifElseBraceMatch = /^if\s*\(([\s\S]+?)\)\s*\{\s*return\s+(.+?)\s*;\s*\}\s*else\s*\{\s*return\s+(.+?)\s*;\s*\}\s*;?\s*$/.exec(trimmed);
+    if (ifElseBraceMatch) {
+        return {
+            locals: [],
+            statements: [buildIfReturnStmt(ifElseBraceMatch[1], ifElseBraceMatch[2], ifElseBraceMatch[3], functionName)],
+        };
+    }
+    const ifFallthroughBraceMatch = /^if\s*\(([\s\S]+?)\)\s*\{\s*return\s+(.+?)\s*;\s*\}\s*return\s+(.+?)\s*;?\s*$/.exec(trimmed);
+    if (ifFallthroughBraceMatch) {
+        return {
+            locals: [],
+            statements: [buildIfReturnStmt(ifFallthroughBraceMatch[1], ifFallthroughBraceMatch[2], ifFallthroughBraceMatch[3], functionName)],
+        };
+    }
+    const ifElseMatch = /^if\s*\(([\s\S]+?)\)\s*return\s+(.+?)\s*;\s*else\s*return\s+(.+?)\s*;?\s*$/.exec(trimmed);
+    if (ifElseMatch) {
+        return {
+            locals: [],
+            statements: [buildIfReturnStmt(ifElseMatch[1], ifElseMatch[2], ifElseMatch[3], functionName)],
+        };
+    }
+    const ifFallthroughMatch = /^if\s*\(([\s\S]+?)\)\s*return\s+(.+?)\s*;\s*return\s+(.+?)\s*;?\s*$/.exec(trimmed);
+    if (ifFallthroughMatch) {
+        return {
+            locals: [],
+            statements: [buildIfReturnStmt(ifFallthroughMatch[1], ifFallthroughMatch[2], ifFallthroughMatch[3], functionName)],
+        };
+    }
+    const returnMatch = /^return\s+(.+?)\s*;?\s*$/.exec(trimmed);
+    if (!returnMatch) {
+        return parseSubsetStatementSequence(trimmed, functionName);
+    }
+    return { locals: [], statements: [parseReturnStmt(returnMatch[1], functionName)] };
+}
+function parseReturnStmt(exprText, functionName) {
+    return {
+        kind: "return",
+        expr: parseSubsetExpr(exprText, functionName),
+    };
+}
+function buildIfReturnStmt(conditionText, thenExprText, elseExprText, functionName) {
+    return {
+        kind: "if",
+        condition: parseSubsetExpr(conditionText, functionName),
+        thenBody: [parseReturnStmt(thenExprText, functionName)],
+        elseBody: [parseReturnStmt(elseExprText, functionName)],
+    };
+}
+function parseSubsetStatementSequence(bodyText, functionName) {
+    const locals = [];
+    const statements = [];
+    for (const statementText of splitTopLevelStatements(bodyText)) {
+        if (/^if\b/.test(statementText)) {
+            const parsedIf = parseSubsetBody(statementText, functionName);
+            locals.push(...parsedIf.locals);
+            statements.push(...parsedIf.statements);
+            continue;
+        }
+        if (/^while\b/.test(statementText)) {
+            const parsedWhile = parseSubsetWhileStmt(statementText, functionName);
+            locals.push(...parsedWhile.locals);
+            statements.push(parsedWhile.statement);
+            continue;
+        }
+        const localDeclMatch = /^(int|char)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/.exec(statementText);
+        if (localDeclMatch) {
+            const local = {
+                type: localDeclMatch[1],
+                name: localDeclMatch[2],
+            };
+            locals.push(local);
+            if (localDeclMatch[3]) {
+                statements.push({
+                    kind: "assign",
+                    name: local.name,
+                    expr: parseSubsetExpr(localDeclMatch[3], functionName),
+                });
+            }
+            continue;
+        }
+        const assignMatch = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(statementText);
+        if (assignMatch) {
+            statements.push({
+                kind: "assign",
+                name: assignMatch[1],
+                expr: parseSubsetExpr(assignMatch[2], functionName),
+            });
+            continue;
+        }
+        const returnMatch = /^return\s+(.+)$/.exec(statementText);
+        if (returnMatch) {
+            statements.push(parseReturnStmt(returnMatch[1], functionName));
+            continue;
+        }
+        throw new Error(`TsSccCompilerAdapter Phase C subset does not support statement '${statementText}' in ${functionName}().`);
+    }
+    if (statements.length === 0) {
+        throw new Error(`TsSccCompilerAdapter Phase C subset found no executable statements in ${functionName}().`);
+    }
+    return { locals, statements };
+}
+function parseSubsetBranchBlock(bodyText, functionName) {
+    return parseSubsetStatementSequence(bodyText.trim(), functionName);
+}
+function parseSubsetElseBody(bodyText, functionName) {
+    return parseSubsetBody(bodyText.trim(), functionName);
+}
+function parseSubsetWhileStmt(statementText, functionName) {
+    const trimmed = statementText.trim();
+    const braceMatch = /^while\s*\(([\s\S]+?)\)\s*\{([\s\S]*)\}$/.exec(trimmed);
+    if (braceMatch) {
+        const body = parseSubsetBranchBlock(braceMatch[2], functionName);
+        return {
+            locals: body.locals,
+            statement: {
+                kind: "while",
+                condition: parseSubsetExpr(braceMatch[1], functionName),
+                body: body.statements,
+            },
+        };
+    }
+    const singleStmtMatch = /^while\s*\(([\s\S]+?)\)\s*(.+)$/.exec(trimmed);
+    if (!singleStmtMatch) {
+        throw new Error(`TsSccCompilerAdapter Phase C subset could not parse while statement in ${functionName}().`);
+    }
+    const body = parseSubsetBranchBlock(singleStmtMatch[2], functionName);
+    return {
+        locals: body.locals,
+        statement: {
+            kind: "while",
+            condition: parseSubsetExpr(singleStmtMatch[1], functionName),
+            body: body.statements,
+        },
+    };
+}
+function parseSubsetExpr(exprText, functionName) {
+    const trimmed = exprText.trim();
+    const compareOp = findTopLevelCompareOp(trimmed);
+    if (compareOp) {
+        return {
+            kind: "compare",
+            left: parseSubsetExpr(trimmed.slice(0, compareOp.index), functionName),
+            right: parseSubsetExpr(trimmed.slice(compareOp.index + compareOp.op.length), functionName),
+            op: compareOp.op,
+        };
+    }
+    if (/^\d+$/.test(trimmed)) {
+        return { kind: "const", value: Number.parseInt(trimmed, 10) };
+    }
+    if (/^[A-Za-z_]\w*$/.test(trimmed)) {
+        return { kind: "ref", name: trimmed };
+    }
+    const callMatch = /^([A-Za-z_]\w*)\s*\((.*)\)$/.exec(trimmed);
+    if (callMatch) {
+        return {
+            kind: "call",
+            target: callMatch[1],
+            args: parseSubsetCallArgs(callMatch[2], functionName),
+        };
+    }
+    throw new Error(`TsSccCompilerAdapter Phase C subset does not support expression '${trimmed}' in ${functionName}().`);
+}
+function parseSubsetCallArgs(argsText, functionName) {
+    const trimmed = argsText.trim();
+    if (trimmed.length === 0) {
+        return [];
+    }
+    return splitTopLevelArgs(trimmed).map((arg) => parseSubsetExpr(arg, functionName));
+}
+function splitTopLevelArgs(argsText) {
+    const parts = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < argsText.length; index += 1) {
+        const ch = argsText[index];
+        if (ch === "(") {
+            depth += 1;
+            continue;
+        }
+        if (ch === ")") {
+            depth -= 1;
+            continue;
+        }
+        if (ch === "," && depth === 0) {
+            parts.push(argsText.slice(start, index).trim());
+            start = index + 1;
+        }
+    }
+    parts.push(argsText.slice(start).trim());
+    return parts.filter((part) => part.length > 0);
+}
+function splitTopLevelStatements(bodyText) {
+    const parts = [];
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let start = 0;
+    for (let index = 0; index < bodyText.length; index += 1) {
+        const ch = bodyText[index];
+        if (ch === "(") {
+            parenDepth += 1;
+            continue;
+        }
+        if (ch === ")") {
+            parenDepth -= 1;
+            continue;
+        }
+        if (ch === "{") {
+            braceDepth += 1;
+            continue;
+        }
+        if (ch === "}") {
+            braceDepth -= 1;
+            if (braceDepth === 0) {
+                let nextIndex = index + 1;
+                while (nextIndex < bodyText.length && /\s/.test(bodyText[nextIndex])) {
+                    nextIndex += 1;
+                }
+                if (nextIndex < bodyText.length && !bodyText.startsWith("else", nextIndex) && bodyText[nextIndex] !== ";") {
+                    const statement = bodyText.slice(start, index + 1).trim();
+                    if (statement.length > 0) {
+                        parts.push(statement);
+                    }
+                    start = nextIndex;
+                    index = nextIndex - 1;
+                }
+            }
+            continue;
+        }
+        if (ch === ";" && parenDepth === 0 && braceDepth === 0) {
+            let nextIndex = index + 1;
+            while (nextIndex < bodyText.length && /\s/.test(bodyText[nextIndex])) {
+                nextIndex += 1;
+            }
+            if (bodyText.startsWith("else", nextIndex)) {
+                continue;
+            }
+            const statement = bodyText.slice(start, index).trim();
+            if (statement.length > 0) {
+                parts.push(statement);
+            }
+            start = index + 1;
+        }
+    }
+    const tail = bodyText.slice(start).trim();
+    if (tail.length > 0) {
+        parts.push(tail);
+    }
+    return parts;
+}
+function findTopLevelCompareOp(exprText) {
+    let depth = 0;
+    for (let index = 0; index < exprText.length; index += 1) {
+        const ch = exprText[index];
+        if (ch === "(") {
+            depth += 1;
+            continue;
+        }
+        if (ch === ")") {
+            depth -= 1;
+            continue;
+        }
+        if (depth !== 0) {
+            continue;
+        }
+        const twoChar = exprText.slice(index, index + 2);
+        if (twoChar === "==" || twoChar === "!=" || twoChar === ">=" || twoChar === "<=") {
+            return { index, op: twoChar };
+        }
+        if (ch === ">" || ch === "<") {
+            return { index, op: ch };
+        }
+    }
+    return null;
+}
+function parseSubsetParams(paramsText, functionName) {
+    const trimmed = paramsText.trim();
+    if (trimmed.length === 0) {
+        return [];
+    }
+    return splitTopLevelArgs(trimmed).map((part) => parseSubsetParam(part, functionName));
+}
+function parseSubsetParam(paramText, functionName) {
+    const match = /^(int|char)\s+([A-Za-z_]\w*)$/.exec(paramText.trim());
+    if (!match) {
+        throw new Error(`TsSccCompilerAdapter Phase C subset does not support parameter '${paramText.trim()}' in ${functionName}().`);
+    }
+    return {
+        type: match[1],
+        name: match[2],
+    };
+}
+function lowerSourceProgram(program, moduleName) {
+    validateSourceProgram(program);
+    const definedFunctions = new Set(program.functions.map((fn) => fn.name));
+    const externs = new Set();
+    const signatureMap = new Map(program.functions.map((fn) => [fn.name, fn.params]));
+    const loweredFunctions = program.functions.map((fn) => lowerSourceFunction(fn, externs, definedFunctions, signatureMap));
+    return {
+        moduleName,
+        exports: definedFunctions.has("main") ? ["main"] : [],
+        externs: Array.from(externs),
+        functions: loweredFunctions,
+        includeBss: true,
+    };
+}
+function validateSourceProgram(program) {
+    const seenFunctions = new Set();
+    for (const fn of program.functions) {
+        if (seenFunctions.has(fn.name)) {
+            throw new Error(`TsSccCompilerAdapter Phase C subset does not support duplicate function '${fn.name}()'.`);
+        }
+        seenFunctions.add(fn.name);
+        validateSourceFunctionSymbols(fn);
+    }
+}
+function validateSourceFunctionSymbols(fn) {
+    const seenParams = new Set();
+    for (const param of fn.params) {
+        if (seenParams.has(param.name)) {
+            throw new Error(`TsSccCompilerAdapter Phase C subset does not support duplicate parameter '${param.name}' in ${fn.name}().`);
+        }
+        seenParams.add(param.name);
+    }
+    const seenLocals = new Set();
+    for (const local of fn.locals) {
+        if (seenParams.has(local.name)) {
+            throw new Error(`TsSccCompilerAdapter Phase C subset does not support local '${local.name}' shadowing a parameter in ${fn.name}().`);
+        }
+        if (seenLocals.has(local.name)) {
+            throw new Error(`TsSccCompilerAdapter Phase C subset does not support duplicate local '${local.name}' in ${fn.name}().`);
+        }
+        seenLocals.add(local.name);
+    }
+}
+function lowerSourceFunction(fn, externs, definedFunctions, signatureMap) {
+    const paramSlots = new Map(fn.params.map((param, index) => [param.name, { slot: index, width: scalarTypeWidth(param.type) }]));
+    const localSlots = new Map(fn.locals.map((local, index) => [local.name, { slot: index, width: scalarTypeWidth(local.type) }]));
+    return lowerFunctionIR({
+        name: fn.name,
+        params: fn.params.map((param) => scalarTypeWidth(param.type)),
+        locals: fn.locals.map((local) => scalarTypeWidth(local.type)),
+        body: fn.body.map((stmt) => lowerSourceStmt(stmt, externs, definedFunctions, signatureMap, paramSlots, localSlots)),
+    });
+}
+function lowerSourceStmt(stmt, externs, definedFunctions, signatureMap, paramSlots, localSlots) {
+    switch (stmt.kind) {
+        case "return":
+            return { kind: "returnExpr", expr: lowerSourceExpr(stmt.expr, externs, definedFunctions, signatureMap, paramSlots, localSlots) };
+        case "if":
+            return {
+                kind: "ifExprZero",
+                expr: lowerSourceExpr(stmt.condition, externs, definedFunctions, signatureMap, paramSlots, localSlots),
+                thenBody: stmt.thenBody.map((entry) => lowerSourceStmt(entry, externs, definedFunctions, signatureMap, paramSlots, localSlots)),
+                elseBody: stmt.elseBody.map((entry) => lowerSourceStmt(entry, externs, definedFunctions, signatureMap, paramSlots, localSlots)),
+            };
+        case "while": {
+            const loweredCondition = lowerSourceExpr(stmt.condition, externs, definedFunctions, signatureMap, paramSlots, localSlots);
+            const loweredBody = stmt.body.map((entry) => lowerSourceStmt(entry, externs, definedFunctions, signatureMap, paramSlots, localSlots));
+            return {
+                kind: "ifExprZero",
+                expr: loweredCondition,
+                thenBody: [{
+                        kind: "doWhileExprNonZero",
+                        body: loweredBody,
+                        expr: loweredCondition,
+                    }],
+                elseBody: [],
+            };
+        }
+        case "assign": {
+            const slot = localSlots.get(stmt.name);
+            if (!slot) {
+                throw new Error(`TsSccCompilerAdapter Phase C subset only supports assignment to local symbols, got '${stmt.name}'.`);
+            }
+            if (stmt.expr.kind === "const") {
+                return {
+                    kind: "assignLocalConst",
+                    slot: slot.slot,
+                    width: slot.width,
+                    value: stmt.expr.value,
+                };
+            }
+            return {
+                kind: "assignLocalExpr",
+                slot: slot.slot,
+                width: slot.width,
+                expr: lowerSourceExpr(stmt.expr, externs, definedFunctions, signatureMap, paramSlots, localSlots),
+            };
+        }
+        default:
+            return assertNever(stmt);
+    }
+}
+function lowerSourceExpr(expr, externs, definedFunctions, signatureMap, paramSlots, localSlots) {
+    switch (expr.kind) {
+        case "const":
+            return { kind: "const", value: expr.value };
+        case "ref": {
+            const localSlot = localSlots.get(expr.name);
+            if (localSlot) {
+                return { kind: "ref", scope: "local", width: localSlot.width, slot: localSlot.slot };
+            }
+            const paramSlot = paramSlots.get(expr.name);
+            if (!paramSlot) {
+                throw new Error(`TsSccCompilerAdapter Phase C subset does not know symbol '${expr.name}'.`);
+            }
+            return { kind: "ref", scope: "arg", width: paramSlot.width, slot: paramSlot.slot };
+        }
+        case "compare": {
+            const helper = compareOpToHelper(expr.op);
+            externs.add(helper);
+            return {
+                kind: "compare",
+                left: lowerSourceExpr(expr.left, externs, definedFunctions, signatureMap, paramSlots, localSlots),
+                right: lowerSourceExpr(expr.right, externs, definedFunctions, signatureMap, paramSlots, localSlots),
+                helper,
+            };
+        }
+        case "call":
+            if (!definedFunctions.has(expr.target)) {
+                externs.add(expr.target);
+            }
+            const calleeParams = signatureMap.get(expr.target);
+            if (calleeParams && calleeParams.length !== expr.args.length) {
+                throw new Error(`TsSccCompilerAdapter Phase C subset expected ${calleeParams.length} argument(s) for ${expr.target}(), got ${expr.args.length}.`);
+            }
+            return {
+                kind: "call",
+                target: expr.target,
+                args: expr.args.map((arg) => lowerSourceExpr(arg, externs, definedFunctions, signatureMap, paramSlots, localSlots)),
+            };
+        default:
+            return assertNever(expr);
+    }
+}
+function scalarTypeWidth(type) {
+    return type === "char" ? 1 : 2;
+}
+function compareOpToHelper(op) {
+    switch (op) {
+        case "==":
+            return ".eq";
+        case "!=":
+            return ".ne";
+        case ">":
+            return ".gt";
+        case "<":
+            return ".lt";
+        case ">=":
+            return ".ge";
+        case "<=":
+            return ".le";
+        default:
+            return assertNever(op);
+    }
 }
 function emitFixtureBackedSccAsm(fixtureId) {
     const spec = makeFixtureProgramSpec(fixtureId);
@@ -77,21 +668,6 @@ function emitFixtureBackedSccAsm(fixtureId) {
 }
 function makeFixtureProgramSpec(fixtureId) {
     switch (fixtureId) {
-        case "frag-string-scc":
-            return {
-                moduleName: "frag_string.i",
-                exports: ["main"],
-                includeBss: true,
-                data: [{ label: ".0", directive: ".asciz", value: '"HELLO"' }],
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "dataAddress", label: ".0" } },
-                        ],
-                    })],
-            };
         case "frag-helper-call-scc":
             return {
                 moduleName: "frag_helper_call.i",
@@ -105,659 +681,6 @@ function makeFixtureProgramSpec(fixtureId) {
                             { kind: "returnExpr", expr: { kind: "call", target: ".gint" } },
                         ],
                     })],
-            };
-        case "frag-call-scc":
-            return {
-                moduleName: "frag_call.i",
-                exports: ["outstr", "main"],
-                includeBss: false,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "call", target: "outstr" } },
-                        ],
-                    })],
-            };
-        case "stmt-outstr-scc":
-            return {
-                moduleName: "stmt_outstr.i",
-                exports: ["outstr", "main"],
-                includeBss: true,
-                data: [{ label: ".0", directive: ".ascii", value: '"TS STMT$"' }],
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "callModeAArg", target: "outstr", mode: 1, expr: { kind: "dataAddress", label: ".0" } },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-call-result-scc":
-            return {
-                moduleName: "stmt_call_result.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "emitExprChar", expr: { kind: "call", target: "value" } },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "value",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "const", value: 88 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-branch-scc":
-            return {
-                moduleName: "stmt_branch.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "call", target: "flag" },
-                                thenBody: [{ kind: "emitChar", value: 84 }],
-                                elseBody: [{ kind: "emitChar", value: 70 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "flag",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "const", value: 1 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-local-slot-scc":
-            return {
-                moduleName: "stmt_local_slot.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [1],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 1, value: 76 },
-                            { kind: "emitExprChar", expr: { kind: "ref", scope: "local", width: 1, slot: 0 } },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-compare-helper-scc":
-            return {
-                moduleName: "stmt_compare_helper.i",
-                exports: [".gt", "outchar", "main"],
-                includeBss: true,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "compare", left: { kind: "const", value: 66 }, right: { kind: "const", value: 65 }, helper: ".gt" },
-                                thenBody: [{ kind: "emitChar", value: 89 }],
-                                elseBody: [{ kind: "emitChar", value: 78 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-local-compare-scc":
-            return {
-                moduleName: "stmt_local_compare.i",
-                exports: [".gt", "outchar", "main"],
-                includeBss: true,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [1],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 1, value: 67 },
-                            {
-                                kind: "ifExprZero",
-                                expr: {
-                                    kind: "compare",
-                                    left: { kind: "ref", scope: "local", width: 1, slot: 0 },
-                                    right: { kind: "const", value: 66 },
-                                    helper: ".gt",
-                                },
-                                thenBody: [{ kind: "emitChar", value: 87 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-local-int-scc":
-            return {
-                moduleName: "stmt_local_int.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [2],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 2, value: 90 },
-                            { kind: "emitExprChar", expr: { kind: "ref", scope: "local", width: 2, slot: 0 } },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-eq-helper-scc":
-            return {
-                moduleName: "stmt_eq_helper.i",
-                exports: [".eq", "outchar", "main"],
-                includeBss: true,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "compare", left: { kind: "const", value: 81 }, right: { kind: "const", value: 81 }, helper: ".eq" },
-                                thenBody: [{ kind: "emitChar", value: 69 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-loop-scc":
-            return {
-                moduleName: "stmt_loop.i",
-                exports: [".gt", "outchar", "main"],
-                includeBss: true,
-                functions: [lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [1],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 1, value: 51 },
-                            {
-                                kind: "doWhileExprNonZero",
-                                body: [
-                                    { kind: "emitExprChar", expr: { kind: "ref", scope: "local", width: 1, slot: 0 } },
-                                    { kind: "decLocalByte", slot: 0 },
-                                ],
-                                expr: {
-                                    kind: "compare",
-                                    left: { kind: "ref", scope: "local", width: 1, slot: 0 },
-                                    right: { kind: "const", value: 48 },
-                                    helper: ".gt",
-                                },
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    })],
-            };
-        case "stmt-arg-char-scc":
-            return {
-                moduleName: "stmt_arg_char.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "emitExprChar", expr: { kind: "call", target: "echo", args: [{ kind: "const", value: 65 }] } },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "echo",
-                        params: [1],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 1, slot: 0 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-arg-ne-helper-scc":
-            return {
-                moduleName: "stmt_arg_ne_helper.i",
-                exports: [".ne", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "call", target: "check", args: [{ kind: "const", value: 66 }] },
-                                thenBody: [{ kind: "emitChar", value: 78 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "check",
-                        params: [1],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "arg", width: 1, slot: 0 },
-                                right: { kind: "const", value: 65 },
-                                helper: ".ne",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-arg-int-scc":
-            return {
-                moduleName: "stmt_arg_int.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            { kind: "emitExprChar", expr: { kind: "call", target: "echo16", args: [{ kind: "const", value: 90 }] } },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "echo16",
-                        params: [2],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 2, slot: 0 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-two-arg-char-scc":
-            return {
-                moduleName: "stmt_two_arg_char.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "emitExprChar",
-                                expr: {
-                                    kind: "call",
-                                    target: "pickfirst",
-                                    args: [{ kind: "const", value: 65 }, { kind: "const", value: 66 }],
-                                },
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "pickfirst",
-                        params: [1, 1],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 1, slot: 0 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-arg-int-eq-helper-scc":
-            return {
-                moduleName: "stmt_arg_int_eq_helper.i",
-                exports: [".eq", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "call", target: "check16", args: [{ kind: "const", value: 90 }] },
-                                thenBody: [{ kind: "emitChar", value: 73 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "check16",
-                        params: [2],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "arg", width: 2, slot: 0 },
-                                right: { kind: "const", value: 90 },
-                                helper: ".eq",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-two-arg-ne-helper-scc":
-            return {
-                moduleName: "stmt_two_arg_ne_helper.i",
-                exports: [".ne", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: {
-                                    kind: "call",
-                                    target: "checkpair",
-                                    args: [{ kind: "const", value: 65 }, { kind: "const", value: 66 }],
-                                },
-                                thenBody: [{ kind: "emitChar", value: 68 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "checkpair",
-                        params: [1, 1],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "arg", width: 1, slot: 0 },
-                                right: { kind: "ref", scope: "arg", width: 1, slot: 1 },
-                                helper: ".ne",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-call-two-arg-mixed-scc":
-            return {
-                moduleName: "stmt_call_two_arg_mixed.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [1],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 1, value: 67 },
-                            {
-                                kind: "emitExprChar",
-                                expr: {
-                                    kind: "call",
-                                    target: "pickfirst",
-                                    args: [
-                                        { kind: "ref", scope: "local", width: 1, slot: 0 },
-                                        { kind: "const", value: 68 },
-                                    ],
-                                },
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "pickfirst",
-                        params: [1, 1],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 1, slot: 0 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-two-arg-local-ne-helper-scc":
-            return {
-                moduleName: "stmt_two_arg_local_ne_helper.i",
-                exports: [".ne", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [1],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 1, value: 67 },
-                            {
-                                kind: "ifExprZero",
-                                expr: {
-                                    kind: "call",
-                                    target: "checkpair",
-                                    args: [
-                                        { kind: "ref", scope: "local", width: 1, slot: 0 },
-                                        { kind: "const", value: 68 },
-                                    ],
-                                },
-                                thenBody: [{ kind: "emitChar", value: 77 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "checkpair",
-                        params: [1, 1],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "arg", width: 1, slot: 0 },
-                                right: { kind: "ref", scope: "arg", width: 1, slot: 1 },
-                                helper: ".ne",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-local-int-arg-int-eq-helper-scc":
-            return {
-                moduleName: "stmt_local_int_arg_int_eq_helper.i",
-                exports: [".eq", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "call", target: "checkmix", args: [{ kind: "const", value: 90 }] },
-                                thenBody: [{ kind: "emitChar", value: 81 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "checkmix",
-                        params: [2],
-                        locals: [2],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 2, value: 90 },
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "local", width: 2, slot: 0 },
-                                right: { kind: "ref", scope: "arg", width: 2, slot: 0 },
-                                helper: ".eq",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-local-int-arg-int-ne-helper-scc":
-            return {
-                moduleName: "stmt_local_int_arg_int_ne_helper.i",
-                exports: [".ne", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "call", target: "checkmixne", args: [{ kind: "const", value: 91 }] },
-                                thenBody: [{ kind: "emitChar", value: 82 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "checkmixne",
-                        params: [2],
-                        locals: [2],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 2, value: 90 },
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "local", width: 2, slot: 0 },
-                                right: { kind: "ref", scope: "arg", width: 2, slot: 0 },
-                                helper: ".ne",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-local-int-arg-int-gt-helper-scc":
-            return {
-                moduleName: "stmt_local_int_arg_int_gt_helper.i",
-                exports: [".gt", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [],
-                        body: [
-                            {
-                                kind: "ifExprZero",
-                                expr: { kind: "call", target: "checkmixgt", args: [{ kind: "const", value: 90 }] },
-                                thenBody: [{ kind: "emitChar", value: 84 }],
-                                elseBody: [{ kind: "emitChar", value: 88 }],
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "checkmixgt",
-                        params: [2],
-                        locals: [2],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 2, value: 91 },
-                            {
-                                kind: "compareReturn",
-                                left: { kind: "ref", scope: "local", width: 2, slot: 0 },
-                                right: { kind: "ref", scope: "arg", width: 2, slot: 0 },
-                                helper: ".gt",
-                            },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-call-two-arg-int-mixed-scc":
-            return {
-                moduleName: "stmt_call_two_arg_int_mixed.i",
-                exports: ["outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [2],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 2, value: 83 },
-                            {
-                                kind: "emitExprChar",
-                                expr: {
-                                    kind: "call",
-                                    target: "pickfirst16",
-                                    args: [
-                                        { kind: "ref", scope: "local", width: 2, slot: 0 },
-                                        { kind: "const", value: 84 },
-                                    ],
-                                },
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                    lowerFunctionIR({
-                        name: "pickfirst16",
-                        params: [2, 2],
-                        locals: [],
-                        body: [
-                            { kind: "returnExpr", expr: { kind: "ref", scope: "arg", width: 2, slot: 0 } },
-                        ],
-                    }),
-                ],
-            };
-        case "stmt-extern-two-arg-int-call-scc":
-            return {
-                moduleName: "stmt_extern_two_arg_int_call.i",
-                exports: ["pickfirst16", "outchar", "main"],
-                includeBss: true,
-                functions: [
-                    lowerFunctionIR({
-                        name: "main",
-                        params: [],
-                        locals: [2],
-                        body: [
-                            { kind: "assignLocalConst", slot: 0, width: 2, value: 85 },
-                            {
-                                kind: "emitExprChar",
-                                expr: {
-                                    kind: "call",
-                                    target: "pickfirst16",
-                                    args: [
-                                        { kind: "ref", scope: "local", width: 2, slot: 0 },
-                                        { kind: "const", value: 86 },
-                                    ],
-                                },
-                            },
-                            { kind: "returnVoid" },
-                        ],
-                    }),
-                ],
             };
         default:
             return null;
@@ -811,6 +734,13 @@ function lowerStmtIR(stmt, layout, state) {
             return stmt.width === 1
                 ? [{ kind: "storeImmToLocal", offset, value: stmt.value }]
                 : [{ kind: "storeImm16ToLocal", offset, value: stmt.value }];
+        }
+        case "assignLocalExpr": {
+            const offset = getLocalOffset(layout, stmt.slot);
+            const expr = lowerExprIR(stmt.expr, layout);
+            return stmt.width === 1
+                ? [{ kind: "storeExprToLocalByte", offset, expr }]
+                : [{ kind: "storeExprToLocalWord", offset, expr }];
         }
         case "compareReturn": {
             const statements = [
@@ -1012,10 +942,14 @@ function emitStatement(statement, ctx) {
             return emitLoadLocalAddrToHl(statement.offset, ctx);
         case "storeImmToLocal":
             return emitStoreImm8ToLocal(statement.offset, statement.value, ctx);
+        case "storeExprToLocalByte":
+            return emitStoreExprToLocalByte(statement.offset, statement.expr, ctx);
         case "loadLocalCharToHl":
             return emitExprToHl({ kind: "localChar", offset: statement.offset }, ctx);
         case "storeImm16ToLocal":
             return emitStoreImm16ToLocal(statement.offset, statement.value, ctx);
+        case "storeExprToLocalWord":
+            return emitStoreExprToLocalWord(statement.offset, statement.expr, ctx);
         case "loadLocalIntToHl":
             return emitExprToHl({ kind: "localInt", offset: statement.offset }, ctx);
         case "decLocalByte":
@@ -1144,12 +1078,32 @@ function emitStoreImm8ToLocal(offset, value, ctx) {
         `\tld\t(hl),#${value}`,
     ];
 }
+function emitStoreExprToLocalByte(offset, expr, ctx) {
+    return [
+        ...emitExprToHl(expr, ctx),
+        "\tpush\thl",
+        ...emitLoadLocalAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+        "\tpop\tde",
+        "\tld\t(hl),e",
+    ];
+}
 function emitStoreImm16ToLocal(offset, value, ctx) {
     return [
         ...emitLoadLocalAddrToHl(offset, ctx),
         `\tld\t(hl),#${value & 0xff}`,
         "\tinc\thl",
         `\tld\t(hl),#${(value >> 8) & 0xff}`,
+    ];
+}
+function emitStoreExprToLocalWord(offset, expr, ctx) {
+    return [
+        ...emitExprToHl(expr, ctx),
+        "\tpush\thl",
+        ...emitLoadLocalAddrToHl(offset, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
+        "\tpop\tde",
+        "\tld\t(hl),e",
+        "\tinc\thl",
+        "\tld\t(hl),d",
     ];
 }
 function emitDecLocalByte(offset, ctx) {
