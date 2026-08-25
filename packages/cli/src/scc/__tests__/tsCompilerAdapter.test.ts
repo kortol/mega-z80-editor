@@ -4580,6 +4580,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "pointer-qualifier-normalization", programRel, [], 4000)).toBe("A");
   });
 
+  test("source mode preserves qualifier metadata without changing writable volatile/restrict code generation", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-qualifier-write-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "qualifier-write.c",
+      "int main(){ volatile char value = 65; char * const restrict writer = &value; *writer = 66; outchar(value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "qualifier-write", programRel, [], 4000)).toBe("B");
+  });
+
   test("source mode preserves aggregate static local storage across calls", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-local-aggregate-"));
     const programRel = compileSourceRel(

@@ -178,7 +178,7 @@ describe("tsFrontendSemantic", () => {
     expect(bound.functions[1].params[1]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
   });
 
-  test("binds static function definitions and ignores const/volatile qualifiers", () => {
+  test("binds static function definitions and preserves const/volatile qualifiers", () => {
     const source = [
       "static int id(const unsigned char c){ return c; }",
       "int main(){ volatile char x = 65; return id(x); }",
@@ -186,8 +186,31 @@ describe("tsFrontendSemantic", () => {
     ].join("\n");
     const parsed = parseProgram(source, "static-qualifier.c");
     const bound = analyzeProgram(parsed, source, "static-qualifier.c");
-    expect(bound.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
-    expect(bound.functions[1].locals[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+    expect(bound.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1, qualifiers: { isConst: true } });
+    expect(bound.functions[1].locals[0]?.type).toEqual({ kind: "scalar", name: "char", width: 1, qualifiers: { isVolatile: true } });
+  });
+
+  test("rejects writes through const-qualified supported lvalues", () => {
+    const cases = [
+      "int main(){ const int x = 1; x = 2; return x; }",
+      "int main(){ const int x = 1; x++; return x; }",
+      "int main(){ const int values[2] = { 1, 2 }; values[0] = 3; return values[0]; }",
+      "int main(){ int value = 1; const int *p = &value; *p = 2; return value; }",
+      "int main(){ int a = 1; int b = 2; int * const p = &a; p = &b; return *p; }",
+      "struct Pair { int left; int right; }; int main(){ const struct Pair pair = { 1, 2 }; pair.left = 3; return pair.left; }",
+      "struct Pair { const int left; int right; }; int main(){ struct Pair pair = { 1, 2 }; pair.left = 3; return pair.right; }",
+      "struct Pair { int left; int right; }; int main(){ struct Pair pair = { 1, 2 }; const struct Pair *pointer = &pair; pointer->left = 3; return pair.left; }",
+    ];
+    for (const [index, source] of cases.entries()) {
+      const parsed = parseProgram(source, `const-write-${index}.c`);
+      expect(() => analyzeProgram(parsed, source, `const-write-${index}.c`)).toThrow(/cannot modify const-qualified/);
+    }
+  });
+
+  test("allows initialization and reads of const-qualified scalar, array, pointer, and aggregate objects", () => {
+    const source = "struct Pair { int left; int right; }; int main(){ const int scalar = 1; const int values[2] = { 2, 3 }; int mutable = 4; const int *pointer = &mutable; const struct Pair pair = { 5, 6 }; return scalar + values[0] + *pointer + pair.right; }";
+    const parsed = parseProgram(source, "const-initialization.c");
+    expect(() => analyzeProgram(parsed, source, "const-initialization.c")).not.toThrow();
   });
 
   test("binds file-scope globals and local aggregate brace initializers", () => {

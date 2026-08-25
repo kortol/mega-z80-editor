@@ -1,18 +1,30 @@
 export type ScalarType = "char" | "int";
 export type AggregateKind = "struct" | "union";
+export type TypeQualifiers = {
+  isConst?: boolean;
+  isVolatile?: boolean;
+  isRestrict?: boolean;
+};
 export type VoidTypeRef = {
   kind: "void";
+  qualifiers?: TypeQualifiers;
 };
 
 export type AggregateTypeRef = {
   kind: "aggregate";
   aggregateKind: AggregateKind;
   name: string;
+  qualifiers?: TypeQualifiers;
 };
 
 export type PointerTypeRef = {
   kind: "pointer";
   pointee: PointerPointee;
+  // Qualifiers on the pointer object itself (`int * const p`).
+  qualifiers?: TypeQualifiers;
+  // Qualifiers on the immediate pointee (`const int *p`). Pointer pointees
+  // retain their own qualifiers recursively through PointerPointee.
+  pointeeQualifiers?: TypeQualifiers;
 };
 
 export type ArrayPointerTypeRef = {
@@ -20,12 +32,15 @@ export type ArrayPointerTypeRef = {
   elementType: ScalarType;
   elementValueType?: AggregateTypeRef | PointerTypeRef | FunctionPointerTypeRef | ArrayPointerTypeRef;
   length: number;
+  qualifiers?: TypeQualifiers;
+  elementQualifiers?: TypeQualifiers;
 };
 
 export type FunctionPointerTypeRef = {
   kind: "functionPointer";
   returnType: SourceType;
   params: SourceType[];
+  qualifiers?: TypeQualifiers;
 };
 
 export type ArrayElementTypeRef = ScalarType | AggregateTypeRef | PointerTypeRef | FunctionPointerTypeRef;
@@ -37,6 +52,7 @@ export type SourceType =
   | {
     kind: "scalar";
     name: ScalarType;
+    qualifiers?: TypeQualifiers;
   }
   | AggregateTypeRef
   | PointerTypeRef
@@ -49,6 +65,8 @@ export type SourceType =
     // The outermost bound is length; subsequent bounds preserve row shape.
     dimensions?: number[];
     length?: number;
+    qualifiers?: TypeQualifiers;
+    elementQualifiers?: TypeQualifiers;
   };
 
 export type SourceProgram = {
@@ -133,7 +151,7 @@ export type LogicalOp = "&&" | "||";
 export type BitwiseOp = "&" | "^" | "|";
 export type BinaryOp = LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp;
 
-export type SourceStmt =
+export type SourceStmt = (
   | {
     kind: "return";
     expr: SourceExpr;
@@ -228,9 +246,9 @@ export type SourceStmt =
   }
   | {
     kind: "continue";
-  };
+  }) & { isInitialization?: boolean };
 
-export type SourceSimpleStmt =
+export type SourceSimpleStmt = (
   | {
     kind: "expr";
     expr: SourceExpr;
@@ -283,7 +301,7 @@ export type SourceSimpleStmt =
     target: SourceExpr;
     field: string;
     expr: SourceExpr;
-  };
+  }) & { isInitialization?: boolean };
 
 export type SourceForInit =
   | SourceSimpleStmt

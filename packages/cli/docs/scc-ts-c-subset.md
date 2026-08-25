@@ -1,6 +1,6 @@
 # TsSccCompiler C Subset Feature Inventory
 
-更新日: 2026-08-22
+更新日: 2026-08-25
 
 ## Purpose
 
@@ -50,7 +50,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | T06 | array-like values: decay pointer, `T (*)[N]`, array field/parameter | S | S | S | S | S | current `char`/`int` and `struct (*)[N]` p2a, aggregate field initializer/equality, and parameter paths are runtime-covered |
 | T07 | non-scalar array elements: aggregate/pointer/function-pointer arrays | S | S | S | S | S | `struct` 1-D/2-D local/global/parameter and `struct (*)[N]` consumer/lvalue paths, pointer 1-D/2-D local/global/parameter consumers, and function-pointer 1-D/2-D local/global/parameter initializer/call paths are runtime-covered |
 | D01 | local, parameter, and file-scope declarations | S | S | S | S | S | current scalar/pointer/aggregate subset |
-| D02 | `extern`, `static`, `typedef`, qualifiers | S | S | S | P | P | file-scope `extern` data/functions and internal-linkage `static` data/functions, including same-named static definitions in separate TS source modules, plus scalar/pointer/aggregate/array static locals including `for` initializer declarations with one-time data initialization are runtime-covered; `const`/`volatile`/`restrict` are accepted and normalized, while qualifier-preserving write diagnostics remain partial |
+| D02 | `extern`, `static`, `typedef`, qualifiers | S | S | S | S | S | file-scope `extern` data/functions and internal-linkage `static` data/functions, including same-named static definitions in separate TS source modules, plus scalar/pointer/aggregate/array static locals including `for` initializer declarations with one-time data initialization are runtime-covered; qualifiers are preserved through declarations and semantic types, and writes through supported const-qualified lvalues are rejected. `volatile` / `restrict` preserve type metadata only; volatile access ordering and restrict alias analysis remain outside the Subset. |
 | D03 | struct/union definitions, members, nested fields | S | S | S | S | S | covered layout and lvalue paths |
 | D04 | enum constants and scalar/pointer typedef aliases | S | S | S | S | S | enum is normalized to int |
 | D05 | complex declarators and function-pointer typedef/parameter surface | P | P | P | P | P | direct declarator、`typedef R (*F)(A)` / `typedef F *Ref` / `typedef R (*Fs[N])(A)`、`R (**p)(A)`、local/parameter/return、extern/static `F[N]`、1-D/2-D function-pointer-array parameter、多段 `(*p)(...)`、`F f()` / `R (*f(...))(A)` と即時 `f()(...)`、abstract callback parameter を持つ nested typedef / function-return signature are covered; function-pointer-to-function, variadic, and 3-D+ declarators remain outside the current grammar |
@@ -168,7 +168,7 @@ Matrix notes:
 
 ## Immediate Backlog
 
-1. `D05`: function-pointer return/parameter の typedef nesting、extern array、複合 declarator を追加する。
-2. `C03`: function-pointer return/parameter の richer type surface と ABI tests を揃える。
-3. `D05` / `C03`: function-pointer ABI の remaining richer parameter/return combinations を型別に実証・実装する。
-4. `E07`: aggregate compare/truthiness を Subset の意図的 reject として維持するか、一般 aggregate expression model の対象にするか決定する。
+1. `D02`: qualifier を型モデルへ保持し、`const` object / pointer-to-const への書込みを診断する。
+2. `D05` / `C03`: variadic を除く remaining complex function-pointer declarator と ABI の組合せを型別に実証・実装する。function-pointer-to-function と 3-D+ declarator は現行 grammar の対象外である。
+3. `E07`: aggregate compare/truthiness と一般 aggregate lvalue expression result を Subset の意図的 reject として維持するか、一般 expression model の対象にするか決定する。
+4. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。

@@ -21,6 +21,7 @@ import {
   SourceProgram,
   SourceStmt,
   SourceType,
+  TypeQualifiers,
   VoidTypeRef,
 } from "./tsFrontendAst";
 import { throwDiagnostic } from "./tsFrontendDiagnostics";
@@ -30,6 +31,7 @@ export type SemanticScalarType = {
   kind: "scalar";
   name: ScalarType;
   width: ValueWidth;
+  qualifiers?: TypeQualifiers;
 };
 
 export type SemanticArrayType = {
@@ -38,12 +40,16 @@ export type SemanticArrayType = {
   elementValueType?: SemanticAggregateType | SemanticPointerType | SemanticFunctionPointerType;
   dimensions?: number[];
   length?: number;
+  qualifiers?: TypeQualifiers;
+  elementQualifiers?: TypeQualifiers;
 };
 
 export type SemanticPointerType = {
   kind: "pointer";
   pointee: PointerPointee;
   width: 2;
+  qualifiers?: TypeQualifiers;
+  pointeeQualifiers?: TypeQualifiers;
 };
 
 export type SemanticFunctionPointerType = {
@@ -51,6 +57,7 @@ export type SemanticFunctionPointerType = {
   returnType: SemanticType;
   params: SemanticType[];
   width: 2;
+  qualifiers?: TypeQualifiers;
 };
 
 export type SemanticAggregateType = {
@@ -58,6 +65,7 @@ export type SemanticAggregateType = {
   aggregateKind: AggregateKind;
   name: string;
   size: number;
+  qualifiers?: TypeQualifiers;
 };
 
 export type SemanticVoidType = VoidTypeRef;
@@ -529,9 +537,12 @@ function analyzeStmt(
           offset: 0,
         });
       }
+      if (!stmt.isInitialization) {
+        assertModifiableType(symbol.type, `object '${stmt.name}'`, functionName, sourceText, file);
+      }
       if (symbol.kind === "global") {
         if (symbol.type.kind === "aggregate") {
-          return analyzeAggregateAssignStmt(symbol as BoundGlobalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+          return analyzeAggregateAssignStmt(symbol as BoundGlobalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file, stmt.isInitialization);
         }
         return {
           kind: "expr",
@@ -544,7 +555,7 @@ function analyzeStmt(
         };
       }
       if (symbol.type.kind === "aggregate") {
-        return analyzeAggregateAssignStmt(symbol as BoundLocalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+        return analyzeAggregateAssignStmt(symbol as BoundLocalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file, stmt.isInitialization);
       }
       return {
         kind: "assign",
@@ -553,7 +564,7 @@ function analyzeStmt(
       };
     }
     case "arrayAssign":
-      return analyzeIndexedAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+      return analyzeIndexedAssignStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file, stmt.isInitialization);
     case "memberAssign": {
       const aggregateAssign = analyzeDirectAggregateFieldAssignStmt(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
       if (aggregateAssign) {
@@ -561,7 +572,7 @@ function analyzeStmt(
       }
       return {
         kind: "expr",
-        expr: analyzeAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+        expr: analyzeAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file, stmt.isInitialization),
       };
     }
     case "memberExprAssign": {
@@ -571,7 +582,7 @@ function analyzeStmt(
       }
       return {
         kind: "expr",
-        expr: analyzeAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
+        expr: analyzeAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file, stmt.isInitialization),
       };
     }
     case "memberArrayAssign":
@@ -682,6 +693,7 @@ function analyzeSimpleStmt(
       offset: 0,
     });
   }
+  assertModifiableType(symbol.type, `object '${stmt.name}'`, functionName, sourceText, file);
   if (symbol.kind === "global") {
     if (symbol.type.kind === "aggregate") {
       return analyzeAggregateAssignSimpleStmt(symbol as BoundGlobalSymbol & { type: SemanticAggregateType }, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
@@ -714,7 +726,11 @@ function analyzeAggregateAssignStmt(
   functionName: string,
   sourceText: string,
   file?: string,
+  isInitialization = false,
 ): Extract<BoundStmt, { kind: "aggregateAssign" }> {
+  if (!isInitialization) {
+    assertModifiableType(target.type, `aggregate object '${target.name}'`, functionName, sourceText, file);
+  }
   const source = analyzeAggregateProducerExpr(expr, scope, functionSymbols, target.type, functionName, sourceText, file);
   return {
     kind: "aggregateAssign",
@@ -917,6 +933,7 @@ function analyzeArrayAssignStmt(
   functionName: string,
   sourceText: string,
   file?: string,
+  isInitialization = false,
 ): Extract<BoundStmt, { kind: "arrayAssign" | "expr" }> {
   const symbol = lookupVisible(scope, name);
   if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param") || symbol.type.kind !== "array") {
@@ -924,6 +941,9 @@ function analyzeArrayAssignStmt(
       file,
       offset: 0,
     });
+  }
+  if (!isInitialization) {
+    assertModifiableArrayElement(symbol.type, `array element '${name}[...]'`, functionName, sourceText, file);
   }
   const boundIndex = analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file);
   if (symbol.kind === "local") {
@@ -980,9 +1000,13 @@ function analyzeIndexedAssignStmt(
   functionName: string,
   sourceText: string,
   file?: string,
+  isInitialization = false,
 ): BoundStmt {
   const symbol = lookupVisible(scope, name);
   if (symbol && symbol.kind === "global" && symbol.type.kind === "array") {
+    if (!isInitialization) {
+      assertModifiableArrayElement(symbol.type, `array element '${name}[...]'`, functionName, sourceText, file);
+    }
     const boundIndex = analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file);
     if (symbol.type.elementValueType) {
       if (symbol.type.elementValueType.kind === "aggregate") {
@@ -1028,12 +1052,13 @@ function analyzeIndexedAssignStmt(
     };
   }
   if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
+    assertModifiablePointee(symbol.type, `pointee of '${name}'`, functionName, sourceText, file);
     return {
       kind: "expr",
       expr: analyzePointerIndexedAssignExpr(symbol, index, expr, scope, functionSymbols, functionName, sourceText, file),
     };
   }
-  return analyzeArrayAssignStmt(name, index, expr, scope, functionSymbols, functionName, sourceText, file);
+  return analyzeArrayAssignStmt(name, index, expr, scope, functionSymbols, functionName, sourceText, file, isInitialization);
 }
 
 function analyzeIndexedAssignSimpleStmt(
@@ -1048,6 +1073,7 @@ function analyzeIndexedAssignSimpleStmt(
 ): BoundSimpleStmt {
   const symbol = lookupVisible(scope, name);
   if (symbol && symbol.kind === "global" && symbol.type.kind === "array") {
+    assertModifiableArrayElement(symbol.type, `array element '${name}[...]'`, functionName, sourceText, file);
     const boundIndex = analyzeExpr(index, scope, functionSymbols, functionName, sourceText, file);
     if (symbol.type.elementType === "int") {
       return {
@@ -1072,6 +1098,7 @@ function analyzeIndexedAssignSimpleStmt(
     };
   }
   if (symbol && (symbol.kind === "local" || symbol.kind === "param") && symbol.type.kind === "pointer") {
+    assertModifiablePointee(symbol.type, `pointee of '${name}'`, functionName, sourceText, file);
     return {
       kind: "expr",
       expr: analyzePointerIndexedAssignExpr(symbol, index, expr, scope, functionSymbols, functionName, sourceText, file),
@@ -1115,6 +1142,7 @@ function analyzePointerIndexedAssignExpr(
   if (symbol.type.kind !== "pointer") {
     throw new Error("Internal semantic error: expected pointer symbol.");
   }
+  assertModifiablePointee(symbol.type, `pointee of '${symbol.name}'`, functionName, sourceText, file);
   const pointee = getScalarPointerPointee(symbol.type, functionName, sourceText, file);
   return {
     kind: "derefAssign",
@@ -1139,6 +1167,7 @@ function analyzeAggregateFieldAssignExpr(
   functionName: string,
   sourceText: string,
   file?: string,
+  isInitialization = false,
 ): Extract<BoundExpr, { kind: "derefAssign" }> {
   const symbol = lookupVisible(scope, name);
   if (!symbol || (symbol.kind !== "local" && symbol.kind !== "global") || symbol.type.kind !== "aggregate") {
@@ -1147,7 +1176,7 @@ function analyzeAggregateFieldAssignExpr(
       offset: 0,
     });
   }
-  const field = getAssignableAggregateFieldLayout(symbol.type, fieldName, functionName, sourceText, file);
+  const field = getAssignableAggregateFieldLayout(symbol.type, fieldName, functionName, sourceText, file, isInitialization);
   return {
     kind: "derefAssign",
     pointer: {
@@ -1288,6 +1317,7 @@ function analyzePointerAggregateFieldAssignExpr(
       kind: "aggregate",
       aggregateKind: aggregatePointee.aggregateKind,
       name: aggregatePointee.name,
+      ...(hasTypeQualifiers(aggregatePointee.qualifiers) ? { qualifiers: aggregatePointee.qualifiers } : {}),
     }) as SemanticAggregateType,
     fieldName,
     functionName,
@@ -1317,8 +1347,24 @@ function analyzeAggregateFieldAssignExprTarget(
   functionName: string,
   sourceText: string,
   file?: string,
+  isInitialization = false,
 ): Extract<BoundExpr, { kind: "derefAssign" }> {
-  const target = getAggregateFieldAssignablePointerFromTargetExpr(targetExpr, fieldName, scope, functionSymbols, functionName, sourceText, file);
+  const target = isInitialization
+    ? (() => {
+      const base = getAggregateBasePointerFromExpr(targetExpr, scope, functionSymbols, functionName, sourceText, file);
+      const field = getReadableAggregateFieldLayout(base.type, fieldName, functionName, sourceText, file);
+      return {
+        pointer: {
+          kind: "pointerAdd" as const,
+          pointer: base.pointer,
+          index: { kind: "const" as const, value: field.offset, type: toSemanticScalarType("int") },
+          pointee: "char" as const,
+          type: toSemanticPointerType("char"),
+        },
+        type: field.type,
+      };
+    })()
+    : getAggregateFieldAssignablePointerFromTargetExpr(targetExpr, fieldName, scope, functionSymbols, functionName, sourceText, file);
   return {
     kind: "derefAssign",
     pointer: target.pointer,
@@ -2643,6 +2689,7 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      assertModifiableType(symbol.type, `object '${expr.name}'`, functionName, sourceText, file);
       return {
         kind: expr.kind,
         local: symbol,
@@ -2661,6 +2708,7 @@ function analyzeExpr(
       }
       const boundIndex = analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file);
       if (symbol.type.kind === "pointer") {
+        assertModifiablePointee(symbol.type, `pointee of '${expr.name}'`, functionName, sourceText, file);
         const pointee = getScalarPointerPointee(symbol.type, functionName, sourceText, file);
         return {
           kind: "derefIncDec",
@@ -2676,6 +2724,7 @@ function analyzeExpr(
           type: toSemanticScalarType(pointee),
         };
       }
+      assertModifiableArrayElement(symbol.type, `array element '${expr.name}[...]'`, functionName, sourceText, file);
       if (symbol.kind === "local") {
         assertArrayIndexInBounds(boundIndex, expr.name, getSizedArrayLength(symbol.type), functionName, sourceText, file);
       }
@@ -2707,6 +2756,7 @@ function analyzeExpr(
         });
       }
       const pointee = getScalarPointerPointee(pointer.type, functionName, sourceText, file);
+      assertModifiablePointee(pointer.type, "dereferenced pointer", functionName, sourceText, file);
       return {
         kind: "derefIncDec",
         pointer,
@@ -2774,6 +2824,7 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      assertModifiableType(symbol.type, `object '${expr.name}'`, functionName, sourceText, file);
       if (symbol.kind === "global") {
         return {
           kind: "assignGlobal",
@@ -2874,6 +2925,7 @@ function analyzeExpr(
           offset: 0,
         });
       }
+      assertModifiablePointee(pointer.type, "dereferenced pointer", functionName, sourceText, file);
       return {
         kind: "derefAssign",
         pointer,
@@ -3146,7 +3198,7 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
     return type;
   }
   if (type.kind === "scalar") {
-    return toSemanticScalarType(type.name);
+    return toSemanticScalarType(type.name, type.qualifiers);
   }
   if (type.kind === "aggregate") {
     const layout = currentAggregateLayouts.get(`${type.aggregateKind}:${type.name}`);
@@ -3158,10 +3210,11 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
       aggregateKind: type.aggregateKind,
       name: type.name,
       size: layout.size,
+      ...(hasTypeQualifiers(type.qualifiers) ? { qualifiers: type.qualifiers } : {}),
     };
   }
   if (type.kind === "pointer") {
-    return toSemanticPointerType(type.pointee);
+    return toSemanticPointerType(type.pointee, type.qualifiers, type.pointeeQualifiers);
   }
   if (type.kind === "functionPointer") {
     return {
@@ -3169,6 +3222,7 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
       returnType: toSemanticType(type.returnType),
       params: type.params.map((param) => toSemanticType(param)),
       width: 2,
+      ...(hasTypeQualifiers(type.qualifiers) ? { qualifiers: type.qualifiers } : {}),
     };
   }
   return {
@@ -3177,6 +3231,8 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
     elementValueType: type.elementValueType ? toSemanticType(type.elementValueType) as SemanticAggregateType | SemanticPointerType | SemanticFunctionPointerType : undefined,
     dimensions: type.dimensions,
     length: type.length,
+    ...(hasTypeQualifiers(type.qualifiers) ? { qualifiers: type.qualifiers } : {}),
+    ...(hasTypeQualifiers(type.elementQualifiers) ? { elementQualifiers: type.elementQualifiers } : {}),
   };
 }
 
@@ -3189,20 +3245,63 @@ function toSemanticFunctionPointerType(fn: BoundFunctionSymbol): SemanticFunctio
   };
 }
 
-function toSemanticScalarType(type: ScalarType): SemanticScalarType {
+function toSemanticScalarType(type: ScalarType, qualifiers?: TypeQualifiers): SemanticScalarType {
   return {
     kind: "scalar",
     name: type,
     width: type === "char" ? 1 : 2,
+    ...(hasTypeQualifiers(qualifiers) ? { qualifiers } : {}),
   };
 }
 
-function toSemanticPointerType(pointee: PointerPointee): SemanticPointerType {
+function toSemanticPointerType(pointee: PointerPointee, qualifiers?: TypeQualifiers, pointeeQualifiers?: TypeQualifiers): SemanticPointerType {
   return {
     kind: "pointer",
     pointee,
     width: 2,
+    ...(hasTypeQualifiers(qualifiers) ? { qualifiers } : {}),
+    ...(hasTypeQualifiers(pointeeQualifiers) ? { pointeeQualifiers } : {}),
   };
+}
+
+function hasTypeQualifiers(qualifiers: TypeQualifiers | undefined): boolean {
+  return Boolean(qualifiers?.isConst || qualifiers?.isVolatile || qualifiers?.isRestrict);
+}
+
+function assertModifiableType(
+  type: { qualifiers?: TypeQualifiers },
+  description: string,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): void {
+  if (type.qualifiers?.isConst) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset cannot modify const-qualified ${description} in ${functionName}().`, { file, offset: 0 });
+  }
+}
+
+function assertModifiablePointee(
+  type: SemanticPointerType,
+  description: string,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): void {
+  if (type.pointeeQualifiers?.isConst) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset cannot modify const-qualified ${description} in ${functionName}().`, { file, offset: 0 });
+  }
+}
+
+function assertModifiableArrayElement(
+  type: SemanticArrayType,
+  description: string,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): void {
+  if (type.elementQualifiers?.isConst || type.qualifiers?.isConst) {
+    throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset cannot modify const-qualified ${description} in ${functionName}().`, { file, offset: 0 });
+  }
 }
 
 function toPointerPointee(type: SemanticType): PointerPointee {
@@ -3728,18 +3827,25 @@ function getAssignableAggregateFieldLayout(
   functionName: string,
   sourceText: string,
   file?: string,
+  isInitialization = false,
 ): { offset: number; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType } {
+  if (!isInitialization) {
+    assertModifiableType(type, "aggregate object", functionName, sourceText, file);
+  }
   const field = getAggregateFieldLayout(type, fieldName, functionName, sourceText, file);
+  if (!isInitialization) {
+    assertModifiableType(field.type, `field '${fieldName}'`, functionName, sourceText, file);
+  }
   if (field.type.kind === "scalar") {
     return {
       offset: field.offset,
-      type: toSemanticScalarType(field.type.name),
+      type: toSemanticScalarType(field.type.name, field.type.qualifiers),
     };
   }
   if (field.type.kind === "pointer") {
     return {
       offset: field.offset,
-      type: toSemanticPointerType(field.type.pointee),
+      type: toSemanticPointerType(field.type.pointee, field.type.qualifiers, field.type.pointeeQualifiers),
     };
   }
   if (field.type.kind === "functionPointer") {
@@ -3750,6 +3856,7 @@ function getAssignableAggregateFieldLayout(
         returnType: toSemanticType(field.type.returnType),
         params: field.type.params.map((param) => toSemanticType(param)),
         width: 2,
+        ...(hasTypeQualifiers(field.type.qualifiers) ? { qualifiers: field.type.qualifiers } : {}),
       },
     };
   }
@@ -3766,7 +3873,29 @@ function getReadableAggregateFieldLayout(
   sourceText: string,
   file?: string,
 ): { offset: number; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType } {
-  return getAssignableAggregateFieldLayout(type, fieldName, functionName, sourceText, file);
+  const field = getAggregateFieldLayout(type, fieldName, functionName, sourceText, file);
+  if (field.type.kind === "scalar") {
+    return { offset: field.offset, type: toSemanticScalarType(field.type.name, field.type.qualifiers) };
+  }
+  if (field.type.kind === "pointer") {
+    return { offset: field.offset, type: toSemanticPointerType(field.type.pointee, field.type.qualifiers, field.type.pointeeQualifiers) };
+  }
+  if (field.type.kind === "functionPointer") {
+    return {
+      offset: field.offset,
+      type: {
+        kind: "functionPointer",
+        returnType: toSemanticType(field.type.returnType),
+        params: field.type.params.map((param) => toSemanticType(param)),
+        width: 2,
+        ...(hasTypeQualifiers(field.type.qualifiers) ? { qualifiers: field.type.qualifiers } : {}),
+      },
+    };
+  }
+  throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports scalar/pointer/function-pointer field assignment or access on ${type.aggregateKind} ${type.name}.${fieldName} in ${functionName}().`, {
+    file,
+    offset: 0,
+  });
 }
 
 function getPointerAggregateFieldTarget(
@@ -4045,7 +4174,10 @@ function getAggregatePointerPointee(
   file?: string,
 ): AggregateTypeRef {
   if (typeof type.pointee !== "string" && type.pointee.kind === "aggregate") {
-    return type.pointee;
+    return {
+      ...type.pointee,
+      ...(hasTypeQualifiers(type.pointeeQualifiers) ? { qualifiers: { ...type.pointee.qualifiers, ...type.pointeeQualifiers } } : {}),
+    };
   }
   throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset only supports '->' on struct/union pointers in ${functionName}().`, {
     file,

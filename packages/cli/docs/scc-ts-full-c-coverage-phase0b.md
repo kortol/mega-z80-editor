@@ -144,12 +144,18 @@ Status set:
 - `intentional-reject`
 - `unknown`
 
-Count summary for this 58-row matrix:
+Count summary for this 58-row matrix (2026-08-10 historical snapshot):
 
 - `runtime-pass`: 26
 - `runtime-pass-with-limitations`: 25
 - `unsupported`: 5
 - `unknown`: 2
+
+> **Current status:** this Phase 0B table is retained as a historical audit. The current
+> source-path feature inventory is [scc-ts-c-subset.md](./scc-ts-c-subset.md). In particular,
+> later work promoted 2-D scalar/aggregate/pointer/function-pointer arrays, 2-D
+> function-pointer-array parameters, rich function-pointer typedef/return forms, file-scope
+> aggregate storage, and aggregate producer/destination paths to runtime-covered `S` rows.
 
 Evidence convention:
 
@@ -167,13 +173,13 @@ Evidence convention:
 | int / unsigned int | runtime-pass-with-limitations | runtime: `stmt-arg-int`, `stmt-void-alias` | `int` and `unsigned int` syntax pass on the current 16-bit scalar model | distinct unsigned semantics remain normalized to `int` |
 | long / unsigned long | unsupported | no evidence | none | unsupported |
 | pointer | runtime-pass | runtime: conditional pointer-member, pointer compare, address/deref tests | runtime pass | function-pointer class excluded |
-| array / pointer-to-array / multidimensional array | runtime-pass-with-limitations | runtime: `stmt-array-assign`, `stmt-array-string-init`, `stmt-array-dynamic`, pointer-to-array runtime tests | 1-D `char` / `int` arrays and sized `char (*)[N]` / `int (*)[N]` pass, including parameter/return/value consumers | multidimensional arrays and non-scalar array elements are unsupported |
-| function type / function pointer | runtime-pass-with-limitations | runtime: `function-pointer`; parser/semantic function-pointer tests | local function-pointer declaration, `&function`, reassignment, and `fp()` indirect-call subset pass at runtime | function-pointer params/typedefs/richer declarators remain partial |
+| array / pointer-to-array / multidimensional array | runtime-pass-with-limitations | current runtime: scalar/aggregate/pointer/function-pointer 1-D/2-D local/global/parameter tests | 1-D/2-D arrays, row decay, `T (*)[N]`, and non-scalar array elements pass on the source path | 3-D+, VLA/non-literal bounds, and arbitrary pointer-to-array nesting are unsupported |
+| function type / function pointer | runtime-pass-with-limitations | current runtime: local/file-scope/extern/static function pointers, 1-D/2-D arrays, parameters, typedefs, multi-level indirect calls, and function-pointer returns | current rich function-pointer source-path subset passes at runtime | variadic and function-pointer-to-function declarators remain outside the grammar |
 | struct | runtime-pass | runtime: aggregate member, argument, return, chained value tests | runtime pass on many source paths, including conditional/comma aggregate return pass-through | none on covered subset |
 | union | runtime-pass | runtime: assignment, temporary aggregate value, direct return, nested return, and conditional/comma/assign pass-through tests | union runtime pass on current source-path coverage | compare/truthiness remain intentional reject |
 | enum | runtime-pass-with-limitations | runtime: `stmt-typedef-enum-cast`; parser/semantic typedef+enum tests | enum constants and `enum Name` type aliases lower to current `int` model and pass runtime | richer enum constant expressions and enum object layout semantics remain minimal |
-| typedef | runtime-pass-with-limitations | runtime: `stmt-typedef-enum-cast`; parser/semantic typedef tests | scalar/pointer typedef aliases pass through parser/semantic/runtime | storage-class `typedef` only; array/function-pointer typedef surface still absent |
-| qualifier | runtime-pass-with-limitations | runtime: `stmt-static-qualifier`; parser/semantic qualifier tests | `const` / `volatile` syntax is accepted and normalized away on the current subset | qualifiers are not semantically modeled beyond syntax acceptance |
+| typedef | runtime-pass-with-limitations | current parser/semantic/runtime typedef tests | scalar/pointer/function-pointer aliases, nested callback parameters, and function-pointer arrays pass through the source path | unsupported complex declarators remain outside the grammar |
+| qualifier | runtime-pass-with-limitations | runtime: qualifier declaration/read/write paths; parser/semantic const-lvalue tests | `const` / `volatile` / `restrict` are preserved through supported declarations; const initialization/read pass and supported writes through const-qualified lvalues are diagnosed | `volatile` access ordering and `restrict` alias analysis are outside the current semantic model |
 | incomplete type / forward declaration | runtime-pass-with-limitations | runtime: `stmt-extern-two-arg-int-call` proves external function declaration; no aggregate forward-decl evidence | function forward declaration path works | incomplete aggregate types unverified |
 
 ### 4.2 Expressions
@@ -181,9 +187,9 @@ Evidence convention:
 | item | status | source test / evidence | observed result | known limitation |
 | --- | --- | --- | --- | --- |
 | literal / identifier / string | runtime-pass | runtime: local scalar tests, string-init tests | runtime pass | none found for covered subset |
-| subscript | runtime-pass-with-limitations | runtime: `stmt-array-dynamic`, `stmt-param-array-read`, `stmt-param-array-write`, pointer-to-array runtime tests | runtime pass for char/int arrays, scalar pointers, and sized pointer-to-array rows | multidimensional and non-scalar array-element indexing are unsupported |
-| function call | runtime-pass-with-limitations | runtime: `stmt-call-result`, `stmt-call-two-arg-mixed`, aggregate call tests, `function-pointer` | direct calls plus current local function-pointer indirect-call subset pass at runtime | richer indirect-call surface remains partial |
-| member / pointer member | runtime-pass | runtime: `stmt-aggregate-member`, `stmt-pointer-member` | runtime pass | aggregate value member path still limited by return ABI edge cases |
+| subscript | runtime-pass-with-limitations | current runtime: 1-D/2-D scalar/aggregate/pointer/function-pointer array tests | local/global/parameter indexing, row decay, and non-scalar element consumers/lvalues pass | 3-D+ arrays and general array values remain unsupported |
+| function call | runtime-pass-with-limitations | current runtime: direct, local/file-scope/extern/static/array/return function-pointer calls | direct calls and the current rich indirect-call subset pass at runtime | variadic and unsupported declarators remain excluded |
+| member / pointer member | runtime-pass | current runtime: direct/nested/pointer/conditional aggregate bases and aggregate producers | field read/write/address and function-pointer field-call paths pass on the source path | only the explicit aggregate compare/truthiness/general-lvalue-expression exclusions remain |
 | prefix/postfix increment/decrement | runtime-pass | runtime: `stmt-inc-dec`, `stmt-prefix-inc-dec` | runtime pass | covered subset only |
 | address / dereference | runtime-pass | runtime: pointer-member address and field-address tests | runtime pass | address-of restricted to locals / array elements / deref path |
 | unary operators | runtime-pass-with-limitations | runtime: `stmt-not`, `stmt-bitnot`, `stmt-typedef-enum-cast`; parser supports unary minus via other runtime tests | runtime pass for `!`, `~`, unary `-`, and basic scalar/pointer cast forms | richer unary forms still absent |
@@ -195,7 +201,7 @@ Evidence convention:
 | bitwise | runtime-pass | runtime: `stmt-bitwise`, `stmt-bitnot` | runtime pass | scalar subset only |
 | logical and/or | runtime-pass | runtime: `stmt-logical` | runtime pass with short-circuit behavior | aggregate truthiness excluded |
 | conditional | runtime-pass | runtime: scalar/pointer cases pass; aggregate call/assignment/member cases pass; struct/union aggregate return pass-through conditional passes | runtime pass | none on covered subset |
-| assignment / compound assignment | runtime-pass-with-limitations | runtime: `stmt-compound-assign`, `stmt-aggregate-assign`, `stmt-aggregate-assign-expr-result` | runtime pass for scalar and many aggregate paths | general aggregate initializer/value model still partial |
+| assignment / compound assignment | runtime-pass-with-limitations | current runtime: scalar/pointer lvalues and aggregate producer-to-local/global/field destinations | supported scalar/pointer assignment expressions and aggregate assignment statements pass | aggregate assignment result is not a general aggregate lvalue expression; aggregate `op=` remains excluded |
 | comma | runtime-pass | runtime: aggregate call-value comma path passes; struct/union aggregate return pass-through comma passes | runtime pass | none on covered subset |
 
 ### 4.3 Statements
@@ -214,12 +220,12 @@ Evidence convention:
 
 | item | status | source test / evidence | observed result | known limitation |
 | --- | --- | --- | --- | --- |
-| global / local / parameter | runtime-pass-with-limitations | runtime: `globals-source`; locals/parameters heavily covered elsewhere | locals/params plus current scalar / char-array globals pass at runtime | aggregate globals and tentative-definition semantics remain partial |
+| global / local / parameter | runtime-pass-with-limitations | current runtime: scalar/pointer/aggregate/array static and file-scope storage paths | locals/parameters plus scalar, pointer, aggregate, and array globals pass | tentative-definition and full ISO linkage/storage-duration semantics remain partial |
 | prototype / definition | runtime-pass | runtime: `stmt-extern-two-arg-int-call`, ordinary function definitions throughout | runtime pass | none for covered subset |
-| extern / static / typedef | runtime-pass-with-limitations | `extern` function declaration evidenced by runtime test; `typedef` evidenced by `stmt-typedef-enum-cast`; `static` evidenced by `stmt-static-qualifier` | `extern`, `static` function definitions, and basic scalar/pointer typedef aliases pass | local/global storage-duration semantics beyond current subset remain unverified |
+| extern / static / typedef | runtime-pass-with-limitations | current runtime: file-scope extern data/functions, same-named internal static definitions across modules, static locals including `for` initializers, and function-pointer typedef arrays | current scalar/pointer/aggregate/array storage paths and supported typedef surface pass | full ISO linkage/storage-duration semantics remain unimplemented |
 | scalar initializer | runtime-pass | runtime: local scalar init tests | runtime pass | covered subset only |
-| aggregate initializer | runtime-pass-with-limitations | runtime: `aggregate-brace-init`; parser/semantic brace-init tests | one-level local aggregate brace initializers pass, including zero-filled trailing members | nested aggregate fields / designated initializers remain unsupported |
-| nested / partial initializer | runtime-pass-with-limitations | runtime: `aggregate-brace-init`, `globals-source`; parser/semantic brace-init tests | partial zero-fill works for current one-level aggregate and char-array brace initializers | true nested aggregate initializer trees remain unsupported |
+| aggregate initializer | runtime-pass-with-limitations | current runtime: local/file-scope aggregate, 2-D aggregate-array, pointer-array, and function-pointer-array brace initializers | supported flat and row-braced current layouts, including zero fill, pass | arbitrary nested aggregate field trees, designated initializers, and compound literals remain unsupported |
+| nested / partial initializer | runtime-pass-with-limitations | current parser/semantic/runtime aggregate and 2-D array initializer tests | partial zero-fill and supported nested array rows pass | true arbitrary nested aggregate initializer trees remain unsupported |
 | zero fill | runtime-pass-with-limitations | migration doc and array string-init runtime imply zero-fill for `char buf[4] = "AB"` | runtime evidence for char arrays | broader object zero-fill not evidenced |
 | string initializer | runtime-pass | runtime: `stmt-array-string-init`, `stmt-array-string-init-exact-fit` | runtime pass | char arrays only |
 | tentative definition | unknown | no evidence found | unknown | not enough source-path proof |
@@ -235,7 +241,7 @@ Evidence convention:
 | pointer return | runtime-pass-with-limitations | runtime: `stmt-pointer-return` | direct pointer identity return passes at runtime | broader pointer-return arithmetic / recursion surface still unverified |
 | aggregate return | runtime-pass | runtime: `stmt-aggregate-return`, `stmt-aggregate-return-nested`, `stmt-aggregate-return-pass-through-assign`, `...-conditional`, `...-comma`, and union analogs pass | struct/union aggregate runtime pass | pointer return / recursion still separate |
 | direct call | runtime-pass | pervasive runtime evidence | runtime pass | none on covered subset |
-| indirect call | runtime-pass-with-limitations | runtime: `function-pointer`; parser/semantic function-pointer tests | local function-pointer indirect calls pass on the source path | extern/function-pointer param/global-function-pointer paths remain unverified |
+| indirect call | runtime-pass-with-limitations | current runtime: local/file-scope/extern/static variable-or-array, parameter, typedef, multi-level pointer, aggregate-field, and function-pointer-return targets | supported indirect-call surface passes on the source path | variadic and unsupported declarators remain excluded |
 | nested call | runtime-pass | runtime: `stmt-aggregate-return-nested`, chained value tests | runtime pass | none on covered subset |
 | recursion | runtime-pass-with-limitations | runtime: `stmt-recursion` | direct self-recursive scalar call path passes at runtime | aggregate-return recursion and deeper ABI stress remain unverified |
 | register preservation | unknown | no direct register-contract test found | unknown | assembly inference only |
@@ -413,10 +419,10 @@ Passing suites:
 
 Still open relative to `packages/cli/docs/scc-ts-migration.md`:
 
-- `return c ? x : y;` runtime green
-- `return (x, y);` runtime green
-- broader remaining type surface (multidimensional arrays, function pointers, richer enum/cast rules)
-- explicit ABI evidence for register preservation and broader pointer-return / recursive aggregate-return forms
+- qualifier-preserving type semantics and const-write diagnostics
+- variadic and the remaining unsupported complex declarators
+- aggregate compare/truthiness and a general aggregate lvalue expression-result model, if they are brought into scope
+- explicit ABI evidence for register preservation, external object interoperability, and broader pointer-return / recursive aggregate-return forms
 
 ### 8.6 Concrete drift fix in this doc update
 
@@ -442,7 +448,7 @@ The migration document had unrelated text injected into the Phase 8 checklist re
 
 | target | dependencies | layer | required tests | recommended PR split |
 | --- | --- | --- | --- | --- |
-| unsupported surface expansion (multidim arrays, function pointers, richer enum/cast/type-alias rules) | P0/P1 complete | parser, semantic, lowering, emitter | parser+semantic+runtime slices per feature family | one PR per feature family |
+| remaining language-surface expansion (qualifier semantics, variadic/unsupported declarators, aggregate expression design) | P0/P1 complete | parser, semantic, lowering, emitter | parser+semantic+runtime slices per feature family | one PR per feature family |
 | formal ABI documentation for registers/alignment | more direct tests or emulator tracing | docs + targeted tests | register preservation / pointer return / recursion tests | separate ABI-proof PR |
 
 ## Final Working Tree

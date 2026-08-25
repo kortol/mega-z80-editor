@@ -323,7 +323,7 @@ describe("tsFrontendParser", () => {
     });
   });
 
-  test("parses static function definitions and ignores const/volatile qualifiers", () => {
+  test("parses static function definitions and preserves const/volatile qualifiers", () => {
     const source = [
       "static int id(const unsigned char c){ return c; }",
       "int main(){ volatile char x = 65; return id(x); }",
@@ -331,8 +331,41 @@ describe("tsFrontendParser", () => {
     ].join("\n");
     const program = parseProgram(source, "static-qualifier.c");
     expect(program.functions[0].name).toBe("id");
-    expect(program.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char" });
-    expect(program.functions[1].body.declarations[0]?.type).toEqual({ kind: "scalar", name: "char" });
+    expect(program.functions[0].params[0]?.type).toEqual({ kind: "scalar", name: "char", qualifiers: { isConst: true } });
+    expect(program.functions[1].body.declarations[0]?.type).toEqual({ kind: "scalar", name: "char", qualifiers: { isVolatile: true } });
+  });
+
+  test("preserves qualifiers on pointer objects, pointees, arrays, aggregate fields, and typedef uses", () => {
+    const source = [
+      "typedef int *IntPtr;",
+      "struct Pair { const int left; int right; };",
+      "int main(){ const int value = 1; const int values[2] = { 1, 2 }; const int *readOnly = &value; int * const fixed = 0; restrict IntPtr alias = fixed; const struct Pair pair = { 1, 2 }; return value + values[0] + *readOnly + pair.right; }",
+      "",
+    ].join("\n");
+    const program = parseProgram(source, "qualifier-declarators.c");
+    expect(program.aggregates[0]?.fields[0]?.type).toEqual({ kind: "scalar", name: "int", qualifiers: { isConst: true } });
+    expect(program.functions[0]?.body.declarations.map((decl) => decl.type)).toEqual([
+      { kind: "scalar", name: "int", qualifiers: { isConst: true } },
+      { kind: "array", elementType: "int", length: 2, elementQualifiers: { isConst: true } },
+      { kind: "pointer", pointee: "int", pointeeQualifiers: { isConst: true } },
+      { kind: "pointer", pointee: "int", qualifiers: { isConst: true } },
+      { kind: "pointer", pointee: "int", qualifiers: { isRestrict: true } },
+      { kind: "aggregate", aggregateKind: "struct", name: "Pair", qualifiers: { isConst: true } },
+    ]);
+  });
+
+  test("parses a dereference assignment without treating the pointer object as its lvalue", () => {
+    const source = "int main(){ char value = 65; char * const pointer = &value; *pointer = 66; return value; }\n";
+    const program = parseProgram(source, "deref-assignment.c");
+    const statement = program.functions[0]?.body.statements.find((entry) => entry.kind === "expr" && entry.expr.kind === "derefAssign");
+    expect(statement).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "derefAssign",
+        target: { kind: "deref", expr: { kind: "ref", name: "pointer" } },
+        expr: { kind: "const", value: 66 },
+      },
+    });
   });
 
   test("parses assignment expressions with right associativity", () => {
@@ -1722,12 +1755,14 @@ describe("tsFrontendParser", () => {
     expect(inferred.functions[0].body.statements[0]).toEqual({
       kind: "arrayAssign",
       name: "buf",
+      isInitialization: true,
       index: { kind: "const", value: 0 },
       expr: { kind: "const", value: 65 },
     });
     expect(inferred.functions[0].body.statements[2]).toEqual({
       kind: "arrayAssign",
       name: "buf",
+      isInitialization: true,
       index: { kind: "const", value: 2 },
       expr: { kind: "const", value: 0 },
     });
@@ -1737,12 +1772,14 @@ describe("tsFrontendParser", () => {
     expect(explicit.functions[0].body.statements[2]).toEqual({
       kind: "arrayAssign",
       name: "buf",
+      isInitialization: true,
       index: { kind: "const", value: 2 },
       expr: { kind: "const", value: 0 },
     });
     expect(explicit.functions[0].body.statements[3]).toEqual({
       kind: "arrayAssign",
       name: "buf",
+      isInitialization: true,
       index: { kind: "const", value: 3 },
       expr: { kind: "const", value: 0 },
     });
@@ -1754,12 +1791,14 @@ describe("tsFrontendParser", () => {
     expect(program.functions[0].body.statements[0]).toEqual({
       kind: "arrayAssign",
       name: "buf",
+      isInitialization: true,
       index: { kind: "const", value: 0 },
       expr: { kind: "const", value: 65 },
     });
     expect(program.functions[0].body.statements[1]).toEqual({
       kind: "arrayAssign",
       name: "buf",
+      isInitialization: true,
       index: { kind: "const", value: 1 },
       expr: { kind: "const", value: 66 },
     });
@@ -2111,12 +2150,14 @@ describe("tsFrontendParser", () => {
     const body = program.functions[0].body;
     expect(body.statements[0]).toEqual({
       kind: "memberExprAssign",
+      isInitialization: true,
       target: { kind: "memberAccess", name: "x", field: "inner" },
       field: "a",
       expr: { kind: "const", value: 65 },
     });
     expect(body.statements[1]).toEqual({
       kind: "memberExprAssign",
+      isInitialization: true,
       target: { kind: "memberAccess", name: "x", field: "inner" },
       field: "b",
       expr: { kind: "const", value: 66 },
@@ -2146,6 +2187,7 @@ describe("tsFrontendParser", () => {
     const body = program.functions[0].body;
     expect(body.statements[0]).toEqual({
       kind: "memberArrayAssign",
+      isInitialization: true,
       target: { kind: "memberAccess", name: "x", field: "inner" },
       field: "name",
       index: { kind: "const", value: 0 },
@@ -2153,6 +2195,7 @@ describe("tsFrontendParser", () => {
     });
     expect(body.statements[3]).toEqual({
       kind: "memberArrayAssign",
+      isInitialization: true,
       target: { kind: "memberAccess", name: "x", field: "inner" },
       field: "name",
       index: { kind: "const", value: 3 },
@@ -2160,6 +2203,7 @@ describe("tsFrontendParser", () => {
     });
     expect(body.statements[4]).toEqual({
       kind: "memberExprAssign",
+      isInitialization: true,
       target: { kind: "memberAccess", name: "x", field: "inner" },
       field: "code",
       expr: { kind: "const", value: 67 },
@@ -2167,6 +2211,7 @@ describe("tsFrontendParser", () => {
     expect(body.statements[5]).toEqual({
       kind: "memberAssign",
       name: "x",
+      isInitialization: true,
       field: "tail",
       expr: { kind: "const", value: 68 },
     });

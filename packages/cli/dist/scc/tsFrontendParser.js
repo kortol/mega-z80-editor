@@ -384,13 +384,14 @@ function parseStatementSequence(context, bodyText, functionName, startOffset) {
         if (parsed.kind === "decl") {
             declarations.push(parsed.declaration);
             if (parsed.extraStatements) {
-                statements.push(...parsed.extraStatements);
+                statements.push(...parsed.extraStatements.map((statement) => ({ ...statement, isInitialization: true })));
             }
             if (!parsed.declaration.isStatic && parsed.declaration.initializer?.kind === "expr" && shouldUseDirectDeclarationAssign(parsed.declaration.type)) {
                 statements.push({
                     kind: "assign",
                     name: parsed.declaration.name,
                     expr: parsed.declaration.initializer.expr,
+                    isInitialization: true,
                 });
             }
             continue;
@@ -742,7 +743,7 @@ function parseExpression(context, exprText, functionName, offset) {
         const rhsOffset = trimmedOffset + compoundAssignment.index + compoundAssignment.op.length;
         const rhs = parseExpression(context, compoundAssignment.rightText, functionName, rhsOffset);
         if (lhs.startsWith("*")) {
-            const target = parsePrimaryExpr(context, lhs, functionName, trimmedOffset);
+            const target = parseExpression(context, lhs, functionName, trimmedOffset);
             return {
                 kind: "derefAssign",
                 target,
@@ -954,7 +955,7 @@ function parseExpression(context, exprText, functionName, offset) {
         if (lhs.startsWith("*")) {
             return {
                 kind: "derefAssign",
-                target: parsePrimaryExpr(context, lhs, functionName, trimmedOffset),
+                target: parseExpression(context, lhs, functionName, trimmedOffset),
                 expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
             };
         }
@@ -2279,27 +2280,29 @@ function findMatchingDelimitedIndex(context, openIndex, openChar, closeChar, mes
     }
     (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, message, { file: context.file, offset: openIndex });
 }
-function makeScalarType(name) {
-    return { kind: "scalar", name };
+function makeScalarType(name, qualifiers) {
+    return { kind: "scalar", name, ...(hasQualifiers(qualifiers) ? { qualifiers } : {}) };
 }
 function parseNamedType(context, text) {
-    const trimmed = normalizeTypeText(text);
+    const { typeText, qualifiers } = splitLeadingQualifiers(normalizeTypeText(text));
+    const trimmed = typeText;
     const normalizedBuiltin = normalizeBuiltinTypeName(trimmed);
     if (normalizedBuiltin === "void") {
-        return { kind: "void" };
+        return { kind: "void", ...(hasQualifiers(qualifiers) ? { qualifiers } : {}) };
     }
     if (normalizedBuiltin === "int" || normalizedBuiltin === "char") {
-        return makeScalarType(normalizedBuiltin);
+        return makeScalarType(normalizedBuiltin, qualifiers);
     }
     const aggregateMatch = /^(struct|union)\s+([A-Za-z_]\w*)$/.exec(trimmed);
     if (aggregateMatch) {
-        return makeAggregateTypeRef(aggregateMatch[1], aggregateMatch[2]);
+        return { ...makeAggregateTypeRef(aggregateMatch[1], aggregateMatch[2]), ...(hasQualifiers(qualifiers) ? { qualifiers } : {}) };
     }
     const enumMatch = /^enum\s+([A-Za-z_]\w*)$/.exec(trimmed);
     if (enumMatch) {
-        return makeScalarType("int");
+        return makeScalarType("int", qualifiers);
     }
-    return context.typedefs.get(trimmed) ?? null;
+    const typedefType = context.typedefs.get(trimmed);
+    return typedefType ? withTypeQualifiers(typedefType, qualifiers) : null;
 }
 function normalizeBuiltinTypeName(text) {
     const normalized = text.replace(/\s+/g, " ").trim();
@@ -2331,7 +2334,7 @@ function parseTypeText(context, text) {
     if (trimmed.length === 0) {
         return null;
     }
-    const pointerMatch = /^(.*?)(\s*\*+)$/.exec(trimmed);
+    const pointerMatch = /^(.*?)(\s*\*(?:\s*(?:const|volatile|restrict))*\s*(?:\*(?:\s*(?:const|volatile|restrict))*\s*)*)$/.exec(trimmed);
     if (!pointerMatch) {
         return parseNamedType(context, trimmed);
     }
@@ -2339,24 +2342,47 @@ function parseTypeText(context, text) {
     if (!baseType || baseType.kind === "array" || baseType.kind === "void") {
         return null;
     }
-    const depth = (pointerMatch[2].match(/\*/g) ?? []).length;
-    let pointee = sourceTypeToPointerPointee(baseType);
-    for (let index = 1; index < depth; index += 1) {
-        pointee = { kind: "pointer", pointee };
+    const pointerQualifiers = [...pointerMatch[2].matchAll(/\*\s*((?:(?:const|volatile|restrict)\s*)*)/g)]
+        .map((match) => parseQualifiers(match[1]));
+    let current = baseType;
+    for (const qualifiers of pointerQualifiers) {
+        current = {
+            kind: "pointer",
+            pointee: sourceTypeToPointerPointee(current),
+            ...(hasQualifiers(qualifiers) ? { qualifiers } : {}),
+            ...(hasQualifiers(getTypeQualifiers(current)) ? { pointeeQualifiers: getTypeQualifiers(current) } : {}),
+        };
     }
-    return {
-        kind: "pointer",
-        pointee,
-    };
+    return current;
 }
 function normalizeTypeText(text) {
     return text
-        // The current Subset carries no qualifier semantics, but accepts them on
-        // supported object-pointer declarations and normalizes to the base type.
-        .replace(/\b(?:const|volatile|restrict)\b/g, " ")
         .replace(/^\s*(?:static|extern)\b/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+function parseQualifiers(text) {
+    return {
+        ...(/\bconst\b/.test(text) ? { isConst: true } : {}),
+        ...(/\bvolatile\b/.test(text) ? { isVolatile: true } : {}),
+        ...(/\brestrict\b/.test(text) ? { isRestrict: true } : {}),
+    };
+}
+function splitLeadingQualifiers(text) {
+    const match = /^((?:(?:const|volatile|restrict)\s+)*)(.*)$/.exec(text.trim());
+    return { qualifiers: parseQualifiers(match?.[1] ?? ""), typeText: match?.[2].trim() ?? text.trim() };
+}
+function hasQualifiers(qualifiers) {
+    return Boolean(qualifiers?.isConst || qualifiers?.isVolatile || qualifiers?.isRestrict);
+}
+function getTypeQualifiers(type) {
+    return "qualifiers" in type ? type.qualifiers : undefined;
+}
+function withTypeQualifiers(type, qualifiers) {
+    if (!hasQualifiers(qualifiers)) {
+        return type;
+    }
+    return { ...type, qualifiers: { ...getTypeQualifiers(type), ...qualifiers } };
 }
 function sourceTypeToPointerPointee(type) {
     if (type.kind === "scalar") {
@@ -2420,6 +2446,7 @@ function parseTypeDeclarator(context, text) {
                     elementType: elementType.kind === "scalar" ? elementType.name : "char",
                     ...(elementType.kind === "scalar" ? {} : { elementValueType: elementType }),
                     length: Number.parseInt(arrayPointerMatch[3], 10),
+                    ...(elementType.kind === "scalar" && hasQualifiers(elementType.qualifiers) ? { elementQualifiers: elementType.qualifiers } : {}),
                 },
             },
         };
@@ -2515,6 +2542,7 @@ function parseTypeDeclarator(context, text) {
             elementValueType: elementType.kind === "scalar" ? undefined : elementType,
             length,
             dimensions: trailingDimensions.length > 0 ? trailingDimensions : undefined,
+            ...(elementType.kind === "scalar" && hasQualifiers(elementType.qualifiers) ? { elementQualifiers: elementType.qualifiers } : {}),
         };
         return {
             name: arrayMatch[2],
@@ -3328,6 +3356,17 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
                 kind: "postDerefIncDec",
                 target: parsePrimaryExpr(context, postfixDerefIncDecMatch[1], functionName, offset + trimmed.indexOf(postfixDerefIncDecMatch[1])),
                 op: postfixDerefIncDecMatch[2],
+            },
+        };
+    }
+    const derefAssignment = findTopLevelAssignment(trimmed);
+    if (derefAssignment && derefAssignment.leftText.trimStart().startsWith("*")) {
+        return {
+            kind: "expr",
+            expr: {
+                kind: "derefAssign",
+                target: parseExpression(context, derefAssignment.leftText, functionName, offset + statementText.indexOf(derefAssignment.leftText)),
+                expr: parseExpression(context, derefAssignment.rightText, functionName, offset + statementText.indexOf(derefAssignment.rightText)),
             },
         };
     }
