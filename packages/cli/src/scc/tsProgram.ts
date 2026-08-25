@@ -10,23 +10,27 @@ export type ProgramSpec = {
   includeBss?: boolean;
 };
 
-export type AggregateValueSpec =
+export type AggregateProducerSpec =
   | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; name: string; size: number }
-  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" | "globalSymbol" }>; valueOffset: number; source: AggregateValueSpec; size: number }
+  | { kind: "aggregateAddress"; pointer: ExprSpec; size: number }
+  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" | "globalSymbol" }>; valueDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" }>; source: AggregateProducerSpec; size: number }
   | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
-  | { kind: "comma"; left: ExprSpec; right: AggregateValueSpec; size: number }
-  | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateValueSpec; elseExpr: AggregateValueSpec; size: number };
+  | { kind: "indirectCall"; target: ExprSpec; args?: CallArgSpec[]; size: number }
+  | { kind: "comma"; left: ExprSpec; right: AggregateProducerSpec; size: number }
+  | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateProducerSpec; elseExpr: AggregateProducerSpec; size: number };
 
 export type AggregateDestinationSpec =
   | { kind: "localSlot"; offset: number; size: number }
   | { kind: "globalSymbol"; name: string; size: number }
+  | { kind: "pointer"; pointer: ExprSpec; size: number }
   | { kind: "returnSlot"; size: number };
 
+// AggregateConsumerSpec models operations that consume an aggregate producer.
 export type AggregateConsumerSpec =
-  | { kind: "addressArg"; source: AggregateValueSpec; tempOffset: number }
-  | { kind: "fieldRead"; source: AggregateValueSpec; tempOffset?: number; offset: number; width: ValueWidth }
-  | { kind: "fieldAddress"; source: AggregateValueSpec; tempOffset?: number; offset: number };
+  | { kind: "addressArg"; source: AggregateProducerSpec; tempOffset: number }
+  | { kind: "fieldRead"; source: AggregateProducerSpec; tempOffset?: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; source: AggregateProducerSpec; tempOffset?: number; offset: number };
 
 export type CallArgSpec =
   | { kind: "expr"; expr: ExprSpec }
@@ -41,7 +45,7 @@ export type ExprSpec =
   | { kind: "localArrayElementExpr"; offset: number; index: ExprSpec }
   | { kind: "globalArrayElement"; name: string; index: ExprSpec }
   | { kind: "argArrayElement"; offset: number; index: ExprSpec }
-  | { kind: "pointerAdd"; pointer: ExprSpec; index: ExprSpec; scale: 1 | 2 }
+  | { kind: "pointerAdd"; pointer: ExprSpec; index: ExprSpec; scale: number }
   | { kind: "derefByte"; pointer: ExprSpec }
   | { kind: "derefWord"; pointer: ExprSpec }
   | { kind: "assignDerefByte"; pointer: ExprSpec; expr: ExprSpec }
@@ -78,7 +82,7 @@ export type FunctionSpec = {
 };
 
 export type DataSpec = {
-  label: string;
+  label?: string;
   directive: ".ascii" | ".asciz" | ".db" | ".dw" | ".ds";
   value: string;
 };
@@ -90,23 +94,27 @@ export type RefIR = {
   slot: number;
 };
 
-export type AggregateValueIR =
+export type AggregateProducerIR =
   | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; slot: string; size: number }
-  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationIR, { kind: "localSlot" | "globalSymbol" }>; valueSlot: number; source: AggregateValueIR; size: number }
+  | { kind: "aggregateAddress"; pointer: ExprIR; size: number }
+  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationIR, { kind: "localSlot" | "globalSymbol" }>; valueDestination: Extract<AggregateDestinationIR, { kind: "localSlot" }>; source: AggregateProducerIR; size: number }
   | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
-  | { kind: "comma"; left: ExprIR; right: AggregateValueIR; size: number }
-  | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateValueIR; elseExpr: AggregateValueIR; size: number };
+  | { kind: "indirectCall"; target: ExprIR; args?: CallArgIR[]; size: number }
+  | { kind: "comma"; left: ExprIR; right: AggregateProducerIR; size: number }
+  | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateProducerIR; elseExpr: AggregateProducerIR; size: number };
 
 export type AggregateDestinationIR =
   | { kind: "localSlot"; slot: number; size: number }
   | { kind: "globalSymbol"; name: string; size: number }
+  | { kind: "pointer"; pointer: ExprIR; size: number }
   | { kind: "returnSlot"; size: number };
 
+// AggregateConsumerIR models operations that consume an aggregate producer in IR.
 export type AggregateConsumerIR =
-  | { kind: "addressArg"; source: AggregateValueIR; tempSlot: number }
-  | { kind: "fieldRead"; source: AggregateValueIR; tempSlot?: number; offset: number; width: ValueWidth }
-  | { kind: "fieldAddress"; source: AggregateValueIR; tempSlot?: number; offset: number };
+  | { kind: "addressArg"; source: AggregateProducerIR; tempSlot: number }
+  | { kind: "fieldRead"; source: AggregateProducerIR; tempSlot?: number; offset: number; width: ValueWidth }
+  | { kind: "fieldAddress"; source: AggregateProducerIR; tempSlot?: number; offset: number };
 
 export type CallArgIR =
   | { kind: "expr"; expr: ExprIR }
@@ -120,7 +128,7 @@ export type ExprIR =
   | { kind: "localArrayElement"; slot: number; index: ExprIR }
   | { kind: "globalArrayElement"; name: string; index: ExprIR }
   | { kind: "argArrayElement"; slot: number; index: ExprIR }
-  | { kind: "pointerAdd"; pointer: ExprIR; index: ExprIR; scale: 1 | 2 }
+  | { kind: "pointerAdd"; pointer: ExprIR; index: ExprIR; scale: number }
   | { kind: "derefByte"; pointer: ExprIR }
   | { kind: "derefWord"; pointer: ExprIR }
   | { kind: "assignDerefByte"; pointer: ExprIR; expr: ExprIR }
@@ -156,7 +164,7 @@ export type FunctionIR = {
 };
 
 export type StmtIRHigh =
-  | { kind: "materializeAggregateValue"; destination: AggregateDestinationIR; source: AggregateValueIR }
+  | { kind: "materializeAggregateProducer"; destination: AggregateDestinationIR; source: AggregateProducerIR }
   | { kind: "assignLocalConst"; slot: number; width: ValueWidth; value: number }
   | { kind: "assignLocalExpr"; slot: number; width: ValueWidth; expr: ExprIR }
   | { kind: "assignLocalArrayConst"; slot: number; index: number; value: number }
@@ -195,7 +203,7 @@ type LoopContext = {
 };
 
 type StatementSpec =
-  | { kind: "materializeAggregateValue"; destination: AggregateDestinationSpec; source: AggregateValueSpec }
+  | { kind: "materializeAggregateProducer"; destination: AggregateDestinationSpec; source: AggregateProducerSpec }
   | { kind: "call"; target: string }
   | { kind: "loadConstHl"; value: number }
   | { kind: "loadDataAddressHl"; label: string }
@@ -248,13 +256,17 @@ export function emitProgram(spec: ProgramSpec): string {
   if (spec.data && spec.data.length > 0) {
     lines.push("\t.area\t_DATA");
     for (const item of spec.data) {
-      lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
+      lines.push(item.label
+        ? `${item.label}:\t${item.directive}\t${item.value}`
+        : `\t${item.directive}\t${item.value}`);
     }
   }
   if (spec.includeBss || (spec.bss && spec.bss.length > 0)) {
     lines.push("\t.area\t_BSS");
     for (const item of spec.bss ?? []) {
-      lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
+      lines.push(item.label
+        ? `${item.label}:\t${item.directive}\t${item.value}`
+        : `\t${item.directive}\t${item.value}`);
     }
   }
   lines.push("");
@@ -276,11 +288,11 @@ export function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
 
 function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState, loop?: LoopContext): StatementSpec[] {
   switch (stmt.kind) {
-    case "materializeAggregateValue":
+    case "materializeAggregateProducer":
       return [{
-        kind: "materializeAggregateValue",
+        kind: "materializeAggregateProducer",
         destination: lowerAggregateDestinationIR(stmt.destination, layout),
-        source: lowerAggregateValueIR(stmt.source, layout),
+        source: lowerAggregateProducerIR(stmt.source, layout),
       }];
     case "assignLocalConst": {
       const offset = getLocalOffset(layout, stmt.slot);
@@ -597,7 +609,7 @@ function lowerRefIR(ref: RefIR, layout: FunctionLayout): ExprSpec {
   return ref.width === 1 ? { kind: "argChar", offset } : { kind: "argInt", offset };
 }
 
-function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): AggregateValueSpec {
+function lowerAggregateProducerIR(expr: AggregateProducerIR, layout: FunctionLayout): AggregateProducerSpec {
   switch (expr.kind) {
     case "aggregateRef":
       return expr.scope === "global"
@@ -613,14 +625,23 @@ function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): 
           offset: expr.scope === "local" ? getLocalOffset(layout, expr.slot) : getParamOffset(layout, expr.slot),
           size: expr.size,
         };
+    case "aggregateAddress":
+      return { kind: "aggregateAddress", pointer: lowerExprIR(expr.pointer, layout), size: expr.size };
     case "aggregateAssignExpr":
       return {
         kind: "aggregateAssignExpr",
         effectDestination: expr.effectDestination.kind === "localSlot"
           ? { kind: "localSlot", offset: getLocalOffset(layout, expr.effectDestination.slot), size: expr.size }
           : { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size },
-        valueOffset: getLocalOffset(layout, expr.valueSlot),
-        source: lowerAggregateValueIR(expr.source, layout),
+        valueDestination: { kind: "localSlot", offset: getLocalOffset(layout, expr.valueDestination.slot), size: expr.size },
+        source: lowerAggregateProducerIR(expr.source, layout),
+        size: expr.size,
+      };
+    case "indirectCall":
+      return {
+        kind: "indirectCall",
+        target: lowerExprIR(expr.target, layout),
+        args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
         size: expr.size,
       };
     case "call":
@@ -634,15 +655,15 @@ function lowerAggregateValueIR(expr: AggregateValueIR, layout: FunctionLayout): 
       return {
         kind: "comma",
         left: lowerExprIR(expr.left, layout),
-        right: lowerAggregateValueIR(expr.right, layout),
+        right: lowerAggregateProducerIR(expr.right, layout),
         size: expr.size,
       };
     case "conditional":
       return {
         kind: "conditional",
         condition: lowerExprIR(expr.condition, layout),
-        thenExpr: lowerAggregateValueIR(expr.thenExpr, layout),
-        elseExpr: lowerAggregateValueIR(expr.elseExpr, layout),
+        thenExpr: lowerAggregateProducerIR(expr.thenExpr, layout),
+        elseExpr: lowerAggregateProducerIR(expr.elseExpr, layout),
         size: expr.size,
       };
     default:
@@ -656,6 +677,8 @@ function lowerAggregateDestinationIR(destination: AggregateDestinationIR, layout
       return { kind: "localSlot", offset: getLocalOffset(layout, destination.slot), size: destination.size };
     case "globalSymbol":
       return destination;
+    case "pointer":
+      return { kind: "pointer", pointer: lowerExprIR(destination.pointer, layout), size: destination.size };
     case "returnSlot":
       return destination;
     default:
@@ -668,13 +691,13 @@ function lowerAggregateConsumerIR(consumer: AggregateConsumerIR, layout: Functio
     case "addressArg":
       return {
         kind: "addressArg",
-        source: lowerAggregateValueIR(consumer.source, layout),
+        source: lowerAggregateProducerIR(consumer.source, layout),
         tempOffset: getLocalOffset(layout, consumer.tempSlot),
       };
     case "fieldRead":
       return {
         kind: "fieldRead",
-        source: lowerAggregateValueIR(consumer.source, layout),
+        source: lowerAggregateProducerIR(consumer.source, layout),
         tempOffset: consumer.tempSlot !== undefined ? getLocalOffset(layout, consumer.tempSlot) : undefined,
         offset: consumer.offset,
         width: consumer.width,
@@ -682,7 +705,7 @@ function lowerAggregateConsumerIR(consumer: AggregateConsumerIR, layout: Functio
     case "fieldAddress":
       return {
         kind: "fieldAddress",
-        source: lowerAggregateValueIR(consumer.source, layout),
+        source: lowerAggregateProducerIR(consumer.source, layout),
         tempOffset: consumer.tempSlot !== undefined ? getLocalOffset(layout, consumer.tempSlot) : undefined,
         offset: consumer.offset,
       };
@@ -750,8 +773,8 @@ function emitFunction(fn: FunctionSpec): string[] {
 
 function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[] {
   switch (statement.kind) {
-    case "materializeAggregateValue":
-      return emitAggregateValueToDestination(statement.source, statement.destination, ctx);
+    case "materializeAggregateProducer":
+      return materializeAggregateProducerToDestination(statement.source, statement.destination, ctx);
     case "call":
       return [`\tcall\t${statement.target}`];
     case "loadConstHl":
@@ -910,11 +933,12 @@ function emitCallExpr(target: string, args: CallArgSpec[], ctx: EmitExprContext)
 }
 
 function emitIndirectCallExpr(target: ExprSpec, args: CallArgSpec[], ctx: EmitExprContext): string[] {
-  const lines = [...emitExprToHl(target, ctx), "\tpush\thl"];
-  const pushedArgs = emitPushArgs(args, { ...ctx, stackDelta: ctx.stackDelta + 2 });
+  // Keep arguments on the caller stack, then evaluate the jump target with
+  // their stack delta. The previous target-first sequence popped an argument
+  // into HL whenever an indirect call had one or more arguments.
+  const lines = emitPushArgs(args, ctx);
   const returnLabel = allocateExprLabel(ctx);
-  lines.push(...pushedArgs);
-  lines.push("\tpop\thl");
+  lines.push(...emitExprToHl(target, { ...ctx, stackDelta: ctx.stackDelta + args.length * 2 }));
   lines.push(`\tld\tde,#${returnLabel}`);
   lines.push("\tpush\tde");
   lines.push("\tjp\t(hl)");
@@ -943,17 +967,20 @@ function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
 }
 
 function emitAggregateProducerAddressArg(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   tempOffset: number,
   ctx: EmitExprContext,
 ): string[] {
+  if (source.kind === "aggregateAddress") {
+    return emitExprToHl(source.pointer, ctx);
+  }
   return [
     ...emitAggregateProducerToTempLocal(source, tempOffset, inferAggregateTempSize(source), ctx),
     ...emitExprToHl({ kind: "localAddress", offset: tempOffset }, ctx),
   ];
 }
 
-function inferAggregateTempSize(source: AggregateValueSpec): number {
+function inferAggregateTempSize(source: AggregateProducerSpec): number {
   return source.size;
 }
 
@@ -970,7 +997,7 @@ function emitAggregateConsumerExpr(
 }
 
 function emitAggregateProducerConsumer(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   consumer: AggregateEmitConsumer,
   ctx: EmitExprContext,
 ): string[] {
@@ -1059,7 +1086,8 @@ function emitLoadIndexedGlobalByteToHl(name: string, index: ExprSpec, ctx: EmitE
 function emitAssignGlobalByteExpr(name: string, expr: ExprSpec, ctx: EmitExprContext): string[] {
   return [
     ...emitExprToHl(expr, ctx),
-    `\tld\t(${name}),l`,
+    "\tld\ta,l",
+    `\tld\t(${name}),a`,
     "\tld\th,#0",
   ];
 }
@@ -1163,12 +1191,16 @@ function emitAssignArgArrayExpr(offset: number, index: ExprSpec, expr: ExprSpec,
   ];
 }
 
-function emitPointerAddExpr(pointer: ExprSpec, index: ExprSpec, scale: 1 | 2, ctx: EmitExprContext): string[] {
+function emitPointerAddExpr(pointer: ExprSpec, index: ExprSpec, scale: number, ctx: EmitExprContext): string[] {
   return [
     ...emitExprToHl(pointer, ctx),
     "\tpush\thl",
     ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
-    ...(scale === 2 ? ["\tadd\thl,hl"] : []),
+    ...(scale === 2
+      ? ["\tadd\thl,hl"]
+      : scale > 2
+        ? ["\tld\td,h", "\tld\te,l", ...Array.from({ length: scale - 1 }, () => "\tadd\thl,de")]
+        : []),
     "\tpop\tde",
     "\tadd\thl,de",
   ];
@@ -1349,8 +1381,8 @@ function emitAdditiveExpr(left: ExprSpec, right: ExprSpec, op: "+" | "-", ctx: E
   return [...lines, "\tex\tde,hl", "\tor\ta", "\tsbc\thl,de"];
 }
 
-function emitAggregateValueFieldAccessExpr(
-  source: AggregateValueSpec,
+function emitAggregateProducerFieldReadExpr(
+  source: AggregateProducerSpec,
   tempOffset: number,
   fieldOffset: number,
   width: ValueWidth,
@@ -1364,7 +1396,7 @@ function emitAggregateValueFieldAccessExpr(
 }
 
 function emitAggregateProducerFieldRead(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   tempOffset: number | undefined,
   fieldOffset: number,
   width: ValueWidth,
@@ -1387,8 +1419,8 @@ function emitAggregateProducerFieldRead(
   ];
 }
 
-function emitAggregateValueFieldAddressExpr(
-  source: AggregateValueSpec,
+function emitAggregateProducerFieldAddressExpr(
+  source: AggregateProducerSpec,
   tempOffset: number,
   fieldOffset: number,
   ctx: EmitExprContext,
@@ -1401,7 +1433,7 @@ function emitAggregateValueFieldAddressExpr(
 }
 
 function emitAggregateProducerFieldAddress(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   tempOffset: number | undefined,
   fieldOffset: number,
   ctx: EmitExprContext,
@@ -1418,16 +1450,16 @@ function emitAggregateProducerFieldAddress(
 }
 
 function emitAggregateProducerToTempLocal(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   tempOffset: number,
   size: number,
   ctx: EmitExprContext,
 ): string[] {
-  return emitAggregateValueToDestination(source, { kind: "localSlot", offset: tempOffset, size }, ctx);
+  return materializeAggregateProducerToDestination(source, { kind: "localSlot", offset: tempOffset, size }, ctx);
 }
 
 function requireAggregateConsumerTempOffset(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   tempOffset: number | undefined,
 ): number {
   if (tempOffset === undefined) {
@@ -1437,13 +1469,14 @@ function requireAggregateConsumerTempOffset(
 }
 
 function tryEmitAggregateProducerFieldPointerToHl(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   tempOffset: number | undefined,
   fieldOffset: number,
   ctx: EmitExprContext,
 ): string[] | null {
   switch (source.kind) {
     case "aggregateRef":
+    case "aggregateAddress":
       return emitExprToHl(getAggregateFieldPointerFromRef(source, fieldOffset), ctx);
     case "aggregateAssignExpr":
       return [
@@ -1488,7 +1521,7 @@ function tryEmitAggregateProducerFieldPointerToHl(
 }
 
 function getAggregateFieldPointerFromRef(
-  source: Extract<AggregateValueSpec, { kind: "aggregateRef" }>,
+  source: Extract<AggregateProducerSpec, { kind: "aggregateRef" | "aggregateAddress" }>,
   fieldOffset: number,
 ): ExprSpec {
   return getAggregateFieldPointerFromBasePointer(getAggregateRefPointerExpr(source), fieldOffset);
@@ -1506,7 +1539,10 @@ function getAggregateFieldPointerFromAssignDestination(
   );
 }
 
-function getAggregateRefPointerExpr(source: Extract<AggregateValueSpec, { kind: "aggregateRef" }>): ExprSpec {
+function getAggregateRefPointerExpr(source: Extract<AggregateProducerSpec, { kind: "aggregateRef" | "aggregateAddress" }>): ExprSpec {
+  if (source.kind === "aggregateAddress") {
+    return source.pointer;
+  }
   return source.scope === "global"
     ? { kind: "globalAddress", name: source.name }
     : source.scope === "local"
@@ -1551,7 +1587,11 @@ type AggregateEmitDestination =
   | { kind: "localSlot"; offset: number; size: number }
   | { kind: "pointer"; pointer: ExprSpec; size: number };
 
-function emitAggregateValueToDestination(source: AggregateValueSpec, destination: AggregateDestinationSpec, ctx: EmitExprContext): string[] {
+function materializeAggregateProducerToDestination(
+  source: AggregateProducerSpec,
+  destination: AggregateDestinationSpec,
+  ctx: EmitExprContext,
+): string[] {
   return emitAggregateProducerToDestination(source, lowerAggregateEmitDestination(destination), ctx);
 }
 
@@ -1561,6 +1601,8 @@ function lowerAggregateEmitDestination(destination: AggregateDestinationSpec): A
       return destination;
     case "globalSymbol":
       return { kind: "pointer", pointer: { kind: "globalAddress", name: destination.name }, size: destination.size };
+    case "pointer":
+      return destination;
     case "returnSlot":
       return { kind: "pointer", pointer: { kind: "argInt", offset: 0 }, size: destination.size };
     default:
@@ -1569,16 +1611,19 @@ function lowerAggregateEmitDestination(destination: AggregateDestinationSpec): A
 }
 
 function emitAggregateProducerToDestination(
-  source: AggregateValueSpec,
+  source: AggregateProducerSpec,
   destination: AggregateEmitDestination,
   ctx: EmitExprContext,
 ): string[] {
   switch (source.kind) {
     case "aggregateRef":
       return emitAggregateRefToDestination(source, destination, ctx);
+    case "aggregateAddress":
+      return emitAggregateCopyFromSourcePointerToDestination(source.pointer, destination, source.size, ctx);
     case "aggregateAssignExpr":
       return emitAggregateAssignExprToDestination(source, destination, ctx);
     case "call":
+    case "indirectCall":
       return emitAggregateCallToDestination(source, destination, ctx);
     case "comma":
       return [
@@ -1606,7 +1651,7 @@ function emitAggregateProducerToDestination(
 }
 
 function emitAggregateRefToDestination(
-  source: Extract<AggregateValueSpec, { kind: "aggregateRef" }>,
+  source: Extract<AggregateProducerSpec, { kind: "aggregateRef" }>,
   destination: AggregateEmitDestination,
   ctx: EmitExprContext,
 ): string[] {
@@ -1626,7 +1671,7 @@ function emitAggregateRefToDestination(
       ctx,
     );
   }
-  const globalSource = source as Extract<AggregateValueSpec, { kind: "aggregateRef"; scope: "global" }>;
+  const globalSource = source as Extract<AggregateProducerSpec, { kind: "aggregateRef"; scope: "global" }>;
   return emitAggregateCopyFromSourcePointerToDestination(
     { kind: "globalAddress", name: globalSource.name },
     destination,
@@ -1636,26 +1681,26 @@ function emitAggregateRefToDestination(
 }
 
 function emitAggregateAssignExprToDestination(
-  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  source: Extract<AggregateProducerSpec, { kind: "aggregateAssignExpr" }>,
   destination: AggregateEmitDestination,
   ctx: EmitExprContext,
 ): string[] {
   return [
     ...emitAggregateAssignExprValue(source, ctx),
     ...emitAggregateAssignExprEffectToTarget(source, ctx),
-    ...emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, destination, ctx),
+    ...emitAggregateCopyLocalSlotToDestination(source.valueDestination.offset, source.size, destination, ctx),
   ];
 }
 
 function emitAggregateAssignExprValue(
-  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  source: Extract<AggregateProducerSpec, { kind: "aggregateAssignExpr" }>,
   ctx: EmitExprContext,
 ): string[] {
   return emitAggregateProducerToDestination(
     source.source,
     {
       kind: "localSlot",
-      offset: source.valueOffset,
+      offset: source.valueDestination.offset,
       size: source.size,
     },
     ctx,
@@ -1663,18 +1708,18 @@ function emitAggregateAssignExprValue(
 }
 
 function emitAggregateAssignExprEffectToTarget(
-  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  source: Extract<AggregateProducerSpec, { kind: "aggregateAssignExpr" }>,
   ctx: EmitExprContext,
 ): string[] {
   const effectDestination = getAggregateAssignEffectDestination(source);
-  if (effectDestination.kind === "localSlot" && effectDestination.offset === source.valueOffset) {
+  if (effectDestination.kind === "localSlot" && effectDestination.offset === source.valueDestination.offset) {
     return [];
   }
-  return emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, effectDestination, ctx);
+  return emitAggregateCopyLocalSlotToDestination(source.valueDestination.offset, source.size, effectDestination, ctx);
 }
 
 function getAggregateAssignEffectDestination(
-  source: Extract<AggregateValueSpec, { kind: "aggregateAssignExpr" }>,
+  source: Extract<AggregateProducerSpec, { kind: "aggregateAssignExpr" }>,
 ): AggregateEmitDestination {
   if (source.effectDestination.kind === "localSlot") {
     return source.effectDestination;
@@ -1683,15 +1728,15 @@ function getAggregateAssignEffectDestination(
 }
 
 function emitAggregateCallToDestination(
-  source: Extract<AggregateValueSpec, { kind: "call" }>,
+  source: Extract<AggregateProducerSpec, { kind: "call" | "indirectCall" }>,
   destination: AggregateEmitDestination,
   ctx: EmitExprContext,
 ): string[] {
-  return [
-    ...emitPushArgs([{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) }, ...(source.args ?? [])], ctx),
-    `\tcall\t${source.target}`,
-    ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
-  ];
+  const args = [{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) } satisfies CallArgSpec, ...(source.args ?? [])];
+  if (source.kind === "indirectCall") {
+    return emitIndirectCallExpr(source.target, args, ctx);
+  }
+  return [...emitPushArgs(args, ctx), `\tcall\t${source.target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 
 function getAggregateDestinationPointerExpr(destination: AggregateEmitDestination): ExprSpec {

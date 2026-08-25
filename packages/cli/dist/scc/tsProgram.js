@@ -18,13 +18,17 @@ function emitProgram(spec) {
     if (spec.data && spec.data.length > 0) {
         lines.push("\t.area\t_DATA");
         for (const item of spec.data) {
-            lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
+            lines.push(item.label
+                ? `${item.label}:\t${item.directive}\t${item.value}`
+                : `\t${item.directive}\t${item.value}`);
         }
     }
     if (spec.includeBss || (spec.bss && spec.bss.length > 0)) {
         lines.push("\t.area\t_BSS");
         for (const item of spec.bss ?? []) {
-            lines.push(`${item.label}:\t${item.directive}\t${item.value}`);
+            lines.push(item.label
+                ? `${item.label}:\t${item.directive}\t${item.value}`
+                : `\t${item.directive}\t${item.value}`);
         }
     }
     lines.push("");
@@ -44,11 +48,11 @@ function lowerFunctionIR(fn) {
 }
 function lowerStmtIR(stmt, layout, state, loop) {
     switch (stmt.kind) {
-        case "materializeAggregateValue":
+        case "materializeAggregateProducer":
             return [{
-                    kind: "materializeAggregateValue",
+                    kind: "materializeAggregateProducer",
                     destination: lowerAggregateDestinationIR(stmt.destination, layout),
-                    source: lowerAggregateValueIR(stmt.source, layout),
+                    source: lowerAggregateProducerIR(stmt.source, layout),
                 }];
         case "assignLocalConst": {
             const offset = getLocalOffset(layout, stmt.slot);
@@ -361,7 +365,7 @@ function lowerRefIR(ref, layout) {
     }
     return ref.width === 1 ? { kind: "argChar", offset } : { kind: "argInt", offset };
 }
-function lowerAggregateValueIR(expr, layout) {
+function lowerAggregateProducerIR(expr, layout) {
     switch (expr.kind) {
         case "aggregateRef":
             return expr.scope === "global"
@@ -377,14 +381,23 @@ function lowerAggregateValueIR(expr, layout) {
                     offset: expr.scope === "local" ? getLocalOffset(layout, expr.slot) : getParamOffset(layout, expr.slot),
                     size: expr.size,
                 };
+        case "aggregateAddress":
+            return { kind: "aggregateAddress", pointer: lowerExprIR(expr.pointer, layout), size: expr.size };
         case "aggregateAssignExpr":
             return {
                 kind: "aggregateAssignExpr",
                 effectDestination: expr.effectDestination.kind === "localSlot"
                     ? { kind: "localSlot", offset: getLocalOffset(layout, expr.effectDestination.slot), size: expr.size }
                     : { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size },
-                valueOffset: getLocalOffset(layout, expr.valueSlot),
-                source: lowerAggregateValueIR(expr.source, layout),
+                valueDestination: { kind: "localSlot", offset: getLocalOffset(layout, expr.valueDestination.slot), size: expr.size },
+                source: lowerAggregateProducerIR(expr.source, layout),
+                size: expr.size,
+            };
+        case "indirectCall":
+            return {
+                kind: "indirectCall",
+                target: lowerExprIR(expr.target, layout),
+                args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
                 size: expr.size,
             };
         case "call":
@@ -398,15 +411,15 @@ function lowerAggregateValueIR(expr, layout) {
             return {
                 kind: "comma",
                 left: lowerExprIR(expr.left, layout),
-                right: lowerAggregateValueIR(expr.right, layout),
+                right: lowerAggregateProducerIR(expr.right, layout),
                 size: expr.size,
             };
         case "conditional":
             return {
                 kind: "conditional",
                 condition: lowerExprIR(expr.condition, layout),
-                thenExpr: lowerAggregateValueIR(expr.thenExpr, layout),
-                elseExpr: lowerAggregateValueIR(expr.elseExpr, layout),
+                thenExpr: lowerAggregateProducerIR(expr.thenExpr, layout),
+                elseExpr: lowerAggregateProducerIR(expr.elseExpr, layout),
                 size: expr.size,
             };
         default:
@@ -419,6 +432,8 @@ function lowerAggregateDestinationIR(destination, layout) {
             return { kind: "localSlot", offset: getLocalOffset(layout, destination.slot), size: destination.size };
         case "globalSymbol":
             return destination;
+        case "pointer":
+            return { kind: "pointer", pointer: lowerExprIR(destination.pointer, layout), size: destination.size };
         case "returnSlot":
             return destination;
         default:
@@ -430,13 +445,13 @@ function lowerAggregateConsumerIR(consumer, layout) {
         case "addressArg":
             return {
                 kind: "addressArg",
-                source: lowerAggregateValueIR(consumer.source, layout),
+                source: lowerAggregateProducerIR(consumer.source, layout),
                 tempOffset: getLocalOffset(layout, consumer.tempSlot),
             };
         case "fieldRead":
             return {
                 kind: "fieldRead",
-                source: lowerAggregateValueIR(consumer.source, layout),
+                source: lowerAggregateProducerIR(consumer.source, layout),
                 tempOffset: consumer.tempSlot !== undefined ? getLocalOffset(layout, consumer.tempSlot) : undefined,
                 offset: consumer.offset,
                 width: consumer.width,
@@ -444,7 +459,7 @@ function lowerAggregateConsumerIR(consumer, layout) {
         case "fieldAddress":
             return {
                 kind: "fieldAddress",
-                source: lowerAggregateValueIR(consumer.source, layout),
+                source: lowerAggregateProducerIR(consumer.source, layout),
                 tempOffset: consumer.tempSlot !== undefined ? getLocalOffset(layout, consumer.tempSlot) : undefined,
                 offset: consumer.offset,
             };
@@ -505,8 +520,8 @@ function emitFunction(fn) {
 }
 function emitStatement(statement, ctx) {
     switch (statement.kind) {
-        case "materializeAggregateValue":
-            return emitAggregateValueToDestination(statement.source, statement.destination, ctx);
+        case "materializeAggregateProducer":
+            return materializeAggregateProducerToDestination(statement.source, statement.destination, ctx);
         case "call":
             return [`\tcall\t${statement.target}`];
         case "loadConstHl":
@@ -662,11 +677,12 @@ function emitCallExpr(target, args, ctx) {
     return [...emitPushArgs(args, ctx), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 function emitIndirectCallExpr(target, args, ctx) {
-    const lines = [...emitExprToHl(target, ctx), "\tpush\thl"];
-    const pushedArgs = emitPushArgs(args, { ...ctx, stackDelta: ctx.stackDelta + 2 });
+    // Keep arguments on the caller stack, then evaluate the jump target with
+    // their stack delta. The previous target-first sequence popped an argument
+    // into HL whenever an indirect call had one or more arguments.
+    const lines = emitPushArgs(args, ctx);
     const returnLabel = allocateExprLabel(ctx);
-    lines.push(...pushedArgs);
-    lines.push("\tpop\thl");
+    lines.push(...emitExprToHl(target, { ...ctx, stackDelta: ctx.stackDelta + args.length * 2 }));
     lines.push(`\tld\tde,#${returnLabel}`);
     lines.push("\tpush\tde");
     lines.push("\tjp\t(hl)");
@@ -690,6 +706,9 @@ function emitPushArgs(args, ctx) {
     return lines;
 }
 function emitAggregateProducerAddressArg(source, tempOffset, ctx) {
+    if (source.kind === "aggregateAddress") {
+        return emitExprToHl(source.pointer, ctx);
+    }
     return [
         ...emitAggregateProducerToTempLocal(source, tempOffset, inferAggregateTempSize(source), ctx),
         ...emitExprToHl({ kind: "localAddress", offset: tempOffset }, ctx),
@@ -777,7 +796,8 @@ function emitLoadIndexedGlobalByteToHl(name, index, ctx) {
 function emitAssignGlobalByteExpr(name, expr, ctx) {
     return [
         ...emitExprToHl(expr, ctx),
-        `\tld\t(${name}),l`,
+        "\tld\ta,l",
+        `\tld\t(${name}),a`,
         "\tld\th,#0",
     ];
 }
@@ -877,7 +897,11 @@ function emitPointerAddExpr(pointer, index, scale, ctx) {
         ...emitExprToHl(pointer, ctx),
         "\tpush\thl",
         ...emitExprToHl(index, { ...ctx, stackDelta: ctx.stackDelta + 2 }),
-        ...(scale === 2 ? ["\tadd\thl,hl"] : []),
+        ...(scale === 2
+            ? ["\tadd\thl,hl"]
+            : scale > 2
+                ? ["\tld\td,h", "\tld\te,l", ...Array.from({ length: scale - 1 }, () => "\tadd\thl,de")]
+                : []),
         "\tpop\tde",
         "\tadd\thl,de",
     ];
@@ -1043,7 +1067,7 @@ function emitAdditiveExpr(left, right, op, ctx) {
     }
     return [...lines, "\tex\tde,hl", "\tor\ta", "\tsbc\thl,de"];
 }
-function emitAggregateValueFieldAccessExpr(source, tempOffset, fieldOffset, width, ctx) {
+function emitAggregateProducerFieldReadExpr(source, tempOffset, fieldOffset, width, ctx) {
     return emitAggregateProducerConsumer(source, { kind: "fieldRead", tempOffset, offset: fieldOffset, width }, ctx);
 }
 function emitAggregateProducerFieldRead(source, tempOffset, fieldOffset, width, ctx) {
@@ -1063,7 +1087,7 @@ function emitAggregateProducerFieldRead(source, tempOffset, fieldOffset, width, 
         ...emitExprToHl(loadExpr, ctx),
     ];
 }
-function emitAggregateValueFieldAddressExpr(source, tempOffset, fieldOffset, ctx) {
+function emitAggregateProducerFieldAddressExpr(source, tempOffset, fieldOffset, ctx) {
     return emitAggregateProducerConsumer(source, { kind: "fieldAddress", tempOffset, offset: fieldOffset }, ctx);
 }
 function emitAggregateProducerFieldAddress(source, tempOffset, fieldOffset, ctx) {
@@ -1078,7 +1102,7 @@ function emitAggregateProducerFieldAddress(source, tempOffset, fieldOffset, ctx)
     ];
 }
 function emitAggregateProducerToTempLocal(source, tempOffset, size, ctx) {
-    return emitAggregateValueToDestination(source, { kind: "localSlot", offset: tempOffset, size }, ctx);
+    return materializeAggregateProducerToDestination(source, { kind: "localSlot", offset: tempOffset, size }, ctx);
 }
 function requireAggregateConsumerTempOffset(source, tempOffset) {
     if (tempOffset === undefined) {
@@ -1089,6 +1113,7 @@ function requireAggregateConsumerTempOffset(source, tempOffset) {
 function tryEmitAggregateProducerFieldPointerToHl(source, tempOffset, fieldOffset, ctx) {
     switch (source.kind) {
         case "aggregateRef":
+        case "aggregateAddress":
             return emitExprToHl(getAggregateFieldPointerFromRef(source, fieldOffset), ctx);
         case "aggregateAssignExpr":
             return [
@@ -1140,6 +1165,9 @@ function getAggregateFieldPointerFromAssignDestination(destination, fieldOffset)
         : { kind: "globalAddress", name: destination.name }, fieldOffset);
 }
 function getAggregateRefPointerExpr(source) {
+    if (source.kind === "aggregateAddress") {
+        return source.pointer;
+    }
     return source.scope === "global"
         ? { kind: "globalAddress", name: source.name }
         : source.scope === "local"
@@ -1174,7 +1202,7 @@ function getAggregateTempSizeForFieldAccess(fieldOffset, width) {
 function getAggregateTempSizeForFieldAddress(fieldOffset) {
     return fieldOffset + 1;
 }
-function emitAggregateValueToDestination(source, destination, ctx) {
+function materializeAggregateProducerToDestination(source, destination, ctx) {
     return emitAggregateProducerToDestination(source, lowerAggregateEmitDestination(destination), ctx);
 }
 function lowerAggregateEmitDestination(destination) {
@@ -1183,6 +1211,8 @@ function lowerAggregateEmitDestination(destination) {
             return destination;
         case "globalSymbol":
             return { kind: "pointer", pointer: { kind: "globalAddress", name: destination.name }, size: destination.size };
+        case "pointer":
+            return destination;
         case "returnSlot":
             return { kind: "pointer", pointer: { kind: "argInt", offset: 0 }, size: destination.size };
         default:
@@ -1193,9 +1223,12 @@ function emitAggregateProducerToDestination(source, destination, ctx) {
     switch (source.kind) {
         case "aggregateRef":
             return emitAggregateRefToDestination(source, destination, ctx);
+        case "aggregateAddress":
+            return emitAggregateCopyFromSourcePointerToDestination(source.pointer, destination, source.size, ctx);
         case "aggregateAssignExpr":
             return emitAggregateAssignExprToDestination(source, destination, ctx);
         case "call":
+        case "indirectCall":
             return emitAggregateCallToDestination(source, destination, ctx);
         case "comma":
             return [
@@ -1235,22 +1268,22 @@ function emitAggregateAssignExprToDestination(source, destination, ctx) {
     return [
         ...emitAggregateAssignExprValue(source, ctx),
         ...emitAggregateAssignExprEffectToTarget(source, ctx),
-        ...emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, destination, ctx),
+        ...emitAggregateCopyLocalSlotToDestination(source.valueDestination.offset, source.size, destination, ctx),
     ];
 }
 function emitAggregateAssignExprValue(source, ctx) {
     return emitAggregateProducerToDestination(source.source, {
         kind: "localSlot",
-        offset: source.valueOffset,
+        offset: source.valueDestination.offset,
         size: source.size,
     }, ctx);
 }
 function emitAggregateAssignExprEffectToTarget(source, ctx) {
     const effectDestination = getAggregateAssignEffectDestination(source);
-    if (effectDestination.kind === "localSlot" && effectDestination.offset === source.valueOffset) {
+    if (effectDestination.kind === "localSlot" && effectDestination.offset === source.valueDestination.offset) {
         return [];
     }
-    return emitAggregateCopyLocalSlotToDestination(source.valueOffset, source.size, effectDestination, ctx);
+    return emitAggregateCopyLocalSlotToDestination(source.valueDestination.offset, source.size, effectDestination, ctx);
 }
 function getAggregateAssignEffectDestination(source) {
     if (source.effectDestination.kind === "localSlot") {
@@ -1259,11 +1292,11 @@ function getAggregateAssignEffectDestination(source) {
     return { kind: "pointer", pointer: { kind: "globalAddress", name: source.effectDestination.name }, size: source.size };
 }
 function emitAggregateCallToDestination(source, destination, ctx) {
-    return [
-        ...emitPushArgs([{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) }, ...(source.args ?? [])], ctx),
-        `\tcall\t${source.target}`,
-        ...Array.from({ length: (source.args?.length ?? 0) + 1 }, () => "\tpop\tbc"),
-    ];
+    const args = [{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) }, ...(source.args ?? [])];
+    if (source.kind === "indirectCall") {
+        return emitIndirectCallExpr(source.target, args, ctx);
+    }
+    return [...emitPushArgs(args, ctx), `\tcall\t${source.target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 function getAggregateDestinationPointerExpr(destination) {
     switch (destination.kind) {

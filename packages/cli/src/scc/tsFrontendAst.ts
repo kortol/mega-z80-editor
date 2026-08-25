@@ -15,13 +15,22 @@ export type PointerTypeRef = {
   pointee: PointerPointee;
 };
 
+export type ArrayPointerTypeRef = {
+  kind: "arrayPointer";
+  elementType: ScalarType;
+  elementValueType?: AggregateTypeRef | PointerTypeRef | FunctionPointerTypeRef | ArrayPointerTypeRef;
+  length: number;
+};
+
 export type FunctionPointerTypeRef = {
   kind: "functionPointer";
   returnType: SourceType;
   params: SourceType[];
 };
 
-export type PointerPointee = ScalarType | AggregateTypeRef | PointerTypeRef;
+export type ArrayElementTypeRef = ScalarType | AggregateTypeRef | PointerTypeRef | FunctionPointerTypeRef;
+
+export type PointerPointee = ScalarType | AggregateTypeRef | PointerTypeRef | ArrayPointerTypeRef | FunctionPointerTypeRef;
 
 export type SourceType =
   | VoidTypeRef
@@ -34,7 +43,11 @@ export type SourceType =
   | FunctionPointerTypeRef
   | {
     kind: "array";
-    elementType: "char";
+    elementType: ScalarType;
+    // Scalar arrays retain elementType; non-scalar arrays use this descriptor.
+    elementValueType?: Exclude<ArrayElementTypeRef, ScalarType>;
+    // The outermost bound is length; subsequent bounds preserve row shape.
+    dimensions?: number[];
     length?: number;
   };
 
@@ -61,6 +74,7 @@ export type SourceAggregateDef = {
 export type SourceFunction = {
   kind: "function";
   name: string;
+  isStatic?: boolean;
   returnType: SourceType;
   params: SourceParam[];
   body: SourceBlock;
@@ -76,6 +90,7 @@ export type SourceLocalDecl = {
   kind: "localDecl";
   name: string;
   type: SourceType;
+  isStatic?: boolean;
   initializer?: SourceInitializer;
 };
 
@@ -83,6 +98,8 @@ export type SourceGlobalDecl = {
   kind: "globalDecl";
   name: string;
   type: SourceType;
+  isStatic?: boolean;
+  isExtern?: boolean;
   initializer?: SourceInitializer;
 };
 
@@ -181,6 +198,20 @@ export type SourceStmt =
     expr: SourceExpr;
   }
   | {
+    kind: "memberArrayAssign";
+    target: SourceExpr;
+    field: string;
+    index: SourceExpr;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "pointerMemberArrayAssign";
+    name: string;
+    field: string;
+    index: SourceExpr;
+    expr: SourceExpr;
+  }
+  | {
     kind: "pointerMemberAssign";
     name: string;
     field: string;
@@ -228,6 +259,20 @@ export type SourceSimpleStmt =
     expr: SourceExpr;
   }
   | {
+    kind: "memberArrayAssign";
+    target: SourceExpr;
+    field: string;
+    index: SourceExpr;
+    expr: SourceExpr;
+  }
+  | {
+    kind: "pointerMemberArrayAssign";
+    name: string;
+    field: string;
+    index: SourceExpr;
+    expr: SourceExpr;
+  }
+  | {
     kind: "pointerMemberAssign";
     name: string;
     field: string;
@@ -246,13 +291,19 @@ export type SourceForInit =
     kind: "localDecl";
     name: string;
     type: SourceType;
+    isStatic?: boolean;
     initializer?: SourceInitializer;
+    initStatements?: SourceSimpleStmt[];
   };
 
 export type SourceExpr =
   | { kind: "const"; value: number }
   | { kind: "string"; value: string }
   | { kind: "ref"; name: string }
+  | { kind: "memberArrayIndex"; name: string; field: string; index: SourceExpr }
+  | { kind: "memberExprArrayIndex"; target: SourceExpr; field: string; index: SourceExpr }
+  | { kind: "pointerMemberArrayIndex"; name: string; field: string; index: SourceExpr }
+  | { kind: "pointerMemberExprArrayIndex"; target: SourceExpr; field: string; index: SourceExpr }
   | { kind: "memberAccess"; name: string; field: string }
   | { kind: "memberExprAccess"; target: SourceExpr; field: string }
   | { kind: "pointerMemberAccess"; name: string; field: string }
@@ -261,6 +312,7 @@ export type SourceExpr =
   | { kind: "addressOfExpr"; expr: SourceExpr }
   | { kind: "deref"; expr: SourceExpr }
   | { kind: "arrayIndex"; name: string; index: SourceExpr }
+  | { kind: "arrayPointerElement"; pointer: SourceExpr; index: SourceExpr }
   | { kind: "call"; target: string; args: SourceExpr[] }
   | { kind: "indirectCall"; target: SourceExpr; args: SourceExpr[] }
   | { kind: "preIncDec"; name: string; op: "++" | "--" }
@@ -281,6 +333,8 @@ export type SourceExpr =
   | { kind: "arrayAssign"; name: string; index: SourceExpr; expr: SourceExpr }
   | { kind: "memberAssign"; name: string; field: string; expr: SourceExpr }
   | { kind: "memberExprAssign"; target: SourceExpr; field: string; expr: SourceExpr }
+  | { kind: "memberArrayAssign"; target: SourceExpr; field: string; index: SourceExpr; expr: SourceExpr }
+  | { kind: "pointerMemberArrayAssign"; name: string; field: string; index: SourceExpr; expr: SourceExpr }
   | { kind: "pointerMemberAssign"; name: string; field: string; expr: SourceExpr }
   | { kind: "pointerMemberExprAssign"; target: SourceExpr; field: string; expr: SourceExpr }
   | { kind: "derefAssign"; target: SourceExpr; expr: SourceExpr }

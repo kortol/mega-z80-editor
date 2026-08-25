@@ -3,6 +3,13 @@ import { parseProgram } from "../tsFrontendParser";
 import { analyzeProgram } from "../tsFrontendSemantic";
 
 describe("tsFrontendSemantic", () => {
+  test("rejects non-static-data initializers for static locals", () => {
+    const source = "char next(void){ return 65; }\nint main(){ static char value = next(); return value; }\n";
+    expect(() => analyzeProgram(parseProgram(source, "static-local-dynamic-init.c"), source, "static-local-dynamic-init.c")).toThrow(
+      "requires a static-data initializer",
+    );
+  });
+
   test("rejects duplicate function names", () => {
     const source = "int main(){ return 1; }\nint main(){ return 2; }\n";
     const parsed = parseProgram(source, "dup.c");
@@ -273,6 +280,23 @@ describe("tsFrontendSemantic", () => {
     });
   });
 
+  test("binds file-scope aggregate char array field initializers", () => {
+    const source = "struct Foo { char name[4]; int tail; };\nstruct Foo g = { \"AB$\", 67 };\nint main(){ return g.tail; }\n";
+    const bound = analyzeProgram(parseProgram(source, "global-aggregate-array-init.c"), source, "global-aggregate-array-init.c");
+
+    expect(bound.globals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Foo", size: 6 });
+    expect(bound.globals[0]?.initializer).toEqual({
+      kind: "list",
+      items: [
+        {
+          kind: "expr",
+          expr: { kind: "string", value: "AB$" },
+        },
+        { kind: "expr", expr: { kind: "const", value: 67 } },
+      ],
+    });
+  });
+
   test("binds local function pointers and indirect calls", () => {
     const source = "int putA(){ return 65; }\nint putB(){ return 66; }\nint main(){ int (*fp)(void) = &putA; fp(); fp = &putB; return fp(); }\n";
     const bound = analyzeProgram(parseProgram(source, "function-pointer.c"), source, "function-pointer.c");
@@ -297,6 +321,32 @@ describe("tsFrontendSemantic", () => {
         args: [],
         type: { kind: "scalar", name: "int", width: 2 },
       },
+    });
+  });
+
+  test("binds each dereference in a double function-pointer typedef chain", () => {
+    const source = "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nint main(){ Callback callback = id; Callback *pointer = &callback; Callback **doublePointer = &pointer; return **doublePointer; }\n";
+    const bound = analyzeProgram(parseProgram(source, "double-function-pointer.c"), source, "double-function-pointer.c");
+    const stmt = bound.functions[1]?.body.statements.at(-1);
+
+    expect(stmt?.kind).toBe("return");
+    if (!stmt || stmt.kind !== "return" || stmt.expr.kind !== "deref" || stmt.expr.pointer.kind !== "deref") {
+      return;
+    }
+    expect(stmt.expr.pointer.type).toEqual({
+      kind: "pointer",
+      pointee: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "char" },
+        params: [{ kind: "scalar", name: "char" }],
+      },
+      width: 2,
+    });
+    expect(stmt.expr.type).toEqual({
+      kind: "functionPointer",
+      returnType: { kind: "scalar", name: "char", width: 1 },
+      params: [{ kind: "scalar", name: "char", width: 1 }],
+      width: 2,
     });
   });
 
@@ -350,6 +400,85 @@ describe("tsFrontendSemantic", () => {
         expr: { kind: "addressOf", name: "putA" },
       },
     });
+  });
+
+  test("binds local and file-scope aggregate function pointer field initializers", () => {
+    const localSource = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); char tail; };\nint main(){ struct Foo x = { &putA, 66 }; return x.tail; }\n";
+    const localBound = analyzeProgram(parseProgram(localSource, "local-aggregate-function-pointer-init.c"), localSource, "local-aggregate-function-pointer-init.c");
+    const localInitStmt = localBound.functions[1].body.statements[0];
+    expect(localInitStmt.kind).toBe("expr");
+    if (localInitStmt.kind !== "expr" || localInitStmt.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(localInitStmt.expr.type).toEqual({
+      kind: "functionPointer",
+      returnType: { kind: "scalar", name: "int", width: 2 },
+      params: [],
+      width: 2,
+    });
+
+    const globalSource = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); char tail; };\nstruct Foo g = { &putA, 66 };\nint main(){ return g.tail; }\n";
+    const globalBound = analyzeProgram(parseProgram(globalSource, "global-aggregate-function-pointer-init.c"), globalSource, "global-aggregate-function-pointer-init.c");
+    expect(globalBound.globals[0]?.initializer).toEqual({
+      kind: "list",
+      items: [
+        { kind: "expr", expr: { kind: "addressOf", name: "putA" } },
+        { kind: "expr", expr: { kind: "const", value: 66 } },
+      ],
+    });
+  });
+
+  test("binds aggregate array field reads, writes, and incdec", () => {
+    const source = "struct Foo { char name[4]; };\nint main(struct Foo *p){ struct Foo x; x.name[0] = 65; p->name[1] = 66; ++x.name[0]; p->name[1]--; return x.name[0] + p->name[1]; }\n";
+    const bound = analyzeProgram(parseProgram(source, "aggregate-array-field-access.c"), source, "aggregate-array-field-access.c");
+    expect(bound.functions[0].body.statements[0]?.kind).toBe("expr");
+    expect(bound.functions[0].body.statements[1]?.kind).toBe("expr");
+    const ret = bound.functions[0].body.statements[4];
+    expect(ret?.kind).toBe("return");
+    if (!ret || ret.kind !== "return" || ret.expr.kind !== "additive") {
+      return;
+    }
+    expect(ret.expr.left.kind).toBe("deref");
+    expect(ret.expr.right.kind).toBe("deref");
+  });
+
+  test("binds aggregate field assignment as an aggregate-address destination", () => {
+    const source = "struct Pair { char first; char second; };\nstruct Holder { struct Pair value; };\nstruct Pair make(){ struct Pair x; return x; }\nint main(){ struct Holder holder; holder.value = make(); return holder.value.first; }\n";
+    const bound = analyzeProgram(parseProgram(source, "aggregate-field-assign.c"), source, "aggregate-field-assign.c");
+    expect(bound.functions.find((fn) => fn.name === "main")?.body.statements[0]).toMatchObject({
+      kind: "aggregateAssign",
+      target: { kind: "aggregateAddress", type: { kind: "aggregate", name: "Pair" } },
+      source: { kind: "call" },
+    });
+  });
+
+  test("binds nested and pointer aggregate field assignments as aggregate-address destinations", () => {
+    const source = "struct Pair { char first; char second; };\nstruct Holder { struct Pair value; };\nstruct Box { struct Holder nested; };\nstruct Pair make(){ struct Pair x; return x; }\nint main(){ struct Box box; struct Holder holder; struct Holder *p = &holder; box.nested.value = make(); p->value = make(); return 0; }\n";
+    const bound = analyzeProgram(parseProgram(source, "aggregate-field-assign-targets.c"), source, "aggregate-field-assign-targets.c");
+    const statements = bound.functions.find((fn) => fn.name === "main")?.body.statements ?? [];
+
+    expect(statements[1]).toMatchObject({
+      kind: "aggregateAssign",
+      target: { kind: "aggregateAddress", type: { kind: "aggregate", name: "Pair" } },
+      source: { kind: "call" },
+    });
+    expect(statements[2]).toMatchObject({
+      kind: "aggregateAssign",
+      target: { kind: "aggregateAddress", type: { kind: "aggregate", name: "Pair" } },
+      source: { kind: "call" },
+    });
+  });
+
+  test("binds aggregate function-pointer field calls", () => {
+    const source = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); };\nint main(struct Foo *p){ struct Foo x; x.fp = &putA; p->fp = &putA; return x.fp() + p->fp(); }\n";
+    const bound = analyzeProgram(parseProgram(source, "aggregate-function-pointer-call.c"), source, "aggregate-function-pointer-call.c");
+    const ret = bound.functions[1].body.statements[2];
+    expect(ret?.kind).toBe("return");
+    if (!ret || ret.kind !== "return" || ret.expr.kind !== "additive") {
+      return;
+    }
+    expect(ret.expr.left.kind).toBe("indirectCall");
+    expect(ret.expr.right.kind).toBe("indirectCall");
   });
 
   test("binds assignment expressions on local scalars", () => {
@@ -1174,6 +1303,11 @@ describe("tsFrontendSemantic", () => {
         pattern: /only supports address-of on locals, array elements, or dereference/,
       },
       {
+        source: "struct Foo { char a; int b; };\nint take(struct Foo *p){ return p != 0; }\nint main(int c){ struct Foo x; struct Foo y; return take(&(c ? x : y)); }\n",
+        file: "aggregate-producer-address-of-object.c",
+        pattern: /aggregate object values|address-of on locals, array elements, or dereference/,
+      },
+      {
         source: "struct Foo { char a; int b; };\nint main(){ struct Foo x; return x; }\n",
         file: "aggregate-return-value.c",
         pattern: /could not find any supported function definitions|does not yet support aggregate object values/,
@@ -1389,16 +1523,16 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.source.kind).toBe("conditional");
     if (stmt.expr.left.source.kind !== "conditional") {
       return;
     }
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.right.source.kind).toBe("comma");
@@ -1417,8 +1551,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.source.kind).toBe("conditional");
@@ -1427,8 +1561,8 @@ describe("tsFrontendSemantic", () => {
     }
     expect(stmt.expr.left.source.thenExpr.kind).toBe("aggregateRef");
     expect(stmt.expr.left.source.elseExpr.kind).toBe("aggregateRef");
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.right.source.kind).toBe("comma");
@@ -1455,8 +1589,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.expr.left.left.kind !== "call") {
       return;
     }
-    expect(stmt.expr.left.left.args[0]?.kind).toBe("aggregateValueFieldAddress");
-    if (stmt.expr.left.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+    expect(stmt.expr.left.left.args[0]?.kind).toBe("aggregateProducerFieldAddress");
+    if (stmt.expr.left.left.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.left.left.args[0].source.kind).toBe("conditional");
@@ -1464,8 +1598,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.expr.left.right.kind !== "call") {
       return;
     }
-    expect(stmt.expr.left.right.args[0]?.kind).toBe("aggregateValueFieldAddress");
-    if (stmt.expr.left.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+    expect(stmt.expr.left.right.args[0]?.kind).toBe("aggregateProducerFieldAddress");
+    if (stmt.expr.left.right.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.left.right.args[0].source.kind).toBe("comma");
@@ -1473,8 +1607,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.expr.right.kind !== "call") {
       return;
     }
-    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateValueFieldAddress");
-    if (stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateProducerFieldAddress");
+    if (stmt.expr.right.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
@@ -1493,8 +1627,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.expr.left.kind !== "call") {
       return;
     }
-    expect(stmt.expr.left.args[0]?.kind).toBe("aggregateValueFieldAddress");
-    if (stmt.expr.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+    expect(stmt.expr.left.args[0]?.kind).toBe("aggregateProducerFieldAddress");
+    if (stmt.expr.left.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.left.args[0].source.kind).toBe("conditional");
@@ -1512,8 +1646,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.expr.right.kind !== "call") {
       return;
     }
-    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateValueFieldAddress");
-    if (stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+    expect(stmt.expr.right.args[0]?.kind).toBe("aggregateProducerFieldAddress");
+    if (stmt.expr.right.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.right.args[0].source.kind).toBe("comma");
@@ -1598,7 +1732,7 @@ describe("tsFrontendSemantic", () => {
     expect(assignStmt.source.kind).toBe("call");
     const finalReturn = bound.functions[1].body.statements[1];
     expect(finalReturn.kind).toBe("return");
-    if (finalReturn.kind !== "return" || finalReturn.expr.kind !== "aggregateValueFieldAccess") {
+    if (finalReturn.kind !== "return" || finalReturn.expr.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(finalReturn.expr.source.kind).toBe("call");
@@ -1650,11 +1784,58 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(returnStmt.expr.left.left.args[0]?.kind).toBe("call");
-    expect(returnStmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (returnStmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(returnStmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (returnStmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(returnStmt.expr.left.right.source.kind).toBe("call");
+  });
+
+  test("binds for-loop aggregate declaration initializers from aggregate producers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint main(){ int c = 1; for (struct Foo x = c ? makeA() : makeB(); c; c = 0) { return x.a; } return 0; }\n";
+    const parsed = parseProgram(source, "for-aggregate-decl-init.c");
+    const bound = analyzeProgram(parsed, source, "for-aggregate-decl-init.c");
+    const stmt = bound.functions[2].body.statements[1];
+    expect(stmt.kind).toBe("for");
+    if (stmt.kind !== "for" || stmt.initializer?.kind !== "localDecl") {
+      return;
+    }
+    expect(stmt.initializer.initializer?.kind).toBe("conditional");
+    if (!stmt.initializer.initializer || stmt.initializer.initializer.kind !== "conditional") {
+      return;
+    }
+    expect(stmt.initializer.initializer.thenExpr.kind).toBe("call");
+    expect(stmt.initializer.initializer.elseExpr.kind).toBe("call");
+  });
+
+  test("binds for-loop aggregate declaration brace initializers", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ for (struct Foo x = { 65, 66 }; x.a; x.a = 0) { return x.b; } return 0; }\n";
+    const parsed = parseProgram(source, "for-aggregate-brace-init.c");
+    const bound = analyzeProgram(parsed, source, "for-aggregate-brace-init.c");
+    const stmt = bound.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("for");
+    if (stmt.kind !== "for" || stmt.initializer?.kind !== "localDecl") {
+      return;
+    }
+    expect(stmt.initializer.initializer).toBeUndefined();
+    expect(stmt.initializer.initStatements).toHaveLength(2);
+    const firstInit = stmt.initializer.initStatements?.[0];
+    expect(firstInit?.kind).toBe("expr");
+    if (!firstInit || firstInit.kind !== "expr" || firstInit.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(firstInit.expr.expr).toEqual({ kind: "const", value: 65, type: { kind: "scalar", name: "int", width: 2 } });
+    expect(firstInit.expr.pointer.kind).toBe("pointerAdd");
+    if (firstInit.expr.pointer.kind !== "pointerAdd") {
+      return;
+    }
+    expect(firstInit.expr.pointer.index).toEqual({ kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } });
+    const secondInit = stmt.initializer.initStatements?.[1];
+    expect(secondInit?.kind).toBe("expr");
+    if (!secondInit || secondInit.kind !== "expr" || secondInit.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(secondInit.expr.expr).toEqual({ kind: "const", value: 66, type: { kind: "scalar", name: "int", width: 2 } });
   });
 
   test("binds conditional and comma aggregate-returning call value paths", () => {
@@ -1678,8 +1859,8 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(returnStmt.expr.left.left.args[0]?.kind).toBe("conditional");
-    expect(returnStmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (returnStmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(returnStmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (returnStmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(returnStmt.expr.left.right.source.kind).toBe("comma");
@@ -1792,8 +1973,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.source.kind).toBe("aggregateAssignExpr");
@@ -1812,8 +1993,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.source.kind).toBe("aggregateAssignExpr");
@@ -1841,8 +2022,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess" || stmt.expr.left.source.kind !== "aggregateAssignExpr") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead" || stmt.expr.left.source.kind !== "aggregateAssignExpr") {
       return;
     }
     expect(stmt.expr.left.source.target.kind).toBe("global");
@@ -1887,7 +2068,7 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.kind).toBe("call");
-    if (stmt.expr.left.kind !== "call" || stmt.expr.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+    if (stmt.expr.left.kind !== "call" || stmt.expr.left.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.left.args[0].source.kind).toBe("aggregateAssignExpr");
@@ -1896,7 +2077,7 @@ describe("tsFrontendSemantic", () => {
     }
     expect(stmt.expr.left.args[0].source.target.kind).toBe("global");
     expect(stmt.expr.right.kind).toBe("call");
-    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
@@ -1915,14 +2096,14 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess" || stmt.expr.left.source.kind !== "conditional") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead" || stmt.expr.left.source.kind !== "conditional") {
       return;
     }
     expect(stmt.expr.left.source.thenExpr.kind).toBe("aggregateAssignExpr");
     expect(stmt.expr.left.source.elseExpr.kind).toBe("aggregateAssignExpr");
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess" || stmt.expr.right.source.kind !== "comma") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead" || stmt.expr.right.source.kind !== "comma") {
       return;
     }
     expect(stmt.expr.right.source.right.kind).toBe("aggregateAssignExpr");
@@ -1938,7 +2119,7 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.kind).toBe("call");
-    if (stmt.expr.left.kind !== "call" || stmt.expr.left.args[0]?.kind !== "aggregateValueFieldAddress") {
+    if (stmt.expr.left.kind !== "call" || stmt.expr.left.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.left.args[0].source.kind).toBe("aggregateAssignExpr");
@@ -1947,7 +2128,7 @@ describe("tsFrontendSemantic", () => {
     }
     expect(stmt.expr.left.args[0].source.target.kind).toBe("global");
     expect(stmt.expr.right.kind).toBe("call");
-    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateValueFieldAddress") {
+    if (stmt.expr.right.kind !== "call" || stmt.expr.right.args[0]?.kind !== "aggregateProducerFieldAddress") {
       return;
     }
     expect(stmt.expr.right.args[0].source.kind).toBe("aggregateAssignExpr");
@@ -1966,14 +2147,14 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.kind !== "aggregateValueFieldAccess" || stmt.expr.left.source.kind !== "conditional") {
+    expect(stmt.expr.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.kind !== "aggregateProducerFieldRead" || stmt.expr.left.source.kind !== "conditional") {
       return;
     }
     expect(stmt.expr.left.source.thenExpr.kind).toBe("aggregateAssignExpr");
     expect(stmt.expr.left.source.elseExpr.kind).toBe("aggregateAssignExpr");
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess" || stmt.expr.right.source.kind !== "comma") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead" || stmt.expr.right.source.kind !== "comma") {
       return;
     }
     expect(stmt.expr.right.source.right.kind).toBe("aggregateAssignExpr");
@@ -1989,14 +2170,14 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(mainStmt.expr.left.kind).toBe("additive");
-    expect(mainStmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (mainStmt.expr.left.kind !== "additive" || mainStmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(mainStmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (mainStmt.expr.left.kind !== "additive" || mainStmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(mainStmt.expr.right.source.kind).toBe("call");
     expect(mainStmt.expr.left.left.kind).toBe("additive");
-    expect(mainStmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (mainStmt.expr.left.left.kind !== "additive" || mainStmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(mainStmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (mainStmt.expr.left.left.kind !== "additive" || mainStmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(mainStmt.expr.left.right.source.kind).toBe("call");
@@ -2040,14 +2221,14 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(mainStmt.expr.left.kind).toBe("additive");
-    expect(mainStmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (mainStmt.expr.left.kind !== "additive" || mainStmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(mainStmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (mainStmt.expr.left.kind !== "additive" || mainStmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(mainStmt.expr.right.source.kind).toBe("call");
     expect(mainStmt.expr.left.left.kind).toBe("additive");
-    expect(mainStmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (mainStmt.expr.left.left.kind !== "additive" || mainStmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(mainStmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (mainStmt.expr.left.left.kind !== "additive" || mainStmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(mainStmt.expr.left.right.source.kind).toBe("call");
@@ -2114,8 +2295,8 @@ describe("tsFrontendSemantic", () => {
     if (stmt.kind !== "return" || stmt.expr.kind !== "additive" || stmt.expr.left.kind !== "additive") {
       return;
     }
-    expect(stmt.expr.left.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.left.source.kind).toBe("call");
@@ -2128,8 +2309,8 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.right.args[0]?.kind).toBe("call");
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.right.source.kind).toBe("conditional");
@@ -2162,16 +2343,16 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.left.kind).toBe("additive");
-    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.left.left.source.kind).toBe("call");
@@ -2218,16 +2399,16 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.left.kind).toBe("additive");
-    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.left.left.source.kind).toBe("call");
@@ -2274,16 +2455,16 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.left.kind).toBe("additive");
-    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.left.left.source.kind).toBe("call");
@@ -2334,16 +2515,16 @@ describe("tsFrontendSemantic", () => {
       return;
     }
     expect(stmt.expr.left.left.kind).toBe("additive");
-    expect(stmt.expr.left.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.kind !== "additive" || stmt.expr.left.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.right.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.right.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.right.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.right.kind !== "aggregateProducerFieldRead") {
       return;
     }
-    expect(stmt.expr.left.left.left.kind).toBe("aggregateValueFieldAccess");
-    if (stmt.expr.left.left.left.kind !== "aggregateValueFieldAccess") {
+    expect(stmt.expr.left.left.left.kind).toBe("aggregateProducerFieldRead");
+    if (stmt.expr.left.left.left.kind !== "aggregateProducerFieldRead") {
       return;
     }
     expect(stmt.expr.left.left.left.source.kind).toBe("call");
@@ -2718,6 +2899,32 @@ describe("tsFrontendSemantic", () => {
     expect(bound.functions[0].body.statements).toHaveLength(3);
   });
 
+  test("binds for-loop char array string literal declaration initializers", () => {
+    const source = "int main(){ for (char buf[] = \"AB\"; buf[0]; buf[0] = 0) { return buf[1]; } return 0; }\n";
+    const parsed = parseProgram(source, "for-array-string-init.c");
+    const bound = analyzeProgram(parsed, source, "for-array-string-init.c");
+    const stmt = bound.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("for");
+    if (stmt.kind !== "for" || stmt.initializer?.kind !== "localDecl") {
+      return;
+    }
+    expect(stmt.initializer.local.type).toEqual({ kind: "array", elementType: "char", length: 3 });
+    expect(stmt.initializer.initializer).toBeUndefined();
+    expect(stmt.initializer.initStatements).toHaveLength(3);
+    expect(stmt.initializer.initStatements?.[0]).toEqual({
+      kind: "arrayAssign",
+      target: stmt.initializer.local,
+      index: { kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } },
+      expr: { kind: "const", value: 65, type: { kind: "scalar", name: "int", width: 2 } },
+    });
+    expect(stmt.initializer.initStatements?.[2]).toEqual({
+      kind: "arrayAssign",
+      target: stmt.initializer.local,
+      index: { kind: "const", value: 2, type: { kind: "scalar", name: "int", width: 2 } },
+      expr: { kind: "const", value: 0, type: { kind: "scalar", name: "int", width: 2 } },
+    });
+  });
+
   test("binds local char array constant index assignments", () => {
     const source = "int main(){ char buf[4]; buf[2] = 65; return buf[2]; }\n";
     const parsed = parseProgram(source, "array-assign.c");
@@ -2914,10 +3121,30 @@ describe("tsFrontendSemantic", () => {
     expect(returnStmt.kind).toBe("return");
   });
 
+  test("binds nested local aggregate char array field initializers", () => {
+    const source = "struct Inner { char name[4]; int code; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { \"AB$\", 67 }, 68 }; return x.tail; }\n";
+    const parsed = parseProgram(source, "nested-local-aggregate-array-init.c");
+    const bound = analyzeProgram(parsed, source, "nested-local-aggregate-array-init.c");
+    expect(bound.functions[0].locals[0]?.type).toEqual({ kind: "aggregate", aggregateKind: "struct", name: "Outer", size: 7 });
+    const firstStmt = bound.functions[0].body.statements[0];
+    expect(firstStmt.kind).toBe("expr");
+    if (firstStmt.kind !== "expr" || firstStmt.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(firstStmt.expr.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+    const tailInitStmt = bound.functions[0].body.statements[5];
+    expect(tailInitStmt.kind).toBe("expr");
+    if (tailInitStmt.kind !== "expr" || tailInitStmt.expr.kind !== "derefAssign") {
+      return;
+    }
+    expect(tailInitStmt.expr.type).toEqual({ kind: "scalar", name: "char", width: 1 });
+    expect(bound.functions[0].body.statements[6]?.kind).toBe("return");
+  });
+
   test("rejects direct non-scalar aggregate field access", () => {
     const source = "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x; return x.inner; }\n";
     const parsed = parseProgram(source, "nested-aggregate-reject.c");
-    expect(() => analyzeProgram(parsed, source, "nested-aggregate-reject.c")).toThrow(/only supports scalar field access/);
+    expect(() => analyzeProgram(parsed, source, "nested-aggregate-reject.c")).toThrow(/only supports scalar\/pointer\/function-pointer field assignment|only supports scalar field access/);
   });
 
   test("binds nested pointer-member and dereferenced-member chains", () => {

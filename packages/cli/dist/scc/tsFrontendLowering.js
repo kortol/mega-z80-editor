@@ -7,19 +7,26 @@ function lowerSourceProgram(program, moduleName, sourceText, file) {
     const definedFunctions = new Set(program.functions.map((fn) => fn.name));
     const externs = new Set();
     const state = { nextStringId: 0, data: [], bss: [] };
+    const globalsByName = new Map(program.globals.map((global) => [global.name, global]));
     for (const global of program.globals) {
-        const storage = lowerGlobalStorage(global);
+        if (global.isExtern) {
+            continue;
+        }
+        const storage = lowerGlobalStorage(global, globalsByName);
         if (storage.data) {
-            state.data.push(storage.data);
+            state.data.push(...storage.data);
         }
         if (storage.bss) {
-            state.bss.push(storage.bss);
+            state.bss.push(...storage.bss);
         }
     }
     const functions = program.functions.map((fn) => lowerFunction(fn, externs, definedFunctions, sourceText, state, file));
     return {
         moduleName,
-        exports: definedFunctions.has("main") ? ["main"] : [],
+        exports: Array.from(new Set([
+            ...program.functions.filter((fn) => !fn.isStatic).map((fn) => fn.name),
+            ...program.globals.filter((global) => !global.isExtern && !global.isStatic).map((global) => global.name),
+        ])),
         externs: Array.from(externs),
         data: state.data.length > 0 ? state.data : undefined,
         bss: state.bss.length > 0 ? state.bss : undefined,
@@ -27,106 +34,141 @@ function lowerSourceProgram(program, moduleName, sourceText, file) {
         includeBss: true,
     };
 }
-function lowerGlobalStorage(global) {
+function lowerGlobalStorage(global, globalsByName) {
     const label = global.name;
     switch (global.type.kind) {
         case "scalar":
             return global.initializer
                 ? {
-                    data: {
-                        label,
-                        directive: global.type.width === 1 ? ".db" : ".dw",
-                        value: global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
-                            ? `${global.initializer.expr.value}`
-                            : "0",
-                    },
+                    data: [{
+                            label,
+                            directive: global.type.width === 1 ? ".db" : ".dw",
+                            value: global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
+                                ? `${global.initializer.expr.value}`
+                                : "0",
+                        }],
                 }
                 : {
-                    bss: {
-                        label,
-                        directive: ".ds",
-                        value: `${global.type.width}`,
-                    },
+                    bss: [{
+                            label,
+                            directive: ".ds",
+                            value: `${global.type.width}`,
+                        }],
                 };
         case "pointer":
             return global.initializer
                 ? {
-                    data: {
-                        label,
-                        directive: ".dw",
-                        value: global.initializer.kind === "expr" && global.initializer.expr.kind === "const"
-                            ? `${global.initializer.expr.value}`
-                            : "0",
-                    },
+                    data: [{
+                            label,
+                            directive: ".dw",
+                            value: lowerGlobalWordInitializer(global.initializer, globalsByName),
+                        }],
                 }
                 : {
-                    bss: {
-                        label,
-                        directive: ".ds",
-                        value: "2",
-                    },
+                    bss: [{
+                            label,
+                            directive: ".ds",
+                            value: "2",
+                        }],
                 };
         case "array":
             return global.initializer
                 ? {
-                    data: {
-                        label,
-                        directive: ".db",
-                        value: lowerGlobalArrayInitializer(global.initializer, global.type.length ?? 0),
-                    },
+                    data: global.type.elementValueType?.kind === "aggregate"
+                        ? flattenGlobalAggregateArrayInitializer(label, global.type, global.initializer, globalsByName)
+                        : [{
+                                label,
+                                directive: global.type.elementValueType || global.type.elementType === "int" ? ".dw" : ".db",
+                                value: lowerGlobalArrayInitializer(global.initializer, getArrayElementCount(global.type), global.type, globalsByName),
+                            }],
                 }
                 : {
-                    bss: {
-                        label,
-                        directive: ".ds",
-                        value: `${global.type.length ?? 0}`,
-                    },
+                    bss: [{
+                            label,
+                            directive: ".ds",
+                            value: `${getArrayStorageBytes(global.type)}`,
+                        }],
                 };
         case "aggregate":
             return global.initializer
                 ? {
-                    data: {
-                        label,
-                        directive: ".db",
-                        value: lowerGlobalAggregateInitializer(global.name, global.type, global.initializer),
-                    },
+                    data: lowerGlobalAggregateInitializer(global.name, global.type, global.initializer, globalsByName),
                 }
                 : {
-                    bss: {
-                        label,
-                        directive: ".ds",
-                        value: `${global.type.size}`,
-                    },
+                    bss: [{
+                            label,
+                            directive: ".ds",
+                            value: `${global.type.size}`,
+                        }],
                 };
         case "functionPointer":
             return global.initializer
                 ? {
-                    data: {
-                        label,
-                        directive: ".dw",
-                        value: global.initializer.kind === "expr"
-                            ? global.initializer.expr.kind === "const"
-                                ? `${global.initializer.expr.value}`
-                                : global.initializer.expr.kind === "addressOf"
-                                    ? `${global.initializer.expr.name}+0`
-                                    : "0"
-                            : "0",
-                    },
+                    data: [{
+                            label,
+                            directive: ".dw",
+                            value: lowerGlobalFunctionPointerInitializer(global.initializer, globalsByName),
+                        }],
                 }
                 : {
-                    bss: {
-                        label,
-                        directive: ".ds",
-                        value: "2",
-                    },
+                    bss: [{
+                            label,
+                            directive: ".ds",
+                            value: "2",
+                        }],
                 };
         default:
             return {};
     }
 }
-function lowerGlobalArrayInitializer(initializer, length) {
+function lowerGlobalArrayInitializer(initializer, length, type, globalsByName) {
+    if (type.elementValueType && initializer?.kind === "list") {
+        const values = flattenGlobalArrayInitializerItems(initializer, [type.length ?? 0, ...(type.dimensions ?? [])], "<array>").map((item) => type.elementValueType?.kind === "functionPointer"
+            ? lowerGlobalFunctionPointerInitializer(item, globalsByName)
+            : lowerGlobalWordInitializer(item, globalsByName));
+        return values.join(",");
+    }
+    if (type.elementType === "int" && initializer?.kind === "list") {
+        const values = flattenGlobalArrayInitializerItems(initializer, [type.length ?? 0, ...(type.dimensions ?? [])], "<array>").map((item) => item?.kind === "expr" && item.expr.kind === "const" ? `${item.expr.value}` : "0");
+        return values.join(",");
+    }
+    return lowerGlobalArrayInitializerBytes(initializer, length, [type.length ?? 0, ...(type.dimensions ?? [])]).join(",");
+}
+function flattenGlobalArrayInitializerItems(initializer, dimensions, label) {
+    const items = [];
+    const visit = (value, depth) => {
+        if (depth === dimensions.length) {
+            items.push(value);
+            return;
+        }
+        if (value && value.kind !== "list") {
+            throw new Error(`Global array initializer '${label}' requires nested braces at dimension ${depth + 1}.`);
+        }
+        const children = value?.kind === "list" ? value.items : [];
+        if (children.length > dimensions[depth]) {
+            throw new Error(`Global array initializer '${label}' exceeds dimension ${depth + 1}.`);
+        }
+        for (let index = 0; index < dimensions[depth]; index += 1) {
+            visit(children[index], depth + 1);
+        }
+    };
+    visit(initializer, 0);
+    return items;
+}
+function getArrayElementCount(type) {
+    return [type.length ?? 0, ...(type.dimensions ?? [])].reduce((count, length) => count * length, 1);
+}
+function getArrayStorageBytes(type) {
+    const elementBytes = !type.elementValueType
+        ? (type.elementType === "char" ? 1 : 2)
+        : type.elementValueType.kind === "aggregate"
+            ? ("size" in type.elementValueType ? type.elementValueType.size : (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type.elementValueType))
+            : 2;
+    return getArrayElementCount(type) * elementBytes;
+}
+function lowerGlobalArrayInitializerBytes(initializer, length, dimensions = [length]) {
     if (!initializer) {
-        return Array.from({ length }, () => "0").join(",");
+        return Array.from({ length }, () => "0");
     }
     if (initializer.kind === "expr" && initializer.expr.kind === "string") {
         const values = Array.from(initializer.expr.value, (ch) => `${ch.charCodeAt(0)}`);
@@ -136,52 +178,263 @@ function lowerGlobalArrayInitializer(initializer, length) {
         while (values.length < length) {
             values.push("0");
         }
-        return values.join(",");
+        return values;
     }
     if (initializer.kind === "list") {
-        const values = initializer.items.map((item) => item.kind === "expr" && item.expr.kind === "const" ? `${item.expr.value}` : "0");
-        while (values.length < length) {
-            values.push("0");
-        }
-        return values.join(",");
+        return flattenGlobalArrayInitializerItems(initializer, dimensions, "<array>").map((item) => item?.kind === "expr" && item.expr.kind === "const" ? `${item.expr.value}` : "0");
     }
-    return Array.from({ length }, () => "0").join(",");
+    return Array.from({ length }, () => "0");
 }
-function lowerGlobalAggregateInitializer(name, type, initializer) {
-    const values = flattenGlobalAggregateInitializer(name, type, initializer);
-    return values.join(",");
+function lowerGlobalAggregateInitializer(name, type, initializer, globalsByName) {
+    return flattenGlobalAggregateInitializer(undefined, name, type, initializer, globalsByName);
 }
-function flattenGlobalAggregateInitializer(name, type, initializer) {
+function flattenGlobalAggregateArrayInitializer(outputLabel, type, initializer, globalsByName) {
+    const elementType = type.elementValueType;
+    if (!elementType || elementType.kind !== "aggregate") {
+        throw new Error("Aggregate array lowering requires an aggregate element type.");
+    }
+    const dimensions = [type.length ?? 0, ...(type.dimensions ?? [])];
+    const items = normalizeFlatGlobalAggregateArrayItems(initializer, dimensions, elementType, outputLabel ?? "<array>")
+        ?? flattenGlobalAggregateArrayItems(initializer, dimensions, outputLabel ?? "<array>");
+    const values = [];
+    for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        if (item && item.kind !== "list") {
+            throw new Error(`Global aggregate array initializer '${outputLabel ?? "<array>"}' requires braces for element ${index}.`);
+        }
+        values.push(...flattenGlobalAggregateInitializer(index === 0 ? outputLabel : undefined, `${outputLabel ?? "<array>"}[${index}]`, elementType, item, globalsByName, false));
+    }
+    return values;
+}
+function normalizeFlatGlobalAggregateArrayItems(initializer, dimensions, elementType, label) {
+    if (!initializer || initializer.kind !== "list" || !initializer.items.some((item) => item.kind === "expr")) {
+        return undefined;
+    }
+    if (!initializer.items.every((item) => item.kind === "expr")) {
+        throw new Error(`Global aggregate array initializer '${label}' cannot mix flat and braced elements.`);
+    }
+    if (elementType.aggregateKind !== "struct") {
+        throw new Error(`Global ${elementType.aggregateKind} array initializer '${label}' requires explicit braces.`);
+    }
+    const fieldCount = getFlatGlobalAggregateInitializerWidth(elementType);
+    if (fieldCount === undefined) {
+        throw new Error(`Global nested aggregate array initializer '${label}' requires explicit braces.`);
+    }
+    const elementCount = dimensions.reduce((product, dimension) => product * dimension, 1);
+    if (initializer.items.length > elementCount * fieldCount) {
+        throw new Error(`Global aggregate array initializer '${label}' exceeds its capacity.`);
+    }
+    const values = [];
+    let cursor = 0;
+    for (let index = 0; index < elementCount; index += 1) {
+        const consumed = consumeFlatGlobalAggregateInitializer(elementType, initializer.items, cursor);
+        values.push(consumed.initializer);
+        cursor = consumed.next;
+    }
+    return values;
+}
+function getFlatGlobalAggregateInitializerWidth(type) {
+    if (type.aggregateKind !== "struct") {
+        return undefined;
+    }
+    let width = 0;
+    for (const field of (0, tsFrontendSemantic_1.getAggregateLayoutFields)(type)) {
+        const fieldWidth = getFlatGlobalInitializerWidth(field.type);
+        if (fieldWidth === undefined) {
+            return undefined;
+        }
+        width += fieldWidth;
+    }
+    return width;
+}
+function getFlatGlobalInitializerWidth(type) {
+    if (type.kind === "scalar" || type.kind === "pointer" || type.kind === "functionPointer") {
+        return 1;
+    }
+    if (type.kind === "aggregate") {
+        return getFlatGlobalAggregateInitializerWidth(type);
+    }
+    if (type.kind !== "array" || type.length === undefined || type.dimensions?.length) {
+        return undefined;
+    }
+    const elementType = type.elementValueType ?? { kind: "scalar", name: type.elementType };
+    const elementWidth = getFlatGlobalInitializerWidth(elementType);
+    return elementWidth === undefined ? undefined : type.length * elementWidth;
+}
+function consumeFlatGlobalAggregateInitializer(type, items, start) {
+    const values = [];
+    let cursor = start;
+    for (const field of (0, tsFrontendSemantic_1.getAggregateLayoutFields)(type)) {
+        if (cursor >= items.length) {
+            break;
+        }
+        const consumed = consumeFlatGlobalInitializerValue(field.type, items, cursor);
+        values.push(consumed.initializer);
+        cursor = consumed.next;
+    }
+    return { initializer: { kind: "list", items: values }, next: cursor };
+}
+function consumeFlatGlobalInitializerValue(type, items, start) {
+    if (type.kind === "scalar" || type.kind === "pointer" || type.kind === "functionPointer") {
+        return { initializer: items[start], next: start + 1 };
+    }
+    if (type.kind === "aggregate") {
+        return consumeFlatGlobalAggregateInitializer(type, items, start);
+    }
+    if (type.kind === "array" && type.length !== undefined && !type.dimensions?.length) {
+        const elementType = type.elementValueType ?? { kind: "scalar", name: type.elementType };
+        const values = [];
+        let cursor = start;
+        for (let index = 0; index < type.length && cursor < items.length; index += 1) {
+            const consumed = consumeFlatGlobalInitializerValue(elementType, items, cursor);
+            values.push(consumed.initializer);
+            cursor = consumed.next;
+        }
+        return { initializer: { kind: "list", items: values }, next: cursor };
+    }
+    throw new Error(`Unsupported global flat initializer type '${JSON.stringify(type)}'.`);
+}
+function flattenGlobalAggregateArrayItems(initializer, dimensions, label) {
+    const items = [];
+    const visit = (value, depth) => {
+        if (depth === dimensions.length) {
+            items.push(value);
+            return;
+        }
+        if (value && value.kind !== "list") {
+            throw new Error(`Global aggregate array initializer '${label}' requires nested braces at dimension ${depth + 1}.`);
+        }
+        const children = value?.kind === "list" ? value.items : [];
+        if (children.length > dimensions[depth]) {
+            throw new Error(`Global aggregate array initializer '${label}' exceeds dimension ${depth + 1}.`);
+        }
+        for (let index = 0; index < dimensions[depth]; index += 1) {
+            visit(children[index], depth + 1);
+        }
+    };
+    visit(initializer, 0);
+    return items;
+}
+function flattenGlobalAggregateInitializer(outputLabel, name, type, initializer, globalsByName, emitFallbackLabel = true) {
     if (!initializer) {
-        return Array.from({ length: "size" in type ? type.size : (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type) }, () => "0");
+        return [{
+                label: outputLabel ?? (emitFallbackLabel ? name : undefined),
+                directive: ".db",
+                value: Array.from({ length: "size" in type ? type.size : (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type) }, () => "0").join(","),
+            }];
     }
     if (initializer.kind !== "list") {
         throw new Error(`Global aggregate initializer for '${name}' must be a brace list.`);
     }
     const values = [];
     const fields = (0, tsFrontendSemantic_1.getAggregateLayoutFields)(type);
+    let emittedLabel = false;
     for (const [index, field] of fields.entries()) {
-        values.push(...flattenGlobalInitializerValue(`${name}.${field.name}`, field.type, initializer.items[index]));
+        const entries = flattenGlobalInitializerValue(emittedLabel ? undefined : (outputLabel ?? (emitFallbackLabel ? name : undefined)), `${name}.${field.name}`, field.type, initializer.items[index], globalsByName, emitFallbackLabel);
+        values.push(...entries);
+        emittedLabel = emittedLabel || entries.length > 0;
     }
     return values;
 }
-function flattenGlobalInitializerValue(label, type, initializer) {
+function flattenGlobalInitializerValue(outputLabel, label, type, initializer, globalsByName, emitFallbackLabel = true) {
     switch (type.kind) {
         case "void":
             throw new Error(`Global initializer cannot materialize void field '${label}'.`);
         case "scalar":
-            return scalarInitializerBytes(type.name === "char" ? 1 : 2, initializerConstValue(label, initializer));
+            return [{
+                    label: outputLabel,
+                    directive: type.name === "char" ? ".db" : ".dw",
+                    value: type.name === "char" ? `${initializerConstValue(label, initializer) & 0xff}` : `${initializerConstValue(label, initializer)}`,
+                }];
         case "pointer":
-            return scalarInitializerBytes(2, initializerConstValue(label, initializer));
+            return [{
+                    label: outputLabel,
+                    directive: ".dw",
+                    value: lowerGlobalWordInitializer(initializer, globalsByName),
+                }];
         case "aggregate":
-            return flattenGlobalAggregateInitializer(label, type, initializer);
+            return flattenGlobalAggregateInitializer(outputLabel, label, type, initializer, globalsByName, emitFallbackLabel);
         case "array":
-            throw new Error(`Global aggregate initializer does not yet support array field '${label}'.`);
+            if (type.elementValueType?.kind === "aggregate") {
+                return flattenGlobalAggregateArrayInitializer(outputLabel, type, initializer, globalsByName);
+            }
+            return [{
+                    label: outputLabel,
+                    directive: type.elementValueType || type.elementType === "int" ? ".dw" : ".db",
+                    value: lowerGlobalArrayInitializer(initializer, getArrayElementCount(type), type, globalsByName),
+                }];
         case "functionPointer":
-            throw new Error(`Global aggregate initializer does not yet support function-pointer field '${label}'.`);
+            return [{
+                    label: outputLabel,
+                    directive: ".dw",
+                    value: lowerGlobalFunctionPointerInitializer(initializer, globalsByName),
+                }];
         default:
-            return ["0"];
+            return [{ label: outputLabel, directive: ".db", value: "0" }];
     }
+}
+function lowerGlobalWordInitializer(initializer, globalsByName) {
+    if (!initializer) {
+        return "0";
+    }
+    if (initializer.kind === "expr") {
+        if (initializer.expr.kind === "const") {
+            return `${initializer.expr.value}`;
+        }
+        if (initializer.expr.kind === "addressOf") {
+            return `${initializer.expr.name}+0`;
+        }
+        if (initializer.expr.kind === "addressOfExpr") {
+            const address = resolveStaticGlobalFieldAddress(initializer.expr.expr, globalsByName);
+            if (address) {
+                return `${address.name}+${address.offset}`;
+            }
+        }
+    }
+    if (initializer.kind === "list" && initializer.items.length === 0) {
+        return "0";
+    }
+    throw new Error("Global word initializer must be a constant or address expression.");
+}
+function lowerGlobalFunctionPointerInitializer(initializer, globalsByName) {
+    if (initializer?.kind === "expr" && initializer.expr.kind === "ref") {
+        return `${initializer.expr.name}+0`;
+    }
+    return lowerGlobalWordInitializer(initializer, globalsByName);
+}
+function resolveStaticGlobalFieldAddress(expr, globalsByName) {
+    if (!globalsByName) {
+        return null;
+    }
+    if (expr.kind === "memberAccess") {
+        const global = globalsByName.get(expr.name);
+        if (!global || global.type.kind !== "aggregate") {
+            return null;
+        }
+        const field = getAggregateFieldOffset(global.type, expr.field);
+        return field ? { name: global.name, offset: field.offset, type: field.type } : null;
+    }
+    if (expr.kind === "memberExprAccess") {
+        const target = resolveStaticGlobalFieldAddress(expr.target, globalsByName);
+        if (!target || target.type.kind !== "aggregate") {
+            return null;
+        }
+        const field = getAggregateFieldOffset(target.type, expr.field);
+        return field ? { name: target.name, offset: target.offset + field.offset, type: field.type } : null;
+    }
+    return null;
+}
+function getAggregateFieldOffset(type, name) {
+    let offset = 0;
+    for (const field of (0, tsFrontendSemantic_1.getAggregateLayoutFields)(type)) {
+        if (field.name === name) {
+            return { offset, type: field.type };
+        }
+        if (type.aggregateKind === "struct") {
+            offset += field.size;
+        }
+    }
+    return null;
 }
 function initializerConstValue(label, initializer) {
     if (!initializer) {
@@ -346,37 +599,50 @@ function lowerForStmt(stmt, externs, definedFunctions, sourceText, state, functi
         body: loopBody,
         stepBody: step ? [step] : [],
     };
-    if (!init) {
+    if (!init || init.length === 0) {
         return loopStmt;
     }
     return {
         kind: "ifExprZero",
         expr: { kind: "const", value: 1 },
-        thenBody: [init, loopStmt],
+        thenBody: [...init, loopStmt],
         elseBody: [],
     };
 }
 function lowerForInit(init, externs, definedFunctions, sourceText, state, functionState, file) {
     if (init.kind !== "localDecl") {
-        return lowerSimpleStmt(init, externs, definedFunctions, sourceText, state, functionState, file);
+        if (init.kind === "staticDecl") {
+            return [];
+        }
+        return [lowerSimpleStmt(init, externs, definedFunctions, sourceText, state, functionState, file)];
     }
+    const initStatements = init.initStatements?.map((stmt) => lowerSimpleStmt(stmt, externs, definedFunctions, sourceText, state, functionState, file)) ?? [];
     if (!init.initializer) {
-        return { kind: "evalExpr", expr: { kind: "const", value: 0 } };
+        return initStatements.length > 0
+            ? initStatements
+            : [{ kind: "evalExpr", expr: { kind: "const", value: 0 } }];
+    }
+    const aggregateInitializer = init.initializer;
+    if (aggregateInitializer.type.kind === "aggregate") {
+        return [
+            ...materializeAggregateProducer(aggregateInitializer, { kind: "localSlot", slot: init.local.slot, type: aggregateInitializer.type }, externs, definedFunctions, sourceText, state, functionState, file),
+            ...initStatements,
+        ];
     }
     if (init.initializer.kind === "const") {
-        return {
-            kind: "assignLocalConst",
+        return [{
+                kind: "assignLocalConst",
+                slot: init.local.slot,
+                width: getLocalValueWidth(init.local),
+                value: init.initializer.value,
+            }, ...initStatements];
+    }
+    return [{
+            kind: "assignLocalExpr",
             slot: init.local.slot,
             width: getLocalValueWidth(init.local),
-            value: init.initializer.value,
-        };
-    }
-    return {
-        kind: "assignLocalExpr",
-        slot: init.local.slot,
-        width: getLocalValueWidth(init.local),
-        expr: lowerExpr(init.initializer, externs, definedFunctions, sourceText, state, functionState, file),
-    };
+            expr: lowerExpr(init.initializer, externs, definedFunctions, sourceText, state, functionState, file),
+        }, ...initStatements];
 }
 function lowerSimpleStmt(stmt, externs, definedFunctions, sourceText, state, functionState, file) {
     if (stmt.kind === "expr") {
@@ -433,9 +699,11 @@ function lowerSimpleStmt(stmt, externs, definedFunctions, sourceText, state, fun
 }
 function lowerAggregateAssignWrapper(target, source, externs, definedFunctions, sourceText, state, functionState, file) {
     const aggregateTarget = target;
-    const thenBody = materializeAggregateProducer(source, aggregateTarget.kind === "local"
-        ? { kind: "localSlot", slot: aggregateTarget.slot, type: aggregateTarget.type }
-        : { kind: "globalSymbol", name: aggregateTarget.name, type: aggregateTarget.type }, externs, definedFunctions, sourceText, state, functionState, file);
+    const thenBody = materializeAggregateProducer(source, target.kind === "aggregateAddress"
+        ? { kind: "pointer", pointer: lowerExpr(target.pointer, externs, definedFunctions, sourceText, state, functionState, file), type: target.type }
+        : aggregateTarget.kind === "local"
+            ? { kind: "localSlot", slot: aggregateTarget.slot, type: aggregateTarget.type }
+            : { kind: "globalSymbol", name: aggregateTarget.name, type: aggregateTarget.type }, externs, definedFunctions, sourceText, state, functionState, file);
     return {
         kind: "ifExprZero",
         expr: { kind: "const", value: 1 },
@@ -503,6 +771,8 @@ function materializeAggregateProducer(source, destination, externs, definedFunct
     switch (source.kind) {
         case "aggregateRef":
             return lowerAggregateSourceAddressToDestination(lowerAggregateSourceAddressExpr(source.symbol, functionState), source.symbol.type, destination);
+        case "aggregateAddress":
+            return lowerAggregateSourceAddressToDestination(lowerExpr(source.pointer, externs, definedFunctions, sourceText, state, functionState, file), source.type, destination);
         case "aggregateAssignExpr":
             return materializeAggregateAssignExprProducer(source, destination, externs, definedFunctions, sourceText, state, functionState, file);
         case "comma":
@@ -518,12 +788,33 @@ function materializeAggregateProducer(source, destination, externs, definedFunct
                     elseBody: materializeAggregateProducer(source.elseExpr, destination, externs, definedFunctions, sourceText, state, functionState, file),
                 }];
         case "call":
-            if (destination.kind === "localSlot") {
-                return [lowerAggregateCallIntoLocalSlot(destination.slot, source, externs, definedFunctions, sourceText, state, functionState, file)];
+        case "indirectCall":
+            if (destination.kind === "returnSlot") {
+                // The hidden return pointer is stack-relative. Passing it to another aggregate
+                // return call directly changes that offset while its argument is pushed.
+                return materializeAggregateProducerViaTempLocal(source, aggregateType, destination, externs, definedFunctions, sourceText, state, functionState, file);
             }
-            return materializeAggregateProducerViaTempLocal(source, aggregateType, destination, externs, definedFunctions, sourceText, state, functionState, file);
+            return [{
+                    kind: "materializeAggregateProducer",
+                    destination: lowerAggregateDestination(destination),
+                    source: lowerAggregateProducerExpr(source, externs, definedFunctions, sourceText, state, functionState, file),
+                }];
         default:
             return assertNever(source);
+    }
+}
+function lowerAggregateDestination(destination) {
+    switch (destination.kind) {
+        case "localSlot":
+            return { kind: "localSlot", slot: destination.slot, size: destination.type.size };
+        case "globalSymbol":
+            return { kind: "globalSymbol", name: destination.name, size: destination.type.size };
+        case "pointer":
+            return { kind: "pointer", pointer: destination.pointer, size: destination.type.size };
+        case "returnSlot":
+            return { kind: "returnSlot", size: destination.type.size };
+        default:
+            return assertNever(destination);
     }
 }
 function materializeAggregateProducerViaTempLocal(source, tempType, destination, externs, definedFunctions, sourceText, state, functionState, file) {
@@ -556,6 +847,8 @@ function lowerAggregateSourceAddressToDestination(sourcePointer, sourceType, des
             return lowerAggregateCopySourceAddressToLocalSlot(sourcePointer, destination.slot, destination.type);
         case "globalSymbol":
             return lowerAggregateCopySourceAddressToGlobal(sourcePointer, destination.name, destination.type);
+        case "pointer":
+            return lowerAggregateCopySourceAddressToPointer(sourcePointer, destination.pointer, destination.type);
         case "returnSlot":
             return lowerAggregateCopySourceAddressToReturnSlot(sourcePointer, sourceType.size);
         default:
@@ -568,6 +861,8 @@ function copyAggregateLocalSlotToDestination(sourceSlot, sourceType, destination
             return destination.slot === sourceSlot ? [] : lowerAggregateCopyLocalSlotToLocalSlot(sourceSlot, destination.slot, destination.type);
         case "globalSymbol":
             return lowerAggregateCopyLocalSlotToGlobal(sourceSlot, destination.name, destination.type);
+        case "pointer":
+            return lowerAggregateCopySourceAddressToPointer({ kind: "localAddress", slot: sourceSlot }, destination.pointer, destination.type);
         case "returnSlot":
             return lowerAggregateCopyLocalToReturnSlot(sourceSlot, sourceType.size);
         default:
@@ -621,6 +916,29 @@ function lowerAggregateCopySourceAddressToGlobal(sourcePointer, targetName, targ
         },
     }));
 }
+function lowerAggregateCopySourceAddressToPointer(sourcePointer, targetPointer, targetType) {
+    return getAggregateFieldStores(targetType).map((field) => ({
+        kind: "evalExpr",
+        expr: {
+            kind: field.width === 1 ? "assignDerefByte" : "assignDerefWord",
+            pointer: {
+                kind: "pointerAdd",
+                pointer: targetPointer,
+                index: { kind: "const", value: field.offset },
+                scale: 1,
+            },
+            expr: {
+                kind: field.width === 1 ? "derefByte" : "derefWord",
+                pointer: {
+                    kind: "pointerAdd",
+                    pointer: sourcePointer,
+                    index: { kind: "const", value: field.offset },
+                    scale: 1,
+                },
+            },
+        },
+    }));
+}
 function lowerAggregateCopySourceAddressToReturnSlot(sourcePointer, size) {
     return Array.from({ length: size }, (_, index) => ({
         kind: "evalExpr",
@@ -647,26 +965,47 @@ function lowerAggregateCopySourceAddressToReturnSlot(sourcePointer, size) {
 function lowerAggregateCallIntoLocalSlot(targetSlot, source, externs, definedFunctions, sourceText, state, functionState, file) {
     return {
         kind: "evalExpr",
-        expr: {
-            kind: "call",
-            target: source.target.name,
-            args: [
-                { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
-                ...source.args.map((arg) => isAggregateCallArg(arg)
-                    ? {
-                        kind: "aggregateConsumer",
-                        consumer: {
-                            kind: "addressArg",
-                            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-                            tempSlot: allocateTempLocal(functionState, arg.type.size),
-                        },
-                    }
-                    : {
-                        kind: "expr",
-                        expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
-                    }),
-            ],
-        },
+        expr: source.kind === "call"
+            ? {
+                kind: "call",
+                target: source.target.name,
+                args: [
+                    { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
+                    ...source.args.map((arg) => isAggregateCallArg(arg)
+                        ? {
+                            kind: "aggregateConsumer",
+                            consumer: {
+                                kind: "addressArg",
+                                source: lowerAggregateProducerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                                tempSlot: allocateTempLocal(functionState, arg.type.size),
+                            },
+                        }
+                        : {
+                            kind: "expr",
+                            expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                        }),
+                ],
+            }
+            : {
+                kind: "indirectCall",
+                target: lowerExpr(source.target, externs, definedFunctions, sourceText, state, functionState, file),
+                args: [
+                    { kind: "expr", expr: { kind: "localAddress", slot: targetSlot } },
+                    ...source.args.map((arg) => isAggregateCallArg(arg)
+                        ? {
+                            kind: "aggregateConsumer",
+                            consumer: {
+                                kind: "addressArg",
+                                source: lowerAggregateProducerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                                tempSlot: allocateTempLocal(functionState, arg.type.size),
+                            },
+                        }
+                        : {
+                            kind: "expr",
+                            expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                        }),
+                ],
+            },
     };
 }
 function lowerAggregateCopyLocalToReturnSlot(sourceSlot, size) {
@@ -817,22 +1156,27 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                 scope: expr.symbol.kind === "local" ? "local" : "arg",
                 width: expr.symbol.kind === "local"
                     ? getLocalValueWidth(expr.symbol)
-                    : expr.symbol.type.kind === "array"
-                        ? 2
-                        : expr.symbol.type.kind === "aggregate"
-                            ? (() => {
-                                throw new Error(`Internal lowering error: aggregate parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
-                            })()
-                            : expr.symbol.type.kind === "void"
+                    : expr.type.kind === "pointer"
+                        ? expr.type.width
+                        : expr.symbol.type.kind === "array"
+                            ? 2
+                            : expr.symbol.type.kind === "aggregate"
                                 ? (() => {
-                                    throw new Error(`Internal lowering error: void parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
+                                    throw new Error(`Internal lowering error: aggregate parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
                                 })()
-                                : expr.symbol.type.kind === "functionPointer"
-                                    ? expr.symbol.type.width
-                                    : expr.symbol.type.width,
+                                : expr.symbol.type.kind === "void"
+                                    ? (() => {
+                                        throw new Error(`Internal lowering error: void parameter values are not supported, got ${JSON.stringify(expr.symbol.type)}`);
+                                    })()
+                                    : expr.symbol.type.kind === "functionPointer"
+                                        ? expr.symbol.type.width
+                                        : expr.symbol.type.width,
                 slot: expr.symbol.kind === "local" ? expr.symbol.slot : getParamIrSlot(expr.symbol.slot, functionState),
             };
         case "globalRef":
+            if (expr.symbol.isExtern) {
+                externs.add(expr.symbol.name);
+            }
             return {
                 kind: "globalRef",
                 name: expr.symbol.name,
@@ -844,6 +1188,9 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                 slot: expr.symbol.slot,
             };
         case "globalAddress":
+            if (expr.symbol.isExtern) {
+                externs.add(expr.symbol.name);
+            }
             return {
                 kind: "globalAddress",
                 name: expr.symbol.name,
@@ -862,13 +1209,13 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                     scale: 1,
                 },
             };
-        case "aggregateValueFieldAccess": {
+        case "aggregateProducerFieldRead": {
             return {
                 kind: "aggregateConsumer",
                 consumer: lowerAggregateFieldReadConsumer(expr.source, expr.offset, expr.type.width, externs, definedFunctions, sourceText, state, functionState, file),
             };
         }
-        case "aggregateValueFieldAddress": {
+        case "aggregateProducerFieldAddress": {
             return {
                 kind: "aggregateConsumer",
                 consumer: lowerAggregateFieldAddressConsumer(expr.source, expr.offset, externs, definedFunctions, sourceText, state, functionState, file),
@@ -879,8 +1226,20 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                 kind: "pointerAdd",
                 pointer: lowerExpr(expr.pointer, externs, definedFunctions, sourceText, state, functionState, file),
                 index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
-                scale: expr.pointee === "int" ? 2 : 1,
+                scale: getPointerPointeeBytes(expr.pointee),
             };
+        case "arrayElementAddress": {
+            let pointer = lowerExpr(expr.base, externs, definedFunctions, sourceText, state, functionState, file);
+            for (let position = 0; position < expr.indices.length; position += 1) {
+                pointer = {
+                    kind: "pointerAdd",
+                    pointer,
+                    index: lowerExpr(expr.indices[position], externs, definedFunctions, sourceText, state, functionState, file),
+                    scale: expr.scales[position],
+                };
+            }
+            return pointer;
+        }
         case "deref":
             return {
                 kind: expr.type.width === 1 ? "derefByte" : "derefWord",
@@ -893,18 +1252,51 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                 expr: lowerExpr(expr.expr, externs, definedFunctions, sourceText, state, functionState, file),
             };
         case "localArrayElement":
+            if (expr.type.width === 2) {
+                return {
+                    kind: "derefWord",
+                    pointer: {
+                        kind: "pointerAdd",
+                        pointer: { kind: "localAddress", slot: expr.symbol.slot },
+                        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
+                        scale: 2,
+                    },
+                };
+            }
             return {
                 kind: "localArrayElement",
                 slot: expr.symbol.slot,
                 index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
             };
         case "paramArrayElement":
+            if (expr.type.width === 2) {
+                return {
+                    kind: "derefWord",
+                    pointer: {
+                        kind: "pointerAdd",
+                        pointer: { kind: "ref", scope: "arg", width: 2, slot: getParamIrSlot(expr.symbol.slot, functionState) },
+                        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
+                        scale: 2,
+                    },
+                };
+            }
             return {
                 kind: "argArrayElement",
                 slot: getParamIrSlot(expr.symbol.slot, functionState),
                 index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
             };
         case "globalArrayElement":
+            if (expr.type.width === 2) {
+                return {
+                    kind: "derefWord",
+                    pointer: {
+                        kind: "pointerAdd",
+                        pointer: { kind: "globalAddress", name: expr.symbol.name },
+                        index: lowerExpr(expr.index, externs, definedFunctions, sourceText, state, functionState, file),
+                        scale: 2,
+                    },
+                };
+            }
             return {
                 kind: "globalArrayElement",
                 name: expr.symbol.name,
@@ -956,7 +1348,7 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                         kind: "aggregateConsumer",
                         consumer: {
                             kind: "addressArg",
-                            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                            source: lowerAggregateProducerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
                             tempSlot: allocateTempLocal(functionState, arg.type.size),
                         },
                     }
@@ -974,7 +1366,7 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
                         kind: "aggregateConsumer",
                         consumer: {
                             kind: "addressArg",
-                            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                            source: lowerAggregateProducerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
                             tempSlot: allocateTempLocal(functionState, arg.type.size),
                         },
                     }
@@ -1114,7 +1506,30 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
             return assertNever(expr);
     }
 }
-function lowerAggregateValueExpr(expr, externs, definedFunctions, sourceText, state, functionState, file) {
+function getArrayPointerElementBytes(type) {
+    if (!type.elementValueType) {
+        return type.elementType === "char" ? 1 : 2;
+    }
+    return type.elementValueType.kind === "aggregate"
+        ? (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type.elementValueType)
+        : 2;
+}
+function getPointerPointeeBytes(type) {
+    if (type === "char") {
+        return 1;
+    }
+    if (type === "int") {
+        return 2;
+    }
+    if (type.kind === "arrayPointer") {
+        return type.length * getArrayPointerElementBytes(type);
+    }
+    if (type.kind === "aggregate") {
+        return (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type);
+    }
+    return 2;
+}
+function lowerAggregateProducerExpr(expr, externs, definedFunctions, sourceText, state, functionState, file) {
     switch (expr.kind) {
         case "aggregateRef":
             return expr.symbol.kind === "global"
@@ -1130,14 +1545,24 @@ function lowerAggregateValueExpr(expr, externs, definedFunctions, sourceText, st
                     slot: expr.symbol.kind === "local" ? expr.symbol.slot : getParamIrSlot(expr.symbol.slot, functionState),
                     size: expr.type.size,
                 };
+        case "aggregateAddress":
+            return {
+                kind: "aggregateAddress",
+                pointer: lowerExpr(expr.pointer, externs, definedFunctions, sourceText, state, functionState, file),
+                size: expr.type.size,
+            };
         case "aggregateAssignExpr":
             return {
                 kind: "aggregateAssignExpr",
                 effectDestination: expr.target.kind === "local"
                     ? { kind: "localSlot", slot: expr.target.slot, size: expr.type.size }
                     : { kind: "globalSymbol", name: expr.target.name, size: expr.type.size },
-                valueSlot: expr.target.kind === "local" ? expr.target.slot : allocateTempLocal(functionState, expr.type.size),
-                source: lowerAggregateValueExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
+                valueDestination: {
+                    kind: "localSlot",
+                    slot: expr.target.kind === "local" ? expr.target.slot : allocateTempLocal(functionState, expr.type.size),
+                    size: expr.type.size,
+                },
+                source: lowerAggregateProducerExpr(expr.source, externs, definedFunctions, sourceText, state, functionState, file),
                 size: expr.type.size,
             };
         case "call":
@@ -1149,7 +1574,26 @@ function lowerAggregateValueExpr(expr, externs, definedFunctions, sourceText, st
                         kind: "aggregateConsumer",
                         consumer: {
                             kind: "addressArg",
-                            source: lowerAggregateValueExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                            source: lowerAggregateProducerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                            tempSlot: allocateTempLocal(functionState, arg.type.size),
+                        },
+                    }
+                    : {
+                        kind: "expr",
+                        expr: lowerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
+                    }),
+                size: expr.type.size,
+            };
+        case "indirectCall":
+            return {
+                kind: "indirectCall",
+                target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
+                args: expr.args.map((arg) => isAggregateCallArg(arg)
+                    ? {
+                        kind: "aggregateConsumer",
+                        consumer: {
+                            kind: "addressArg",
+                            source: lowerAggregateProducerExpr(arg, externs, definedFunctions, sourceText, state, functionState, file),
                             tempSlot: allocateTempLocal(functionState, arg.type.size),
                         },
                     }
@@ -1163,41 +1607,43 @@ function lowerAggregateValueExpr(expr, externs, definedFunctions, sourceText, st
             return {
                 kind: "comma",
                 left: lowerExpr(expr.left, externs, definedFunctions, sourceText, state, functionState, file),
-                right: lowerAggregateValueExpr(expr.right, externs, definedFunctions, sourceText, state, functionState, file),
+                right: lowerAggregateProducerExpr(expr.right, externs, definedFunctions, sourceText, state, functionState, file),
                 size: expr.type.size,
             };
         case "conditional":
             return {
                 kind: "conditional",
                 condition: lowerExpr(expr.condition, externs, definedFunctions, sourceText, state, functionState, file),
-                thenExpr: lowerAggregateValueExpr(expr.thenExpr, externs, definedFunctions, sourceText, state, functionState, file),
-                elseExpr: lowerAggregateValueExpr(expr.elseExpr, externs, definedFunctions, sourceText, state, functionState, file),
+                thenExpr: lowerAggregateProducerExpr(expr.thenExpr, externs, definedFunctions, sourceText, state, functionState, file),
+                elseExpr: lowerAggregateProducerExpr(expr.elseExpr, externs, definedFunctions, sourceText, state, functionState, file),
                 size: expr.type.size,
             };
         default:
             return assertNever(expr);
     }
 }
-function aggregateValueNeedsFieldConsumerTemp(source) {
+function aggregateProducerNeedsFieldConsumerTemp(source) {
     switch (source.kind) {
         case "aggregateRef":
+        case "aggregateAddress":
         case "aggregateAssignExpr":
             return false;
         case "call":
+        case "indirectCall":
             return true;
         case "comma":
-            return aggregateValueNeedsFieldConsumerTemp(source.right);
+            return aggregateProducerNeedsFieldConsumerTemp(source.right);
         case "conditional":
-            return aggregateValueNeedsFieldConsumerTemp(source.thenExpr)
-                || aggregateValueNeedsFieldConsumerTemp(source.elseExpr);
+            return aggregateProducerNeedsFieldConsumerTemp(source.thenExpr)
+                || aggregateProducerNeedsFieldConsumerTemp(source.elseExpr);
     }
 }
 function lowerAggregateFieldReadConsumer(sourceExpr, offset, width, externs, definedFunctions, sourceText, state, functionState, file) {
-    const source = lowerAggregateValueExpr(sourceExpr, externs, definedFunctions, sourceText, state, functionState, file);
+    const source = lowerAggregateProducerExpr(sourceExpr, externs, definedFunctions, sourceText, state, functionState, file);
     return {
         kind: "fieldRead",
         source,
-        tempSlot: aggregateValueNeedsFieldConsumerTemp(source)
+        tempSlot: aggregateProducerNeedsFieldConsumerTemp(source)
             ? allocateTempLocal(functionState, sourceExpr.type.size)
             : undefined,
         offset,
@@ -1205,11 +1651,11 @@ function lowerAggregateFieldReadConsumer(sourceExpr, offset, width, externs, def
     };
 }
 function lowerAggregateFieldAddressConsumer(sourceExpr, offset, externs, definedFunctions, sourceText, state, functionState, file) {
-    const source = lowerAggregateValueExpr(sourceExpr, externs, definedFunctions, sourceText, state, functionState, file);
+    const source = lowerAggregateProducerExpr(sourceExpr, externs, definedFunctions, sourceText, state, functionState, file);
     return {
         kind: "fieldAddress",
         source,
-        tempSlot: aggregateValueNeedsFieldConsumerTemp(source)
+        tempSlot: aggregateProducerNeedsFieldConsumerTemp(source)
             ? allocateTempLocal(functionState, sourceExpr.type.size)
             : undefined,
         offset,

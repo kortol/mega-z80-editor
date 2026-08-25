@@ -10,7 +10,7 @@ describe("tsFrontendLowering", () => {
     const bound = analyzeProgram(parsed, source, "flag.c");
     const spec = lowerSourceProgram(bound, "flag.i", source, "flag.c");
 
-    expect(spec.exports).toEqual(["main"]);
+    expect(spec.exports).toEqual(["flag", "main"]);
     expect(spec.externs).toContain(".gt");
     expect(spec.functions).toHaveLength(2);
   });
@@ -53,7 +53,7 @@ describe("tsFrontendLowering", () => {
     const asm = emitProgram(spec);
 
     expect(asm).toContain("\tcall\t.lt");
-    expect(asm).toContain("\tjp\t.4");
+    expect(asm).toMatch(/\tjp\t\.[A-Za-z0-9_]+/);
     expect(asm).toContain("\tadd\thl,de");
   });
 
@@ -88,8 +88,8 @@ describe("tsFrontendLowering", () => {
     const spec = lowerSourceProgram(bound, "logical.i", source, "logical.c");
     const asm = emitProgram(spec);
 
-    expect(asm).toContain("\tjp\tz,.200");
-    expect(asm).toContain("\tjp\tnz,.200");
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
+    expect(asm).toMatch(/\tjp\tnz,\.[A-Za-z0-9_]+/);
     expect(asm).toContain("\tld\thl,#1");
   });
 
@@ -101,7 +101,7 @@ describe("tsFrontendLowering", () => {
     const asm = emitProgram(spec);
 
     expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
-    expect(asm).toMatch(/\tjp\t\.\d+/);
+    expect(asm).toMatch(/\tjp\t\.[A-Za-z0-9_]+/);
   });
 
   test("lowers pointer-valued ternary conditional expressions", () => {
@@ -424,7 +424,7 @@ describe("tsFrontendLowering", () => {
 
     expect(asm).toContain("\tld\ta,h");
     expect((asm.match(/\tor\tl/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers dereference truthiness in if/while/for conditions", () => {
@@ -489,7 +489,7 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(asm).toContain("\tcall\t.eq");
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers pointer-member access on conditional pointer expressions", () => {
@@ -502,7 +502,7 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tadd\thl,de/g) ?? []).length).toBeGreaterThanOrEqual(1);
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers address-of on pointer-member access from conditional pointer expressions", () => {
@@ -598,7 +598,7 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\thl,#0");
     expect(asm).toContain("\tadd\thl,sp");
     expect(asm).toContain("\tcall\t.ne");
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers union pointer null assignment and reassignment", () => {
@@ -611,7 +611,7 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("\tld\thl,#0");
     expect(asm).toContain("\tadd\thl,sp");
     expect(asm).toContain("\tcall\t.ne");
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers direct aggregate address compares and truthiness", () => {
@@ -623,7 +623,7 @@ describe("tsFrontendLowering", () => {
 
     expect(asm).toContain("\tadd\thl,sp");
     expect(asm).toContain("\tcall\t.ne");
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers direct union address compares and truthiness", () => {
@@ -635,7 +635,7 @@ describe("tsFrontendLowering", () => {
 
     expect(asm).toContain("\tadd\thl,sp");
     expect(asm).toContain("\tcall\t.ne");
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers mixed aggregate sizeof and direct address compare expressions", () => {
@@ -659,7 +659,7 @@ describe("tsFrontendLowering", () => {
 
     expect(asm).toContain("\tld\thl,#2");
     expect(asm).toContain("\tadd\thl,sp");
-    expect(asm).toMatch(/\tjp\tz,\.\d+/);
+    expect(asm).toMatch(/\tjp\tz,\.[A-Za-z0-9_]+/);
   });
 
   test("lowers local struct and union member reads", () => {
@@ -945,7 +945,7 @@ describe("tsFrontendLowering", () => {
     const asm = emitProgram(spec);
 
     expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
   });
 
@@ -1134,6 +1134,28 @@ describe("tsFrontendLowering", () => {
     expect(mainBody).not.toContain("\tld\thl,#2\n\tadd\thl,sp");
   });
 
+  test("writes aggregate call results directly into file-scope destinations", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nint main(){ g = make(); return g.a; }\n";
+    const spec = lowerSourceProgram(analyzeProgram(parseProgram(source, "aggregate-call-global-destination.c"), source, "aggregate-call-global-destination.c"), "aggregate_call_global_destination", source, "aggregate-call-global-destination.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect(mainBody).toContain("\tld\thl,#g");
+    expect(mainBody).toContain("\tcall\tmake");
+    expect(mainBody).not.toContain("\tdec\tsp");
+  });
+
+  test("writes aggregate call results directly into aggregate field destinations", () => {
+    const source = "struct Pair { char first; char second; };\nstruct Holder { struct Pair value; };\nstruct Pair make(){ struct Pair result = {65, 66}; return result; }\nint main(){ struct Holder holder; holder.value = make(); return holder.value.first; }\n";
+    const spec = lowerSourceProgram(analyzeProgram(parseProgram(source, "aggregate-call-field-destination.c"), source, "aggregate-call-field-destination.c"), "aggregate_call_field_destination", source, "aggregate-call-field-destination.c");
+    const asm = emitProgram(spec);
+    const mainBody = asm.match(/\nmain:\n([\s\S]*?)\n\tret/)?.[1] ?? "";
+
+    expect(mainBody).toContain("\tcall\tmake");
+    // The holder consumes two bytes; no extra aggregate result temporary is allocated.
+    expect((mainBody.match(/\tdec\tsp/g) ?? []).length).toBe(2);
+  });
+
   test("uses one ABI return slot per nested aggregate call field address producer", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nchar first(char *p){ return p[0]; }\nint main(){ return first(&(id(make()).a)); }\n";
     const parsed = parseProgram(source, "aggregate-nested-call-field-address-abi-slots.c");
@@ -1248,6 +1270,27 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
+  test("lowers for-loop aggregate declaration initializers from aggregate producers", () => {
+    const source = "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; return x; }\nstruct Foo makeB(){ struct Foo x; return x; }\nint main(){ int c = 1; for (struct Foo x = c ? makeA() : makeB(); c; c = 0) { return x.a; } return 0; }\n";
+    const spec = lowerSourceProgram(analyzeProgram(parseProgram(source, "for-aggregate-decl-init.c"), source, "for-aggregate-decl-init.c"), "for_aggregate_decl_init", source, "for-aggregate-decl-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tcall\tmakeA");
+    expect(asm).toContain("\tcall\tmakeB");
+    expect(asm).toContain("\tjp\tz,");
+  });
+
+  test("lowers for-loop aggregate declaration brace initializers", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ for (struct Foo x = { 65, 66 }; x.a; x.a = 0) { return x.b; } return 0; }\n";
+    const spec = lowerSourceProgram(analyzeProgram(parseProgram(source, "for-aggregate-brace-init.c"), source, "for-aggregate-brace-init.c"), "for_aggregate_brace_init", source, "for-aggregate-brace-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#65");
+    expect(asm).toContain("\tld\thl,#66");
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
   test("lowers chained aggregate value call paths", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint take(struct Foo x){ return x.a; }\nint main(int c){ return id(id(make())).a + take(id(make())) + (c ? id(make()) : make()).b; }\n";
     const parsed = parseProgram(source, "aggregate-chained-value-paths.c");
@@ -1258,7 +1301,7 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect((asm.match(/\tcall\tid/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect((asm.match(/\tcall\ttake/g) ?? []).length).toBeGreaterThanOrEqual(1);
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   test("lowers file-scope chained aggregate value call paths", () => {
@@ -1395,7 +1438,7 @@ describe("tsFrontendLowering", () => {
 
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   test("lowers pointer-member incdec on conditional pointer expressions", () => {
@@ -1442,7 +1485,7 @@ describe("tsFrontendLowering", () => {
     const spec = lowerSourceProgram(bound, "aggregate-deref-conditional-member-ops.i", source, "aggregate-deref-conditional-member-ops.c");
     const asm = emitProgram(spec);
 
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(asm).toContain("\tcall\tfirst");
@@ -1458,7 +1501,7 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   test("lowers dereference compound assignment and incdec expressions", () => {
@@ -1553,6 +1596,18 @@ describe("tsFrontendLowering", () => {
     expect(asm).not.toContain("\tld\t(hl),#0");
   });
 
+  test("lowers for-loop char array string literal declaration initializers", () => {
+    const source = "int main(){ for (char buf[] = \"AB\"; buf[0]; buf[0] = 0) { return buf[1]; } return 0; }\n";
+    const parsed = parseProgram(source, "for-array-string-init.c");
+    const bound = analyzeProgram(parsed, source, "for-array-string-init.c");
+    const spec = lowerSourceProgram(bound, "for-array-string-init.i", source, "for-array-string-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\t(hl),#65");
+    expect(asm).toContain("\tld\t(hl),#66");
+    expect(asm).toContain("\tld\t(hl),#0");
+  });
+
   test("lowers local char array constant index assignments into byte stores", () => {
     const source = "int main(){ char buf[4]; buf[2] = 65; return buf[2]; }\n";
     const parsed = parseProgram(source, "array-assign.c");
@@ -1586,7 +1641,7 @@ describe("tsFrontendLowering", () => {
 
     expect(spec.externs).toContain(".eq");
     expect(asm).toContain("\tcall\t.eq");
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   test("lowers do-while loops into post-test back-edge control flow", () => {
@@ -1597,7 +1652,7 @@ describe("tsFrontendLowering", () => {
     const asm = emitProgram(spec);
 
     expect(asm).toContain("\tcall\t.lt");
-    expect((asm.match(/\tjp\t\.\d+/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect((asm.match(/\tjp\t\.[A-Za-z0-9_]+/g) ?? []).length).toBeGreaterThanOrEqual(1);
     expect(asm).toContain("\tadd\thl,de");
   });
 
@@ -1633,7 +1688,8 @@ describe("tsFrontendLowering", () => {
     const asm = emitProgram(spec);
 
     expect(asm).toContain("g:");
-    expect(asm).toContain(".db\t65,66,0");
+    expect(asm).toContain("g:\t.db\t65");
+    expect(asm).toContain("\t.dw\t66");
   });
 
   test("lowers nested file-scope aggregate brace initializers", () => {
@@ -1644,7 +1700,37 @@ describe("tsFrontendLowering", () => {
     const asm = emitProgram(spec);
 
     expect(asm).toContain("g:");
-    expect(asm).toContain(".db\t65,66,0,67");
+    expect(asm).toContain("g:\t.db\t65");
+    expect(asm).toContain("\t.dw\t66");
+    expect(asm).toContain("\t.db\t67");
+  });
+
+  test("lowers file-scope aggregate char array field initializers", () => {
+    const source = "struct Foo { char name[4]; int tail; };\nstruct Foo g = { \"AB$\", 67 };\nint main(){ return g.tail; }\n";
+    const parsed = parseProgram(source, "global-aggregate-array-init.c");
+    const bound = analyzeProgram(parsed, source, "global-aggregate-array-init.c");
+    const spec = lowerSourceProgram(bound, "global-aggregate-array-init.i", source, "global-aggregate-array-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("g:");
+    expect(asm).toContain("g:\t.db\t65,66,36,0");
+    expect(asm).toContain("\t.dw\t67");
+  });
+
+  test("lowers nested local aggregate char array field initializers", () => {
+    const source = "struct Inner { char name[4]; int code; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { \"AB$\", 67 }, 68 }; return x.tail; }\n";
+    const parsed = parseProgram(source, "nested-local-aggregate-array-init.c");
+    const bound = analyzeProgram(parsed, source, "nested-local-aggregate-array-init.c");
+    const spec = lowerSourceProgram(bound, "nested-local-aggregate-array-init.i", source, "nested-local-aggregate-array-init.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#65");
+    expect(asm).toContain("\tld\thl,#66");
+    expect(asm).toContain("\tld\thl,#36");
+    expect(asm).toContain("\tld\thl,#0");
+    expect(asm).toContain("\tld\thl,#67");
+    expect(asm).toContain("\tld\thl,#68");
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(6);
   });
 
   test("lowers file-scope pointer declarations and assignments", () => {
@@ -1682,6 +1768,57 @@ describe("tsFrontendLowering", () => {
     expect(asm).toContain("fp:");
     expect(asm).toContain(".dw\tputA+0");
     expect(asm).toContain("jp\t(hl)");
+  });
+
+  test("lowers local and file-scope aggregate function pointer field initializers", () => {
+    const localSource = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); char tail; };\nint main(){ struct Foo x = { &putA, 66 }; return x.tail; }\n";
+    const localSpec = lowerSourceProgram(
+      analyzeProgram(parseProgram(localSource, "local-aggregate-function-pointer-init.c"), localSource, "local-aggregate-function-pointer-init.c"),
+      "local-aggregate-function-pointer-init.i",
+      localSource,
+      "local-aggregate-function-pointer-init.c",
+    );
+    const localAsm = emitProgram(localSpec);
+    expect(localAsm).toContain("\tld\thl,#putA");
+    expect(localAsm).toContain("\tld\t(hl),e");
+    expect(localAsm).toContain("\tld\t(hl),d");
+    expect(localAsm).toContain("\tld\thl,#66");
+
+    const globalSource = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); char tail; };\nstruct Foo g = { &putA, 66 };\nint main(){ return g.tail; }\n";
+    const globalSpec = lowerSourceProgram(
+      analyzeProgram(parseProgram(globalSource, "global-aggregate-function-pointer-init.c"), globalSource, "global-aggregate-function-pointer-init.c"),
+      "global-aggregate-function-pointer-init.i",
+      globalSource,
+      "global-aggregate-function-pointer-init.c",
+    );
+    const globalAsm = emitProgram(globalSpec);
+    expect(globalAsm).toContain("g:");
+    expect(globalAsm).toContain(".dw\tputA+0");
+    expect(globalAsm).toContain("\t.db\t66");
+  });
+
+  test("lowers aggregate array field reads, writes, and incdec", () => {
+    const source = "struct Foo { char name[4]; };\nint main(struct Foo *p){ struct Foo x; x.name[0] = 65; p->name[1] = 66; ++x.name[0]; p->name[1]--; return x.name[0] + p->name[1]; }\n";
+    const parsed = parseProgram(source, "aggregate-array-field-access.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-array-field-access.c");
+    const spec = lowerSourceProgram(bound, "aggregate-array-field-access.i", source, "aggregate-array-field-access.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tadd\thl,de");
+  });
+
+  test("lowers aggregate function-pointer field calls", () => {
+    const source = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); };\nint main(struct Foo *p){ struct Foo x; x.fp = &putA; p->fp = &putA; return x.fp() + p->fp(); }\n";
+    const parsed = parseProgram(source, "aggregate-function-pointer-call.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-function-pointer-call.c");
+    const spec = lowerSourceProgram(bound, "aggregate-function-pointer-call.i", source, "aggregate-function-pointer-call.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tjp\t\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((asm.match(/\tld\t\(hl\),d/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(asm).toContain("\tld\thl,#putA");
   });
 
   test("lowers uninitialized file-scope aggregate storage into bss", () => {

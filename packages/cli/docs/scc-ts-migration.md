@@ -1,5 +1,7 @@
 # SCC TS Migration
 
+Current C Subset の feature inventory と実装確認 matrix は [scc-ts-c-subset.md](./scc-ts-c-subset.md) を正本とする。この文書の coverage map は migration 設計上の補助資料である。
+
 `@mz80/cli` では、legacy `dcpp` / `sccz80` をそのまま使う経路と、将来の TypeScript compiler 置換経路を切り分けるために adapter と fixture を先に固定しています。
 
 ## Compiler Adapter
@@ -656,6 +658,7 @@ source-driven compile path の最初の slice はかなり限定しています�
 | address-of object | S | S | S | N |
 | field-address consumer | N/A | S | S | S |
 | member / deref member | N/A | S | S | S |
+| indexed array field consumer | N/A | S | S | S |
 | pre/post inc/dec | S | S | S for scalar fields | N |
 | compare | S | S | N | N |
 | logical truthiness | S | S | N | N |
@@ -665,12 +668,40 @@ source-driven compile path の最初の slice はかなり限定しています�
 | indirect call target | N/A | S | N/A | N/A |
 | return value | S | S | N | S |
 
+#### Array Dimension and Array-Like Coverage
+
+`S`: source-path runtime pass<br>
+`P`: type model or declaration surface が未完了<br>
+`N`: 未対応
+
+| class | path / operation | `char` | `int` | status / limitation |
+| --- | --- | --- | --- | --- |
+| 1-D array | local / parameter / file-scope declaration | S | S | sized decimal bound only |
+| array-like | `T (*)[N]` declaration, parameter, return, direct call result | S | S | current 2-byte pointer ABI |
+| array-like | address-of array / aggregate array field | S | S | `&a`, `&x.field`, nested field address |
+| array-like | row/element read/write, compound assignment, incdec | S | S | `p[row][column]`, `(*p)[i]`; int element uses 2-byte stride |
+| array-like | conditional / comma / assignment expression consumer | S | S | pointer value type and row stride preserved |
+| array-like | aggregate pointer field and initializer | S | P | char field local/file-scope initializer is runtime-covered; int field initializer is unverified |
+| array-like | equality / inequality | S | P | char bounds are runtime-covered; int equivalent lacks runtime evidence |
+| 2-D scalar array | `T[M][N]`, row decay, `&a[i]`, `a[i][j]`, nested brace initializer | S | S | `char`/`int` local/global and pointer-to-row paths are source-path runtime-covered |
+| 3-D+ array | recursive dimensions | N | N | out of current near-term Subset scope |
+| `struct` element array | 1-D/2-D field/address/assignment/call/nested brace initializer | S | S | local/file-scope and supported parameter consumers are source-path runtime-covered |
+| pointer element array | 1-D/2-D read/write/deref/address/brace initializer | S | S | local/file-scope/parameter paths are source-path runtime-covered |
+| function-pointer element array | 1-D/2-D local/file-scope initializer and indirect call | S | S | file-scope initializer emits function relocations; 1-D/2-D parameter decay/call、function-pointer typedef/array typedef、`Callback *` 以上の local/array/parameter multi-level dereference-call are covered |
+| all array classes | non-literal bound / incomplete array / VLA | N | N | `[N]` accepts decimal literals only |
+
 `aggregate lvalue` は `x`, `*p`, `(c ? p : q)->field` のように storage location を持つ側を指す。
 `aggregate value` は `return x`, `f(x)`, `c ? x : y`, `(x, y)` のように一時値として流れる側を指す。
 `compare` と `logical truthiness` の aggregate 列は未実装ではなく、`struct/union` を scalar のように比較・条件評価しない方針として `N` を維持する。
 `read as expression` の aggregate 列は、「その値を aggregate として後段へ流せるか」を指す。`(c ? x : y).field`、`&(g = make()).a`、`take(id(c ? g : alt))`、`return ((side = 1), (g = makeA()))` のような consumer / producer / destination 経路は source-path runtime まで確認済みのため `S` とする。
 `address-of object` は aggregate object 全体のアドレス、すなわち `&x` や `&g` のような操作を指す。`field-address consumer` は `&(make().a)` や `&(g = make()).a` のように aggregate producer から field pointer を作る経路を指す。
+`indexed array field consumer` は `x.name[i]`、`x.inner.name[i]`、`(*(c ? p : q)).name[i]` とその address-of / assignment を指す。storage を持つ aggregate lvalue 基底、aggregate parameter、file-scope aggregate pointer、producer 内 nested aggregate field のいずれも `S` である。`id(make()).inner.name[i]` と `&(id(make()).inner.name[i])` は producer と累積 field offset を同じ field-address consumer に渡す。`x.name` の array decay は現行 ABI で先頭要素を指す `char *` へ変換し、`&x.name` は長さを保持する `char (*)[N]` として搬送する。
 aggregate 自体を scalar `Expr` と同列に compare / truthiness へ暗黙変換する一般値モデルは今も持たないが、その制約は `read as expression` ではなく `compare` / `logical truthiness` の `N` に含める。
+2026-08-20 時点では semantic / lowering / program の helper 名・consumer 名・materialize 名を producer/consumer terminology に揃えたため、matrix 上の aggregate value `S` 列は「専用 path の寄せ集め」ではなく「producer -> consumer / destination」として追跡しやすくなった。
+
+2026-08-21 時点では field consumer の lvalue 基底を識別子限定から式へ一般化した。nested aggregate array field の `x.inner.name[i]`、dereference/conditional pointer 基底の `(*(c ? p : q)).name[i]`、その address path `&(x.name[i])` は direct field pointer を使い、追加の materialize temp を要求しない。aggregate parameter、file-scope aggregate pointer、generic `->` assignment / incdec、nested producer の `id(make()).inner.name[i]` と `&(id(make()).inner.name)` も source-path runtime で確認済みである。`char (*p)[N]` は `&x.name`、`&x.inner.name`、`&p->name`、`&(id(make()).inner.name)` を受け、file-scope storage と引数でも通常の 2-byte pointer ABI で搬送する。`p + 1` と `p[row][column]` の row は N byte stride、`(*p)[i]` と `p[row][column]` の read/write/compound assignment/前後置 `inc/dec` は char lvalue として扱う。`p == q` / `p != q`、`(cond ? p : q)[row][column]`、`((side = 1), p)[row][column]`、`(p = q)[row][column]` は source-path runtime で確認済みである。function return declarator `char (*f(...))[N]` とその direct call consumer `f(...)[row][column]` も同じ 2-byte pointer ABI で通る。aggregate の `char (*rows)[N]` field は `.` / `->` の direct consumer と local/file-scope brace initializer を通り、static initializer の `&g.inner.name` は aggregate layout から `g+offset` relocation へ解決する。aggregate producer の function-pointer field も `id(make()).fp()` として indirect call target に流せる。`int (*p)[N]` も local/file-scope `int[N]`、aggregate の `int[N]` field、`x.values[i]` / `p->values[i]` / `id(x).values[i]` に対応する。aggregate field offset は byte 単位、配列 index は要素型単位で加算するため、int 要素は 2 byte stride かつ word lvalue として read/write/compound assignment/incdec を行う。現時点の pointer-to-array は sized `char` / `int` array に対応する。reject は aggregate の compare / truthiness と `&(&x)` に限定して管理する。
+
+2026-08-21 の pointer-to-array matrix では、`int (*)[N]` の function parameter / return / direct call result と conditional / comma / assignment-expression consumer も source-path runtime で `S` に更新した。残る `P` は aggregate field initializer と equality runtime evidence であり、型モデル上の本質的な `N` は scalar-only `arrayPointer.elementType`、decimal literal bound、incomplete/VLA 非対応である。
 
 2026-08-10 時点の matrix 補足:
 
@@ -805,18 +836,21 @@ aggregate sink は destination を first-class にした方がよい。
 
 `1. aggregate value semantics`
 
-- `BoundAggregateValueExpr` を producer と呼ぶ前提で comments / docs / helper 名を揃える
-- aggregate consumer を列挙する
+- [x] `BoundAggregateValueExpr` を semantic aggregate producer tree として固定した
+- [x] comments / docs / helper / type 名を producer / consumer / destination terminology へ寄せた
+- [x] aggregate consumer を
   - assign
   - local initializer
   - call arg
   - return
   - field read
   - field address
+  として整理した
+- [x] `AggregateProducerIR/Spec` を正名にし、旧 `AggregateValueIR/Spec` alias も撤去した
+- この段階で「aggregate value semantics」を追加設計タスクとして持つ理由はなくなった
 
 `2. aggregate temporary IR`
 
-- `AggregateValueIR` を `AggregateProducerIR` 相当に寄せる
 - materialize の destination concept を導入する
 - `aggregateAssignExpr` の local/global special-case を destination model へ押し込む
 
@@ -893,7 +927,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 #### Remaining Structural Gaps
 
-いま残っている真の blocker は次の 4 つ。
+2026-08-20 時点で `aggregate value semantics` 自体は収束済みで、真の blocker は consumer / destination rollout 側に寄った。
 
 `1. call producer が field consumer helper 内で特別扱いのまま`
 
@@ -906,7 +940,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `2. assign-expression の effect/value 二面性が完全には destination 化されていない`
 
-- `aggregateAssignExpr` は `effectTarget + valueOffset + source` へ正規化され、lowering/emit helper も分離済み
+- `aggregateAssignExpr` は `effectTarget + valueDestination + source` へ正規化され、lowering/emit helper も分離済み
 - 90% へ上げるには
   - `effectDestination`
   - `valueDestination`
@@ -916,15 +950,16 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 `3. aggregate consumer が完全には first-class API 化されていない`
 
 - field-read / field-address / aggregateAddress push は型上は consumer として揃った
-- ただし public helper / comments / docs ではまだ aggregate value terminology が混在している
+- comments / docs / helper 名の producer/consumer terminology への寄せは完了した
+- 残りは broader surface に対して同じ consumer layer を機械的に適用できるかの確認である
 
 #### 90% Roadmap
 
 `Step A. Producer/consumer 命名の統一`
 
-- `AggregateValueIR/Spec` の comments と docs を producer 前提へ寄せる
-- aggregate consumer を docs 上で first-class に定義する
-- これは設計整理だが、以後の変更の判断基準になる
+- [x] `AggregateProducerIR/Spec` を正名として固定し、旧 `AggregateValueIR/Spec` alias は削除した
+- [x] aggregate consumer を docs 上で first-class に定義した
+- この step は完了
 
 `Step B. Emit consumer layer の抽出`
 
@@ -944,7 +979,7 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `Step D. Field consumer の一般化`
 
-- `aggregateValueFieldAccess` / `aggregateValueFieldAddress` を temp-local helper 呼び出しから一段上げる
+- `aggregateProducerFieldRead` / `aggregateProducerFieldAddress` を temp-local helper 呼び出しから一段上げる
 - 目標は「field consumer」として扱うこと
 - temp local は consumer 実装の詳細へ落とす
 - 2026-08-20 時点で `assignExpr` / `call` / `conditional` / `comma` / nested call major path までは asm/runtime で固定済み
@@ -974,8 +1009,8 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 `3. field consumer 抽象化`
 
-- `aggregateValueFieldAccess`
-- `aggregateValueFieldAddress`
+- `aggregateProducerFieldRead`
+- `aggregateProducerFieldAddress`
 - `aggregateAddress`
   を consumer 観点で整理する
 
@@ -987,11 +1022,11 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 
 2026-08-20 時点の aggregate value 一般化進捗は次のように見積もる。
 
-- producer tree 導入: `90%`
-- lowering destination 統一: `88%`
-- emit destination 統一: `86%`
-- aggregate consumer 一般化: `88%`
-- aggregate value 全体の設計収束: `87%`
+- aggregate value semantics 収束: `100%`
+- lowering destination 統一: `89%`
+- emit destination 統一: `88%`
+- aggregate consumer 一般化: `90%`
+- aggregate value 全体の設計収束: `92%`
 
 したがって、Full C Coverage に対する真直度を 90% へ上げるには、
 
@@ -1003,8 +1038,9 @@ aggregate value 一般化の終点は、次の 3 層に分離された状態と�
 ### Implementation Order
 
 1. `aggregate value semantics`
-   - `BoundExpr` に aggregate-valued path を入れる
-   - local aggregate read を expression として表現できるようにする
+   - [x] semantic aggregate producer tree / consumer / destination terminology を固定
+   - [x] `AggregateValueIR/Spec` alias を除去
+   - [x] local aggregate read を scalar `BoundExpr` 化するのではなく、producer consumer (`fieldRead` / `fieldAddress`) として表現する方針を固定
 2. `aggregate temporary IR`
    - local temporary slot と byte-copy expression lowering を追加する
    - `c ? x : y` と `(x, y)` を aggregate assignment RHS から先に通し、独立 expression へ広げる

@@ -29,27 +29,138 @@ function parseProgram(sourceText, file) {
     parseTypedefDefs(context, topLevelStatements);
     const aggregates = parseAggregateDefs(context);
     const globals = parseGlobalDecls(context, topLevelStatements);
-    const functions = [];
-    const headerPattern = /\b(?:(?:static|extern)\s+)?((?:(?:(?:signed|unsigned)\s+)?(?:char|int|short)(?:\s+int)?)|void|(?:(?:struct|union|enum)\s+[A-Za-z_]\w*)|(?:[A-Za-z_]\w*))((?:\s*\*)*)\s*([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
+    const functionEntries = [];
+    const headerPattern = /\b(?:(?:static|extern)\s+)?((?:(?:(?:signed|unsigned)\s+)?(?:char|int|short)(?:\s+int)?)|void|(?:(?:struct|union|enum)\s+[A-Za-z_]\w*)|(?:[A-Za-z_]\w*))((?:\s*\*)*)\s*([A-Za-z_]\w*)\s*\(/g;
     let match;
     while ((match = headerPattern.exec(normalized)) !== null) {
-        const bodyStart = headerPattern.lastIndex;
-        const bodyEnd = findMatchingBraceIndex(context, bodyStart - 1);
+        const paramsStart = headerPattern.lastIndex;
+        const paramsEnd = findMatchingParenInText(normalized, paramsStart - 1);
+        let bodyStart = paramsEnd + 1;
+        while (/\s/.test(normalized[bodyStart] ?? "")) {
+            bodyStart += 1;
+        }
+        if (normalized[bodyStart] !== "{") {
+            headerPattern.lastIndex = paramsEnd + 1;
+            continue;
+        }
+        const bodyOpen = bodyStart;
+        bodyStart = bodyOpen + 1;
+        const bodyEnd = findMatchingBraceIndex(context, bodyOpen);
         const bodyText = normalized.slice(bodyStart, bodyEnd);
         const returnType = parseTypeText(context, `${match[1]}${match[2]}`);
         if (!returnType || returnType.kind === "array") {
             headerPattern.lastIndex = bodyEnd + 1;
             continue;
         }
-        functions.push({
-            kind: "function",
-            name: match[3],
-            returnType,
-            params: parseParams(context, match[4], match[3], match.index),
-            body: parseBodyAsBlock(context, bodyText, match[3], bodyStart),
+        functionEntries.push({
+            offset: match.index,
+            function: {
+                kind: "function",
+                name: match[3],
+                ...(/^static\b/.test(match[0]) ? { isStatic: true } : {}),
+                returnType,
+                params: parseParams(context, normalized.slice(paramsStart, paramsEnd), match[3], match.index),
+                body: parseBodyAsBlock(context, bodyText, match[3], bodyStart),
+            },
         });
         headerPattern.lastIndex = bodyEnd + 1;
     }
+    const arrayPointerReturnPattern = /\b(?:(?:static|extern)\s+)?((?:(?:signed|unsigned)\s+)?(?:char|int|short)(?:\s+int)?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\(/g;
+    while ((match = arrayPointerReturnPattern.exec(normalized)) !== null) {
+        const paramsStart = arrayPointerReturnPattern.lastIndex;
+        const paramsEnd = findMatchingParenInText(normalized, paramsStart - 1);
+        const returnSuffix = /^\s*\)\s*\[\s*(\d+)\s*\]/.exec(normalized.slice(paramsEnd + 1));
+        if (!returnSuffix) {
+            arrayPointerReturnPattern.lastIndex = paramsEnd + 1;
+            continue;
+        }
+        let bodyStart = paramsEnd + 1 + returnSuffix[0].length;
+        while (/\s/.test(normalized[bodyStart] ?? "")) {
+            bodyStart += 1;
+        }
+        if (normalized[bodyStart] !== "{") {
+            arrayPointerReturnPattern.lastIndex = paramsEnd + 1;
+            continue;
+        }
+        const bodyOpen = bodyStart;
+        bodyStart = bodyOpen + 1;
+        const bodyEnd = findMatchingBraceIndex(context, bodyOpen);
+        const returnElementType = parseTypeText(context, match[1]);
+        const functionName = match[2];
+        if (!returnElementType || returnElementType.kind !== "scalar") {
+            arrayPointerReturnPattern.lastIndex = bodyEnd + 1;
+            continue;
+        }
+        functionEntries.push({
+            offset: match.index,
+            function: {
+                kind: "function",
+                name: functionName,
+                ...(/^static\b/.test(match[0]) ? { isStatic: true } : {}),
+                returnType: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: returnElementType.name, length: Number.parseInt(returnSuffix[1], 10) } },
+                params: parseParams(context, normalized.slice(paramsStart, paramsEnd), functionName, match.index),
+                body: parseBodyAsBlock(context, normalized.slice(bodyStart, bodyEnd), functionName, bodyStart),
+            },
+        });
+        arrayPointerReturnPattern.lastIndex = bodyEnd + 1;
+    }
+    const functionPointerReturnPattern = /\b(?:(?:static|extern)\s+)?((?:(?:signed|unsigned)\s+)?(?:char|int|short)(?:\s+int)?|void|(?:(?:struct|union|enum)\s+[A-Za-z_]\w*)|(?:[A-Za-z_]\w*))\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\(/g;
+    while ((match = functionPointerReturnPattern.exec(normalized)) !== null) {
+        const paramsStart = functionPointerReturnPattern.lastIndex;
+        const paramsEnd = findMatchingParenInText(normalized, paramsStart - 1);
+        let returnSuffixIndex = paramsEnd + 1;
+        while (/\s/.test(normalized[returnSuffixIndex] ?? "")) {
+            returnSuffixIndex += 1;
+        }
+        if (normalized[returnSuffixIndex] !== ")") {
+            functionPointerReturnPattern.lastIndex = paramsEnd + 1;
+            continue;
+        }
+        returnSuffixIndex += 1;
+        while (/\s/.test(normalized[returnSuffixIndex] ?? "")) {
+            returnSuffixIndex += 1;
+        }
+        if (normalized[returnSuffixIndex] !== "(") {
+            functionPointerReturnPattern.lastIndex = paramsEnd + 1;
+            continue;
+        }
+        const returnParamsEnd = findMatchingParenInText(normalized, returnSuffixIndex);
+        const returnParamsText = normalized.slice(returnSuffixIndex + 1, returnParamsEnd);
+        let bodyStart = returnParamsEnd + 1;
+        while (/\s/.test(normalized[bodyStart] ?? "")) {
+            bodyStart += 1;
+        }
+        if (normalized[bodyStart] !== "{") {
+            functionPointerReturnPattern.lastIndex = paramsEnd + 1;
+            continue;
+        }
+        const bodyOpen = bodyStart;
+        bodyStart = bodyOpen + 1;
+        const bodyEnd = findMatchingBraceIndex(context, bodyOpen);
+        const returnType = parseTypeText(context, match[1]);
+        const functionName = match[2];
+        if (!returnType || returnType.kind === "array") {
+            functionPointerReturnPattern.lastIndex = bodyEnd + 1;
+            continue;
+        }
+        functionEntries.push({
+            offset: match.index,
+            function: {
+                kind: "function",
+                name: functionName,
+                ...(/^static\b/.test(match[0]) ? { isStatic: true } : {}),
+                returnType: {
+                    kind: "functionPointer",
+                    returnType,
+                    params: parseFunctionPointerParamTypes(context, returnParamsText),
+                },
+                params: parseParams(context, normalized.slice(paramsStart, paramsEnd), functionName, match.index),
+                body: parseBodyAsBlock(context, normalized.slice(bodyStart, bodyEnd), functionName, bodyStart),
+            },
+        });
+        functionPointerReturnPattern.lastIndex = bodyEnd + 1;
+    }
+    const functions = functionEntries.sort((left, right) => left.offset - right.offset).map((entry) => entry.function);
     if (functions.length === 0) {
         (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, "TsSccCompilerAdapter Phase C subset could not find any supported function definitions.", { file, offset: 0 });
     }
@@ -149,7 +260,7 @@ function parseTypedefDefs(context, statements) {
             continue;
         }
         const declarator = parseTypeDeclarator(context, statement.slice("typedef ".length, -1));
-        if (!declarator || declarator.type.kind === "array") {
+        if (!declarator) {
             throw new Error(`Unsupported typedef '${statement}'.`);
         }
         context.typedefs.set(declarator.name, declarator.type);
@@ -226,6 +337,8 @@ function parseGlobalDecls(context, statements) {
             kind: "globalDecl",
             name: declaration.name,
             type: declarationToSourceType(declaration),
+            ...(/^static\b/.test(trimmed) ? { isStatic: true } : {}),
+            ...(/^extern\b/.test(trimmed) ? { isExtern: true } : {}),
             initializer: declaration.initializer
                 ? parseInitializer(context, declaration.initializer, "__global__", 0)
                 : undefined,
@@ -239,18 +352,14 @@ function parseAggregateFields(context, bodyText) {
         .map((part) => part.trim())
         .filter((part) => part.length > 0)
         .map((part) => {
-        const fieldMatch = /^(.+?)\s+([A-Za-z_]\w*)$/.exec(part);
-        if (!fieldMatch) {
-            throw new Error(`Unsupported aggregate field '${part}'.`);
-        }
-        const fieldType = parseTypeText(context, fieldMatch[1]);
-        if (!fieldType || fieldType.kind === "void" || fieldType.kind === "functionPointer") {
+        const declarator = parseTypeDeclarator(context, part);
+        if (!declarator || declarator.type.kind === "void") {
             throw new Error(`Unsupported aggregate field '${part}'.`);
         }
         return {
             kind: "field",
-            name: fieldMatch[2],
-            type: fieldType,
+            name: declarator.name,
+            type: declarator.type,
         };
     });
 }
@@ -277,7 +386,7 @@ function parseStatementSequence(context, bodyText, functionName, startOffset) {
             if (parsed.extraStatements) {
                 statements.push(...parsed.extraStatements);
             }
-            if (parsed.declaration.initializer?.kind === "expr" && shouldUseDirectDeclarationAssign(parsed.declaration.type)) {
+            if (!parsed.declaration.isStatic && parsed.declaration.initializer?.kind === "expr" && shouldUseDirectDeclarationAssign(parsed.declaration.type)) {
                 statements.push({
                     kind: "assign",
                     name: parsed.declaration.name,
@@ -325,18 +434,47 @@ function parseStatement(context, statementText, functionName, offset) {
     if (statementText.trim() === "continue") {
         return { kind: "stmt", statement: { kind: "continue" } };
     }
+    const isStaticLocal = /^\s*static\b/.test(statementText);
     const declaration = parseDeclaration(context, statementText);
     if (declaration) {
         if (declaration.type.kind === "array") {
-            const { declaration: sizedDeclaration, initStatements } = buildCharArrayDeclaration({ ...declaration, type: declaration.type }, context, functionName, offset, statementText);
+            const usesCharStringInitializer = declaration.type.elementType === "char"
+                && !declaration.type.elementValueType
+                && (!declaration.initializer || /^\s*"/.test(declaration.initializer));
+            if (usesCharStringInitializer && !isStaticLocal) {
+                const { declaration: sizedDeclaration, initStatements } = buildCharArrayDeclaration({ ...declaration, type: declaration.type }, context, functionName, offset, statementText);
+                return {
+                    kind: "decl",
+                    declaration: {
+                        kind: "localDecl",
+                        name: sizedDeclaration.name,
+                        type: { ...declaration.type, length: sizedDeclaration.length },
+                    },
+                    extraStatements: initStatements,
+                };
+            }
+            if (declaration.type.length === undefined) {
+                (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized ${isStaticLocal ? "static " : ""}local array declaration in ${functionName}().`, {
+                    file: context.file,
+                    offset,
+                });
+            }
+            const initializer = declaration.initializer
+                ? parseInitializer(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
+                : undefined;
             return {
                 kind: "decl",
                 declaration: {
                     kind: "localDecl",
-                    name: sizedDeclaration.name,
-                    type: makeCharArrayType(sizedDeclaration.length),
+                    name: declaration.name,
+                    type: declaration.type,
+                    ...(isStaticLocal ? { isStatic: true } : {}),
+                    initializer,
                 },
-                extraStatements: initStatements,
+                extraStatements: initializer
+                    && !isStaticLocal
+                    ? buildArrayInitializerStatements(context, declaration.name, declaration.type, initializer, functionName, offset, statementText)
+                    : [],
             };
         }
         const initializer = declaration.initializer
@@ -348,9 +486,11 @@ function parseStatement(context, statementText, functionName, offset) {
                 kind: "localDecl",
                 name: declaration.name,
                 type: declarationToSourceType(declaration),
+                ...(isStaticLocal ? { isStatic: true } : {}),
                 initializer,
             },
             extraStatements: initializer
+                && !isStaticLocal
                 ? buildInitializerStatements(context, declaration.name, declarationToSourceType(declaration), initializer, functionName, offset, statementText)
                 : undefined,
         };
@@ -700,6 +840,37 @@ function parseExpression(context, exprText, functionName, offset) {
                 };
         }
         const arrayAccess = parseArrayAccess(lhs);
+        const postfixMemberArrayAccess = parsePostfixMemberArrayLikeAccess(lhs);
+        if (postfixMemberArrayAccess?.op === ".") {
+            const target = parseExpression(context, postfixMemberArrayAccess.targetText, functionName, trimmedOffset + lhs.indexOf(postfixMemberArrayAccess.targetText));
+            const index = parseExpression(context, postfixMemberArrayAccess.indexText, functionName, trimmedOffset + lhs.lastIndexOf(postfixMemberArrayAccess.indexText));
+            return {
+                kind: "memberArrayAssign",
+                target,
+                field: postfixMemberArrayAccess.field,
+                index,
+                expr: {
+                    kind: "binary",
+                    left: { kind: "memberExprArrayIndex", target, field: postfixMemberArrayAccess.field, index },
+                    op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+                    right: rhs,
+                },
+            };
+        }
+        const arrayPointerElement = parseArrayPointerElementAccess(lhs);
+        if (arrayPointerElement) {
+            const target = parseExpression(context, lhs, functionName, trimmedOffset);
+            return {
+                kind: "derefAssign",
+                target,
+                expr: {
+                    kind: "binary",
+                    left: target,
+                    op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+                    right: rhs,
+                },
+            };
+        }
         if (arrayAccess) {
             const indexExpr = parseExpression(context, arrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(arrayAccess.indexText));
             return {
@@ -709,6 +880,51 @@ function parseExpression(context, exprText, functionName, offset) {
                 expr: {
                     kind: "binary",
                     left: { kind: "arrayIndex", name: arrayAccess.name, index: indexExpr },
+                    op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+                    right: rhs,
+                },
+            };
+        }
+        const pointerMemberArrayAccess = parsePointerMemberArrayAccess(lhs);
+        if (pointerMemberArrayAccess) {
+            const indexExpr = parseExpression(context, pointerMemberArrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(pointerMemberArrayAccess.indexText));
+            return {
+                kind: "pointerMemberArrayAssign",
+                name: pointerMemberArrayAccess.name,
+                field: pointerMemberArrayAccess.field,
+                index: indexExpr,
+                expr: {
+                    kind: "binary",
+                    left: { kind: "pointerMemberArrayIndex", name: pointerMemberArrayAccess.name, field: pointerMemberArrayAccess.field, index: indexExpr },
+                    op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+                    right: rhs,
+                },
+            };
+        }
+        const memberArrayAccess = parseMemberArrayAccess(lhs);
+        if (memberArrayAccess) {
+            const indexExpr = parseExpression(context, memberArrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(memberArrayAccess.indexText));
+            return {
+                kind: "memberArrayAssign",
+                target: { kind: "ref", name: memberArrayAccess.name },
+                field: memberArrayAccess.field,
+                index: indexExpr,
+                expr: {
+                    kind: "binary",
+                    left: { kind: "memberArrayIndex", name: memberArrayAccess.name, field: memberArrayAccess.field, index: indexExpr },
+                    op: compoundAssignOpToBinaryOp(compoundAssignment.op),
+                    right: rhs,
+                },
+            };
+        }
+        if (postfixMemberArrayAccess) {
+            const target = parseExpression(context, lhs, functionName, trimmedOffset);
+            return {
+                kind: "derefAssign",
+                target,
+                expr: {
+                    kind: "binary",
+                    left: target,
                     op: compoundAssignOpToBinaryOp(compoundAssignment.op),
                     right: rhs,
                 },
@@ -739,6 +955,23 @@ function parseExpression(context, exprText, functionName, offset) {
             return {
                 kind: "derefAssign",
                 target: parsePrimaryExpr(context, lhs, functionName, trimmedOffset),
+                expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+            };
+        }
+        const postfixMemberArrayAccess = parsePostfixMemberArrayLikeAccess(lhs);
+        if (postfixMemberArrayAccess?.op === ".") {
+            return {
+                kind: "memberArrayAssign",
+                target: parseExpression(context, postfixMemberArrayAccess.targetText, functionName, trimmedOffset + lhs.indexOf(postfixMemberArrayAccess.targetText)),
+                field: postfixMemberArrayAccess.field,
+                index: parseExpression(context, postfixMemberArrayAccess.indexText, functionName, trimmedOffset + lhs.lastIndexOf(postfixMemberArrayAccess.indexText)),
+                expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+            };
+        }
+        if (parseArrayPointerElementAccess(lhs)) {
+            return {
+                kind: "derefAssign",
+                target: parseExpression(context, lhs, functionName, trimmedOffset),
                 expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
             };
         }
@@ -801,6 +1034,33 @@ function parseExpression(context, exprText, functionName, offset) {
                 kind: "arrayAssign",
                 name: arrayAccess.name,
                 index: parseExpression(context, arrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(arrayAccess.indexText)),
+                expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+            };
+        }
+        const pointerMemberArrayAccess = parsePointerMemberArrayAccess(lhs);
+        if (pointerMemberArrayAccess) {
+            return {
+                kind: "pointerMemberArrayAssign",
+                name: pointerMemberArrayAccess.name,
+                field: pointerMemberArrayAccess.field,
+                index: parseExpression(context, pointerMemberArrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(pointerMemberArrayAccess.indexText)),
+                expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+            };
+        }
+        const memberArrayAccess = parseMemberArrayAccess(lhs);
+        if (memberArrayAccess) {
+            return {
+                kind: "memberArrayAssign",
+                target: { kind: "ref", name: memberArrayAccess.name },
+                field: memberArrayAccess.field,
+                index: parseExpression(context, memberArrayAccess.indexText, functionName, trimmedOffset + lhs.indexOf(memberArrayAccess.indexText)),
+                expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
+            };
+        }
+        if (postfixMemberArrayAccess) {
+            return {
+                kind: "derefAssign",
+                target: parseExpression(context, lhs, functionName, trimmedOffset),
                 expr: parseExpression(context, assignment.rightText, functionName, rhsOffset),
             };
         }
@@ -895,6 +1155,14 @@ function parsePrimaryExpr(context, exprText, functionName, offset) {
     const indirectCall = parseIndirectCallExpr(context, trimmed, functionName, offset);
     if (indirectCall) {
         return indirectCall;
+    }
+    const indexedIndirectCall = parseIndexedIndirectCallExpr(context, trimmed, functionName, offset);
+    if (indexedIndirectCall) {
+        return indexedIndirectCall;
+    }
+    const fieldIndirectCall = parseFieldIndirectCallExpr(context, trimmed, functionName, offset);
+    if (fieldIndirectCall) {
+        return fieldIndirectCall;
     }
     const parenthesizedPointerMemberAccess = parseParenthesizedPointerMemberAccess(trimmed);
     if (parenthesizedPointerMemberAccess) {
@@ -1178,12 +1446,46 @@ function parsePrimaryExpr(context, exprText, functionName, offset) {
     if (/^\d+$/.test(trimmed)) {
         return { kind: "const", value: Number.parseInt(trimmed, 10) };
     }
+    const postfixMemberArrayAccess = parsePostfixMemberArrayLikeAccess(trimmed);
+    if (postfixMemberArrayAccess) {
+        const target = parseExpression(context, postfixMemberArrayAccess.targetText, functionName, offset + trimmed.indexOf(postfixMemberArrayAccess.targetText));
+        const index = parseExpression(context, postfixMemberArrayAccess.indexText, functionName, offset + trimmed.lastIndexOf(postfixMemberArrayAccess.indexText));
+        return postfixMemberArrayAccess.op === "->"
+            ? { kind: "pointerMemberExprArrayIndex", target, field: postfixMemberArrayAccess.field, index }
+            : { kind: "memberExprArrayIndex", target, field: postfixMemberArrayAccess.field, index };
+    }
+    const arrayPointerElement = parseArrayPointerElementAccess(trimmed);
+    if (arrayPointerElement) {
+        return {
+            kind: "arrayPointerElement",
+            pointer: parseExpression(context, arrayPointerElement.pointerText, functionName, offset + trimmed.indexOf(arrayPointerElement.pointerText)),
+            index: parseExpression(context, arrayPointerElement.indexText, functionName, offset + trimmed.lastIndexOf(arrayPointerElement.indexText)),
+        };
+    }
     const arrayAccess = parseArrayAccess(trimmed);
     if (arrayAccess) {
         return {
             kind: "arrayIndex",
             name: arrayAccess.name,
             index: parseExpression(context, arrayAccess.indexText, functionName, offset + trimmed.indexOf(arrayAccess.indexText)),
+        };
+    }
+    const pointerMemberArrayAccess = parsePointerMemberArrayAccess(trimmed);
+    if (pointerMemberArrayAccess) {
+        return {
+            kind: "pointerMemberArrayIndex",
+            name: pointerMemberArrayAccess.name,
+            field: pointerMemberArrayAccess.field,
+            index: parseExpression(context, pointerMemberArrayAccess.indexText, functionName, offset + trimmed.indexOf(pointerMemberArrayAccess.indexText)),
+        };
+    }
+    const memberArrayAccess = parseMemberArrayAccess(trimmed);
+    if (memberArrayAccess) {
+        return {
+            kind: "memberArrayIndex",
+            name: memberArrayAccess.name,
+            field: memberArrayAccess.field,
+            index: parseExpression(context, memberArrayAccess.indexText, functionName, offset + trimmed.indexOf(memberArrayAccess.indexText)),
         };
     }
     const pointerMemberAccess = parsePointerMemberAccess(trimmed);
@@ -1212,6 +1514,10 @@ function parsePrimaryExpr(context, exprText, functionName, offset) {
             return { kind: "const", value: enumValue };
         }
         return { kind: "ref", name: trimmed };
+    }
+    const callResultIndirectCall = parseCallResultIndirectCallExpr(context, trimmed, functionName, offset);
+    if (callResultIndirectCall) {
+        return callResultIndirectCall;
     }
     const callMatch = /^([A-Za-z_]\w*)\s*\((.*)\)$/.exec(trimmed);
     if (callMatch) {
@@ -1940,6 +2246,22 @@ function findMatchingParenInText(text, openParenIndex) {
     }
     throw new Error("Unmatched paren in parser helper.");
 }
+function findOpeningParenInText(text, closeParenIndex) {
+    let depth = 0;
+    for (let index = closeParenIndex; index >= 0; index -= 1) {
+        if (text[index] === ")") {
+            depth += 1;
+            continue;
+        }
+        if (text[index] === "(") {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+    throw new Error("Unmatched paren in parser helper.");
+}
 function findMatchingDelimitedIndex(context, openIndex, openChar, closeChar, message) {
     let depth = 0;
     for (let index = openIndex; index < context.normalized.length; index += 1) {
@@ -2029,7 +2351,9 @@ function parseTypeText(context, text) {
 }
 function normalizeTypeText(text) {
     return text
-        .replace(/\b(?:const|volatile)\b/g, " ")
+        // The current Subset carries no qualifier semantics, but accepts them on
+        // supported object-pointer declarations and normalizes to the base type.
+        .replace(/\b(?:const|volatile|restrict)\b/g, " ")
         .replace(/^\s*(?:static|extern)\b/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -2042,41 +2366,159 @@ function sourceTypeToPointerPointee(type) {
         return type;
     }
     if (type.kind === "functionPointer") {
-        throw new Error(`Unsupported pointer-to-function-pointer type '${JSON.stringify(type)}'.`);
+        return type;
     }
     return type;
 }
 function parseTypeDeclarator(context, text) {
     const trimmed = text.trim();
-    const functionPointerMatch = /^(.+?)\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(([^)]*)\)$/.exec(trimmed);
-    if (functionPointerMatch) {
-        const returnType = parseTypeText(context, functionPointerMatch[1]);
-        if (!returnType || returnType.kind === "array" || returnType.kind === "aggregate") {
+    const balancedFunctionPointer = parseBalancedFunctionPointerDeclarator(trimmed);
+    if (balancedFunctionPointer) {
+        const returnType = parseTypeText(context, balancedFunctionPointer.returnTypeText);
+        if (!returnType || returnType.kind === "array") {
             return null;
         }
-        const params = parseFunctionPointerParamTypes(context, functionPointerMatch[3]);
+        const functionPointer = {
+            kind: "functionPointer",
+            returnType,
+            params: parseFunctionPointerParamTypes(context, balancedFunctionPointer.paramsText),
+        };
+        if (balancedFunctionPointer.dimensions) {
+            const [length, ...trailingDimensions] = balancedFunctionPointer.dimensions;
+            if (balancedFunctionPointer.dimensions.length > 2 || trailingDimensions.some((dimension) => dimension === undefined)) {
+                return null;
+            }
+            return {
+                name: balancedFunctionPointer.name,
+                type: {
+                    kind: "array",
+                    elementType: "char",
+                    elementValueType: functionPointer,
+                    length,
+                    dimensions: trailingDimensions.length > 0 ? trailingDimensions : undefined,
+                },
+            };
+        }
+        let type = functionPointer;
+        for (let index = 1; index < balancedFunctionPointer.pointerDepth; index += 1) {
+            type = { kind: "pointer", pointee: sourceTypeToPointerPointee(type) };
+        }
+        return { name: balancedFunctionPointer.name, type };
+    }
+    const arrayPointerMatch = /^(.+?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\[\s*(\d+)\s*\]$/.exec(trimmed);
+    if (arrayPointerMatch) {
+        const elementType = parseTypeText(context, arrayPointerMatch[1]);
+        if (!elementType || elementType.kind === "void" || elementType.kind === "array") {
+            return null;
+        }
         return {
-            name: functionPointerMatch[2],
+            name: arrayPointerMatch[2],
             type: {
-                kind: "functionPointer",
-                returnType,
-                params,
+                kind: "pointer",
+                pointee: {
+                    kind: "arrayPointer",
+                    elementType: elementType.kind === "scalar" ? elementType.name : "char",
+                    ...(elementType.kind === "scalar" ? {} : { elementValueType: elementType }),
+                    length: Number.parseInt(arrayPointerMatch[3], 10),
+                },
             },
         };
     }
-    const arrayMatch = /^(.+?)\s+([A-Za-z_]\w*)\s*\[\s*(\d*)\s*\]$/.exec(trimmed);
-    if (arrayMatch) {
-        const elementType = parseTypeText(context, arrayMatch[1]);
-        if (!elementType || elementType.kind !== "scalar" || elementType.name !== "char") {
+    const functionPointerMatch = /^(.+?)\(\s*(\*+)\s*([A-Za-z_]\w*)\s*\)\s*\(([^)]*)\)$/.exec(trimmed);
+    const functionPointerArrayMatch = /^(.+?)\(\s*\*\s*([A-Za-z_]\w*)\s*((?:\[\s*\d*\s*\])+?)\s*\)\s*\(([^)]*)\)$/.exec(trimmed);
+    if (functionPointerArrayMatch) {
+        const returnType = parseTypeText(context, functionPointerArrayMatch[1]);
+        if (!returnType || returnType.kind === "array") {
+            return null;
+        }
+        const dimensions = [...functionPointerArrayMatch[3].matchAll(/\[\s*(\d*)\s*\]/g)].map((match) => match[1].length > 0 ? Number.parseInt(match[1], 10) : undefined);
+        const [length, ...trailingDimensions] = dimensions;
+        if (dimensions.length > 2 || trailingDimensions.some((dimension) => dimension === undefined)) {
             return null;
         }
         return {
-            name: arrayMatch[2],
+            name: functionPointerArrayMatch[2],
             type: {
                 kind: "array",
                 elementType: "char",
-                length: arrayMatch[3].length > 0 ? Number.parseInt(arrayMatch[3], 10) : undefined,
+                elementValueType: {
+                    kind: "functionPointer",
+                    returnType,
+                    params: parseFunctionPointerParamTypes(context, functionPointerArrayMatch[4]),
+                },
+                length,
+                dimensions: trailingDimensions.length > 0 ? trailingDimensions : undefined,
             },
+        };
+    }
+    if (functionPointerMatch) {
+        const returnType = parseTypeText(context, functionPointerMatch[1]);
+        if (!returnType || returnType.kind === "array") {
+            return null;
+        }
+        const params = parseFunctionPointerParamTypes(context, functionPointerMatch[4]);
+        let type = {
+            kind: "functionPointer",
+            returnType,
+            params,
+        };
+        for (let index = 1; index < functionPointerMatch[2].length; index += 1) {
+            type = { kind: "pointer", pointee: sourceTypeToPointerPointee(type) };
+        }
+        return {
+            name: functionPointerMatch[3],
+            type,
+        };
+    }
+    const pointerArrayMatch = /^(.+?)\s*\*\s*([A-Za-z_]\w*)((?:\s*\[\s*\d*\s*\])+)$/.exec(trimmed);
+    if (pointerArrayMatch) {
+        const pointeeType = parseTypeText(context, pointerArrayMatch[1]);
+        if (!pointeeType || pointeeType.kind === "void" || pointeeType.kind === "array") {
+            return null;
+        }
+        const dimensions = [...pointerArrayMatch[3].matchAll(/\[\s*(\d*)\s*\]/g)].map((match) => match[1].length > 0 ? Number.parseInt(match[1], 10) : undefined);
+        const [length, ...trailingDimensions] = dimensions;
+        if (trailingDimensions.some((dimension) => dimension === undefined) || dimensions.length > 2) {
+            return null;
+        }
+        return {
+            name: pointerArrayMatch[2],
+            type: {
+                kind: "array",
+                elementType: "char",
+                elementValueType: { kind: "pointer", pointee: sourceTypeToPointerPointee(pointeeType) },
+                length,
+                dimensions: trailingDimensions.length > 0 ? trailingDimensions : undefined,
+            },
+        };
+    }
+    const arrayMatch = /^(.+?)\s+([A-Za-z_]\w*)((?:\s*\[\s*\d*\s*\])+)$/.exec(trimmed);
+    if (arrayMatch) {
+        const elementType = parseTypeText(context, arrayMatch[1]);
+        if (!elementType || elementType.kind === "void" || elementType.kind === "array") {
+            return null;
+        }
+        const dimensions = [...arrayMatch[3].matchAll(/\[\s*(\d*)\s*\]/g)].map((match) => match[1].length > 0 ? Number.parseInt(match[1], 10) : undefined);
+        const [length, ...trailingDimensions] = dimensions;
+        if (trailingDimensions.some((dimension) => dimension === undefined)) {
+            return null;
+        }
+        if (dimensions.length > 2) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, "TsSccCompilerAdapter C Subset supports arrays up to two dimensions.", {
+                file: context.file,
+                offset: 0,
+            });
+        }
+        const type = {
+            kind: "array",
+            elementType: elementType.kind === "scalar" ? elementType.name : "char",
+            elementValueType: elementType.kind === "scalar" ? undefined : elementType,
+            length,
+            dimensions: trailingDimensions.length > 0 ? trailingDimensions : undefined,
+        };
+        return {
+            name: arrayMatch[2],
+            type,
         };
     }
     const nameMatch = /([A-Za-z_]\w*)$/.exec(trimmed);
@@ -2092,6 +2534,90 @@ function parseTypeDeclarator(context, text) {
         type,
     };
 }
+function parseBalancedFunctionPointerDeclarator(text) {
+    if (!text.endsWith(")")) {
+        return null;
+    }
+    let paramsOpen = -1;
+    for (let index = 0; index < text.length; index += 1) {
+        if (text[index] === "(" && findMatchingParenInText(text, index) === text.length - 1) {
+            paramsOpen = index;
+        }
+    }
+    if (paramsOpen <= 0) {
+        return null;
+    }
+    const declaratorText = text.slice(0, paramsOpen).trimEnd();
+    if (!declaratorText.endsWith(")")) {
+        return null;
+    }
+    let declaratorOpen = -1;
+    for (let index = 0; index < declaratorText.length; index += 1) {
+        if (declaratorText[index] === "(" && findMatchingParenInText(declaratorText, index) === declaratorText.length - 1) {
+            declaratorOpen = index;
+        }
+    }
+    if (declaratorOpen <= 0) {
+        return null;
+    }
+    const inner = declaratorText.slice(declaratorOpen + 1, -1).trim();
+    const match = /^(\*+)\s*([A-Za-z_]\w*)\s*((?:\[\s*\d*\s*\])*)$/.exec(inner);
+    if (!match) {
+        return null;
+    }
+    const dimensions = match[3].length > 0
+        ? [...match[3].matchAll(/\[\s*(\d*)\s*\]/g)].map((entry) => entry[1].length > 0 ? Number.parseInt(entry[1], 10) : undefined)
+        : undefined;
+    return {
+        returnTypeText: declaratorText.slice(0, declaratorOpen).trim(),
+        name: match[2],
+        pointerDepth: match[1].length,
+        dimensions,
+        paramsText: text.slice(paramsOpen + 1, -1),
+    };
+}
+function parseAbstractFunctionPointerType(context, text) {
+    const trimmed = text.trim();
+    if (!trimmed.endsWith(")")) {
+        return null;
+    }
+    let paramsOpen = -1;
+    for (let index = 0; index < trimmed.length; index += 1) {
+        if (trimmed[index] === "(" && findMatchingParenInText(trimmed, index) === trimmed.length - 1) {
+            paramsOpen = index;
+        }
+    }
+    if (paramsOpen <= 0) {
+        return null;
+    }
+    const declaratorText = trimmed.slice(0, paramsOpen).trimEnd();
+    if (!declaratorText.endsWith(")")) {
+        return null;
+    }
+    let declaratorOpen = -1;
+    for (let index = 0; index < declaratorText.length; index += 1) {
+        if (declaratorText[index] === "(" && findMatchingParenInText(declaratorText, index) === declaratorText.length - 1) {
+            declaratorOpen = index;
+        }
+    }
+    if (declaratorOpen <= 0) {
+        return null;
+    }
+    const pointerMatch = /^(\*+)$/.exec(declaratorText.slice(declaratorOpen + 1, -1).trim());
+    const returnType = pointerMatch ? parseTypeText(context, declaratorText.slice(0, declaratorOpen).trim()) : null;
+    if (!pointerMatch || !returnType || returnType.kind === "array") {
+        return null;
+    }
+    let type = {
+        kind: "functionPointer",
+        returnType,
+        params: parseFunctionPointerParamTypes(context, trimmed.slice(paramsOpen + 1, -1)),
+    };
+    for (let index = 1; index < pointerMatch[1].length; index += 1) {
+        type = { kind: "pointer", pointee: sourceTypeToPointerPointee(type) };
+    }
+    return type;
+}
 function parseFunctionPointerParamTypes(context, paramsText) {
     const trimmed = paramsText.trim();
     if (trimmed.length === 0 || trimmed === "void") {
@@ -2099,8 +2625,8 @@ function parseFunctionPointerParamTypes(context, paramsText) {
     }
     return splitTopLevelArgs(trimmed).map(({ text }) => {
         const declarator = parseTypeDeclarator(context, text);
-        const type = declarator?.type ?? parseTypeText(context, text);
-        if (!type || type.kind === "array" || type.kind === "aggregate" || type.kind === "void") {
+        const type = declarator?.type ?? parseAbstractFunctionPointerType(context, text) ?? parseTypeText(context, text);
+        if (!type || type.kind === "array" || type.kind === "void") {
             throw new Error(`Unsupported function-pointer parameter '${text.trim()}'.`);
         }
         return type;
@@ -2113,6 +2639,62 @@ function parseIndirectCallExpr(context, exprText, functionName, offset) {
     }
     const targetText = match[1].trim();
     if (targetText.length === 0) {
+        return null;
+    }
+    return {
+        kind: "indirectCall",
+        target: parseExpression(context, targetText, functionName, offset + exprText.indexOf(targetText)),
+        args: parseCallArgs(context, match[2], functionName, offset + exprText.indexOf(match[2])),
+    };
+}
+function parseCallResultIndirectCallExpr(context, exprText, functionName, offset) {
+    const headMatch = /^[A-Za-z_]\w*\s*\(/.exec(exprText);
+    if (!headMatch) {
+        return null;
+    }
+    const targetOpen = exprText.indexOf("(");
+    const targetEnd = findMatchingParenInText(exprText, targetOpen);
+    const argsOpen = targetEnd + 1 + (exprText.slice(targetEnd + 1).match(/^\s*/)?.[0].length ?? 0);
+    if (argsOpen >= exprText.length || exprText[argsOpen] !== "(") {
+        return null;
+    }
+    const argsEnd = findMatchingParenInText(exprText, argsOpen);
+    if (argsEnd !== exprText.length - 1) {
+        return null;
+    }
+    const targetText = exprText.slice(0, targetEnd + 1);
+    const argsText = exprText.slice(argsOpen + 1, argsEnd);
+    return {
+        kind: "indirectCall",
+        target: parseExpression(context, targetText, functionName, offset),
+        args: parseCallArgs(context, argsText, functionName, offset + argsOpen + 1),
+    };
+}
+function parseFieldIndirectCallExpr(context, exprText, functionName, offset) {
+    if (!exprText.endsWith(")")) {
+        return null;
+    }
+    const argsOpen = findOpeningParenInText(exprText, exprText.length - 1);
+    const targetText = exprText.slice(0, argsOpen).trim();
+    if (targetText.length === 0 || !/(?:->|\.)/.test(targetText)) {
+        return null;
+    }
+    const argsText = exprText.slice(argsOpen + 1, -1);
+    return {
+        kind: "indirectCall",
+        target: parseExpression(context, targetText, functionName, offset + exprText.indexOf(targetText)),
+        args: parseCallArgs(context, argsText, functionName, offset + argsOpen + 1),
+    };
+}
+function parseIndexedIndirectCallExpr(context, exprText, functionName, offset) {
+    const match = /^(.+\[[^\]]+\])\((.*)\)$/.exec(exprText);
+    if (!match) {
+        return null;
+    }
+    const targetText = match[1].trim();
+    // An outer direct call such as outchar(callbacks[0](x)) must be parsed by
+    // the normal call parser, which recursively parses its argument list.
+    if (targetText.includes("(")) {
         return null;
     }
     return {
@@ -2154,6 +2736,10 @@ function parseExpressionStatement(context, statementText, functionName, offset) 
             return { kind: "memberAssign", name: simple.name, field: simple.field, expr: simple.expr };
         case "memberExprAssign":
             return { kind: "memberExprAssign", target: simple.target, field: simple.field, expr: simple.expr };
+        case "memberArrayAssign":
+            return { kind: "memberArrayAssign", target: simple.target, field: simple.field, index: simple.index, expr: simple.expr };
+        case "pointerMemberArrayAssign":
+            return { kind: "pointerMemberArrayAssign", name: simple.name, field: simple.field, index: simple.index, expr: simple.expr };
         case "pointerMemberAssign":
             return { kind: "pointerMemberAssign", name: simple.name, field: simple.field, expr: simple.expr };
         case "pointerMemberExprAssign":
@@ -2164,6 +2750,95 @@ function parseExpressionStatement(context, statementText, functionName, offset) 
 }
 function parseSimpleStatement(context, statementText, functionName, offset) {
     const trimmed = statementText.trim();
+    const memberArrayAssignment = findTopLevelAssignment(trimmed);
+    if (memberArrayAssignment) {
+        const member = parsePostfixMemberArrayLikeAccess(memberArrayAssignment.leftText.trim());
+        if (member?.op === ".") {
+            const target = parseExpression(context, member.targetText, functionName, offset + statementText.indexOf(member.targetText));
+            const index = parseExpression(context, member.indexText, functionName, offset + statementText.lastIndexOf(member.indexText));
+            return {
+                kind: "memberArrayAssign",
+                target,
+                field: member.field,
+                index,
+                expr: parseExpression(context, memberArrayAssignment.rightText, functionName, offset + statementText.indexOf(memberArrayAssignment.rightText)),
+            };
+        }
+    }
+    const generalizedPrefixMemberArrayIncDec = /^(\+\+|--)\s*(.+)$/.exec(trimmed);
+    if (generalizedPrefixMemberArrayIncDec) {
+        const targetText = generalizedPrefixMemberArrayIncDec[2].trim();
+        const member = parsePostfixMemberArrayLikeAccess(targetText);
+        if (member?.op === ".") {
+            const target = parseExpression(context, member.targetText, functionName, offset + trimmed.indexOf(member.targetText));
+            const index = parseExpression(context, member.indexText, functionName, offset + trimmed.lastIndexOf(member.indexText));
+            return {
+                kind: "memberArrayAssign",
+                target,
+                field: member.field,
+                index,
+                expr: {
+                    kind: "binary",
+                    left: { kind: "memberExprArrayIndex", target, field: member.field, index },
+                    op: generalizedPrefixMemberArrayIncDec[1] === "++" ? "+" : "-",
+                    right: { kind: "const", value: 1 },
+                },
+            };
+        }
+        if (parseArrayPointerElementAccess(targetText)) {
+            const target = parseExpression(context, targetText, functionName, offset + trimmed.indexOf(targetText));
+            return {
+                kind: "expr",
+                expr: {
+                    kind: "derefAssign",
+                    target,
+                    expr: {
+                        kind: "binary",
+                        left: target,
+                        op: generalizedPrefixMemberArrayIncDec[1] === "++" ? "+" : "-",
+                        right: { kind: "const", value: 1 },
+                    },
+                },
+            };
+        }
+    }
+    const generalizedPostfixMemberArrayIncDec = /^(.+)\s*(\+\+|--)$/.exec(trimmed);
+    if (generalizedPostfixMemberArrayIncDec) {
+        const targetText = generalizedPostfixMemberArrayIncDec[1].trim();
+        const member = parsePostfixMemberArrayLikeAccess(targetText);
+        if (member?.op === ".") {
+            const target = parseExpression(context, member.targetText, functionName, offset + trimmed.indexOf(member.targetText));
+            const index = parseExpression(context, member.indexText, functionName, offset + trimmed.lastIndexOf(member.indexText));
+            return {
+                kind: "memberArrayAssign",
+                target,
+                field: member.field,
+                index,
+                expr: {
+                    kind: "binary",
+                    left: { kind: "memberExprArrayIndex", target, field: member.field, index },
+                    op: generalizedPostfixMemberArrayIncDec[2] === "++" ? "+" : "-",
+                    right: { kind: "const", value: 1 },
+                },
+            };
+        }
+        if (parseArrayPointerElementAccess(targetText)) {
+            const target = parseExpression(context, targetText, functionName, offset + trimmed.indexOf(targetText));
+            return {
+                kind: "expr",
+                expr: {
+                    kind: "derefAssign",
+                    target,
+                    expr: {
+                        kind: "binary",
+                        left: target,
+                        op: generalizedPostfixMemberArrayIncDec[2] === "++" ? "+" : "-",
+                        right: { kind: "const", value: 1 },
+                    },
+                },
+            };
+        }
+    }
     const prefixDerefIncDecMatch = /^(\+\+|--)\s*(\*.+)$/.exec(trimmed);
     if (prefixDerefIncDecMatch) {
         return {
@@ -2273,6 +2948,38 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
             },
         };
     }
+    const prefixPointerMemberArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
+    if (prefixPointerMemberArrayIncDecMatch) {
+        const index = parseExpression(context, prefixPointerMemberArrayIncDecMatch[4], functionName, offset + statementText.indexOf(prefixPointerMemberArrayIncDecMatch[4]));
+        return {
+            kind: "pointerMemberArrayAssign",
+            name: prefixPointerMemberArrayIncDecMatch[2],
+            field: prefixPointerMemberArrayIncDecMatch[3],
+            index,
+            expr: {
+                kind: "binary",
+                left: { kind: "pointerMemberArrayIndex", name: prefixPointerMemberArrayIncDecMatch[2], field: prefixPointerMemberArrayIncDecMatch[3], index },
+                op: prefixPointerMemberArrayIncDecMatch[1] === "++" ? "+" : "-",
+                right: { kind: "const", value: 1 },
+            },
+        };
+    }
+    const prefixMemberArrayIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(trimmed);
+    if (prefixMemberArrayIncDecMatch) {
+        const index = parseExpression(context, prefixMemberArrayIncDecMatch[4], functionName, offset + statementText.indexOf(prefixMemberArrayIncDecMatch[4]));
+        return {
+            kind: "memberArrayAssign",
+            target: { kind: "ref", name: prefixMemberArrayIncDecMatch[2] },
+            field: prefixMemberArrayIncDecMatch[3],
+            index,
+            expr: {
+                kind: "binary",
+                left: { kind: "memberArrayIndex", name: prefixMemberArrayIncDecMatch[2], field: prefixMemberArrayIncDecMatch[3], index },
+                op: prefixMemberArrayIncDecMatch[1] === "++" ? "+" : "-",
+                right: { kind: "const", value: 1 },
+            },
+        };
+    }
     const prefixIncDecMatch = /^(\+\+|--)\s*([A-Za-z_]\w*)$/.exec(trimmed);
     if (prefixIncDecMatch) {
         return {
@@ -2375,6 +3082,23 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
             },
         };
     }
+    const arrayPointerElementCompoundAssign = findTopLevelCompoundAssignment(trimmed);
+    if (arrayPointerElementCompoundAssign && parseArrayPointerElementAccess(arrayPointerElementCompoundAssign.leftText.trim())) {
+        const target = parseExpression(context, arrayPointerElementCompoundAssign.leftText, functionName, offset + statementText.indexOf(arrayPointerElementCompoundAssign.leftText));
+        return {
+            kind: "expr",
+            expr: {
+                kind: "derefAssign",
+                target,
+                expr: {
+                    kind: "binary",
+                    left: target,
+                    op: compoundAssignOpToBinaryOp(arrayPointerElementCompoundAssign.op),
+                    right: parseExpression(context, arrayPointerElementCompoundAssign.rightText, functionName, offset + statementText.indexOf(arrayPointerElementCompoundAssign.rightText)),
+                },
+            },
+        };
+    }
     const arrayCompoundAssignMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
     if (arrayCompoundAssignMatch) {
         const index = parseExpression(context, arrayCompoundAssignMatch[2], functionName, offset + statementText.indexOf(arrayCompoundAssignMatch[2]));
@@ -2387,6 +3111,40 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
                 kind: "binary",
                 left: { kind: "arrayIndex", name: arrayCompoundAssignMatch[1], index },
                 op: compoundAssignOpToBinaryOp(arrayCompoundAssignMatch[3]),
+                right: rhs,
+            },
+        };
+    }
+    const pointerMemberArrayCompoundAssignMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*\[(.+)\]\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+    if (pointerMemberArrayCompoundAssignMatch) {
+        const index = parseExpression(context, pointerMemberArrayCompoundAssignMatch[3], functionName, offset + statementText.indexOf(pointerMemberArrayCompoundAssignMatch[3]));
+        const rhs = parseExpression(context, pointerMemberArrayCompoundAssignMatch[5], functionName, offset + statementText.indexOf(pointerMemberArrayCompoundAssignMatch[5]));
+        return {
+            kind: "pointerMemberArrayAssign",
+            name: pointerMemberArrayCompoundAssignMatch[1],
+            field: pointerMemberArrayCompoundAssignMatch[2],
+            index,
+            expr: {
+                kind: "binary",
+                left: { kind: "pointerMemberArrayIndex", name: pointerMemberArrayCompoundAssignMatch[1], field: pointerMemberArrayCompoundAssignMatch[2], index },
+                op: compoundAssignOpToBinaryOp(pointerMemberArrayCompoundAssignMatch[4]),
+                right: rhs,
+            },
+        };
+    }
+    const memberArrayCompoundAssignMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\[(.+)\]\s*(<<=|>>=|\+=|-=|\*=|\/=|%=|&=|\^=|\|=)\s*(.+)$/.exec(trimmed);
+    if (memberArrayCompoundAssignMatch) {
+        const index = parseExpression(context, memberArrayCompoundAssignMatch[3], functionName, offset + statementText.indexOf(memberArrayCompoundAssignMatch[3]));
+        const rhs = parseExpression(context, memberArrayCompoundAssignMatch[5], functionName, offset + statementText.indexOf(memberArrayCompoundAssignMatch[5]));
+        return {
+            kind: "memberArrayAssign",
+            target: { kind: "ref", name: memberArrayCompoundAssignMatch[1] },
+            field: memberArrayCompoundAssignMatch[2],
+            index,
+            expr: {
+                kind: "binary",
+                left: { kind: "memberArrayIndex", name: memberArrayCompoundAssignMatch[1], field: memberArrayCompoundAssignMatch[2], index },
+                op: compoundAssignOpToBinaryOp(memberArrayCompoundAssignMatch[4]),
                 right: rhs,
             },
         };
@@ -2517,6 +3275,38 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
             },
         };
     }
+    const pointerMemberArrayIncDecMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
+    if (pointerMemberArrayIncDecMatch) {
+        const index = parseExpression(context, pointerMemberArrayIncDecMatch[3], functionName, offset + statementText.indexOf(pointerMemberArrayIncDecMatch[3]));
+        return {
+            kind: "pointerMemberArrayAssign",
+            name: pointerMemberArrayIncDecMatch[1],
+            field: pointerMemberArrayIncDecMatch[2],
+            index,
+            expr: {
+                kind: "binary",
+                left: { kind: "pointerMemberArrayIndex", name: pointerMemberArrayIncDecMatch[1], field: pointerMemberArrayIncDecMatch[2], index },
+                op: pointerMemberArrayIncDecMatch[4] === "++" ? "+" : "-",
+                right: { kind: "const", value: 1 },
+            },
+        };
+    }
+    const memberArrayIncDecMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\[(.+)\]\s*(\+\+|--)$/.exec(trimmed);
+    if (memberArrayIncDecMatch) {
+        const index = parseExpression(context, memberArrayIncDecMatch[3], functionName, offset + statementText.indexOf(memberArrayIncDecMatch[3]));
+        return {
+            kind: "memberArrayAssign",
+            target: { kind: "ref", name: memberArrayIncDecMatch[1] },
+            field: memberArrayIncDecMatch[2],
+            index,
+            expr: {
+                kind: "binary",
+                left: { kind: "memberArrayIndex", name: memberArrayIncDecMatch[1], field: memberArrayIncDecMatch[2], index },
+                op: memberArrayIncDecMatch[4] === "++" ? "+" : "-",
+                right: { kind: "const", value: 1 },
+            },
+        };
+    }
     const incDecMatch = /^([A-Za-z_]\w*)\s*(\+\+|--)$/.exec(trimmed);
     if (incDecMatch) {
         return {
@@ -2541,6 +3331,17 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
             },
         };
     }
+    const arrayPointerElementAssign = findTopLevelAssignment(trimmed);
+    if (arrayPointerElementAssign && parseArrayPointerElementAccess(arrayPointerElementAssign.leftText.trim())) {
+        return {
+            kind: "expr",
+            expr: {
+                kind: "derefAssign",
+                target: parseExpression(context, arrayPointerElementAssign.leftText, functionName, offset + statementText.indexOf(arrayPointerElementAssign.leftText)),
+                expr: parseExpression(context, arrayPointerElementAssign.rightText, functionName, offset + statementText.indexOf(arrayPointerElementAssign.rightText)),
+            },
+        };
+    }
     const arrayAssignMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*=\s*(.+)$/.exec(trimmed);
     if (arrayAssignMatch) {
         return {
@@ -2548,6 +3349,26 @@ function parseSimpleStatement(context, statementText, functionName, offset) {
             name: arrayAssignMatch[1],
             index: parseExpression(context, arrayAssignMatch[2], functionName, offset + statementText.indexOf(arrayAssignMatch[2])),
             expr: parseExpression(context, arrayAssignMatch[3], functionName, offset + statementText.indexOf(arrayAssignMatch[3])),
+        };
+    }
+    const pointerMemberArrayAssignMatch = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*\[(.+)\]\s*=\s*(.+)$/.exec(trimmed);
+    if (pointerMemberArrayAssignMatch) {
+        return {
+            kind: "pointerMemberArrayAssign",
+            name: pointerMemberArrayAssignMatch[1],
+            field: pointerMemberArrayAssignMatch[2],
+            index: parseExpression(context, pointerMemberArrayAssignMatch[3], functionName, offset + statementText.indexOf(pointerMemberArrayAssignMatch[3])),
+            expr: parseExpression(context, pointerMemberArrayAssignMatch[4], functionName, offset + statementText.indexOf(pointerMemberArrayAssignMatch[4])),
+        };
+    }
+    const memberArrayAssignMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\[(.+)\]\s*=\s*(.+)$/.exec(trimmed);
+    if (memberArrayAssignMatch) {
+        return {
+            kind: "memberArrayAssign",
+            target: { kind: "ref", name: memberArrayAssignMatch[1] },
+            field: memberArrayAssignMatch[2],
+            index: parseExpression(context, memberArrayAssignMatch[3], functionName, offset + statementText.indexOf(memberArrayAssignMatch[3])),
+            expr: parseExpression(context, memberArrayAssignMatch[4], functionName, offset + statementText.indexOf(memberArrayAssignMatch[4])),
         };
     }
     const memberAssignMatch = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(trimmed);
@@ -2684,26 +3505,54 @@ function parseForHeader(context, headerText, functionName, offset) {
     };
 }
 function parseForInitializer(context, initText, functionName, offset) {
+    const isStaticLocal = /^\s*static\b/.test(initText);
     const declaration = parseDeclaration(context, initText);
     if (declaration) {
-        if (declaration.type.kind === "array" && declaration.initializer) {
-            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support char array string initializers in for-loop declarations in ${functionName}().`, {
-                file: context.file,
-                offset,
-            });
-        }
         if (declaration.type.kind === "array" && declaration.type.length === undefined) {
-            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized local char array declaration here in ${functionName}().`, {
-                file: context.file,
-                offset,
-            });
+            if (!declaration.initializer) {
+                (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized local char array declaration here in ${functionName}().`, {
+                    file: context.file,
+                    offset,
+                });
+            }
+        }
+        if (declaration.type.kind === "array") {
+            if (isStaticLocal) {
+                if (declaration.type.length === undefined) {
+                    (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized static local array declaration here in ${functionName}().`, {
+                        file: context.file,
+                        offset,
+                    });
+                }
+                return {
+                    kind: "localDecl",
+                    name: declaration.name,
+                    type: declaration.type,
+                    isStatic: true,
+                    initializer: declaration.initializer
+                        ? parseInitializer(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
+                        : undefined,
+                };
+            }
+            const { declaration: sizedDeclaration, initStatements } = buildCharArrayDeclaration({ ...declaration, type: declaration.type }, context, functionName, offset, initText);
+            return {
+                kind: "localDecl",
+                name: sizedDeclaration.name,
+                type: { ...declaration.type, length: sizedDeclaration.length },
+                initializer: undefined,
+                initStatements,
+            };
         }
         return {
             kind: "localDecl",
             name: declaration.name,
             type: declarationToSourceType(declaration),
+            ...(isStaticLocal ? { isStatic: true } : {}),
             initializer: declaration.initializer
                 ? parseInitializer(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
+                : undefined,
+            initStatements: declaration.initializer && !isStaticLocal
+                ? buildInitializerStatements(context, declaration.name, declarationToSourceType(declaration), parseInitializer(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer)), functionName, offset, initText)
                 : undefined,
         };
     }
@@ -2782,6 +3631,9 @@ function buildInitializerStatements(context, name, type, initializer, functionNa
     return [];
 }
 function buildArrayInitializerStatements(context, name, type, initializer, functionName, offset, statementText) {
+    if (type.elementValueType?.kind === "aggregate") {
+        return buildAggregateArrayInitializerStatements(context, name, type, initializer, functionName, offset);
+    }
     if (initializer.kind === "expr" && initializer.expr.kind === "string") {
         const text = statementText;
         const start = Math.max(0, text.indexOf("\""));
@@ -2801,21 +3653,257 @@ function buildArrayInitializerStatements(context, name, type, initializer, funct
             offset,
         });
     }
-    if (initializer.items.length > length) {
-        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset char array initializer '${name}' does not fit in length ${length} in ${functionName}().`, {
+    const dimensions = [length, ...(type.dimensions ?? [])];
+    const items = flattenArrayInitializerItems(context, initializer, dimensions, name, functionName, offset);
+    const statements = [];
+    for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        const expr = item ? initializerItemToExpr(context, item, functionName, offset) : { kind: "const", value: 0 };
+        if (dimensions.length === 1) {
+            statements.push({
+                kind: "arrayAssign",
+                name,
+                index: { kind: "const", value: index },
+                expr,
+            });
+            continue;
+        }
+        const rowLength = dimensions.slice(1).reduce((product, dimension) => product * dimension, 1);
+        const indices = [Math.floor(index / rowLength), index % rowLength];
+        statements.push({
+            kind: "expr",
+            expr: {
+                kind: "derefAssign",
+                target: parseExpression(context, `${name}${indices.map((value) => `[${value}]`).join("")}`, functionName, offset),
+                expr,
+            },
+        });
+    }
+    return statements;
+}
+function flattenArrayInitializerItems(context, initializer, dimensions, name, functionName, offset) {
+    const items = [];
+    const visit = (value, depth) => {
+        if (depth === dimensions.length) {
+            items.push(value);
+            return;
+        }
+        if (value && value.kind !== "list") {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires nested braces for initializer '${name}' in ${functionName}().`, { file: context.file, offset });
+        }
+        const children = value?.kind === "list" ? value.items : [];
+        if (children.length > dimensions[depth]) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset array initializer '${name}' does not fit in ${functionName}().`, { file: context.file, offset });
+        }
+        for (let index = 0; index < dimensions[depth]; index += 1) {
+            visit(children[index], depth + 1);
+        }
+    };
+    visit(initializer, 0);
+    return items;
+}
+function buildAggregateArrayInitializerStatements(context, name, type, initializer, functionName, offset) {
+    if (initializer.kind !== "list" || type.length === undefined || !type.elementValueType || type.elementValueType.kind !== "aggregate") {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires a sized brace initializer for aggregate array '${name}' in ${functionName}().`, {
+            file: context.file,
+            offset,
+        });
+    }
+    const dimensions = [type.length, ...(type.dimensions ?? [])];
+    const statements = [];
+    const appendElement = (indices, item) => {
+        const target = parseExpression(context, `${name}${indices.map((index) => `[${index}]`).join("")}`, functionName, offset);
+        statements.push(...buildAggregateInitializerStatementsForTarget(context, target, type.elementValueType, item?.kind === "list"
+            ? item
+            : { kind: "list", items: item ? [item] : [] }, functionName, offset));
+    };
+    const flatElements = normalizeFlatAggregateArrayInitializer(context, type.elementValueType, initializer, dimensions, name, functionName, offset);
+    if (flatElements) {
+        for (let index = 0; index < flatElements.length; index += 1) {
+            if (dimensions.length === 1) {
+                appendElement([index], flatElements[index]);
+                continue;
+            }
+            const rowLength = dimensions.slice(1).reduce((product, dimension) => product * dimension, 1);
+            appendElement([Math.floor(index / rowLength), index % rowLength], flatElements[index]);
+        }
+        return statements;
+    }
+    if (dimensions.length === 1) {
+        if (initializer.items.length > dimensions[0]) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array initializer '${name}' does not fit in ${functionName}().`, { file: context.file, offset });
+        }
+        for (let index = 0; index < dimensions[0]; index += 1) {
+            appendElement([index], initializer.items[index]);
+        }
+        return statements;
+    }
+    if (initializer.items.length > dimensions[0]) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array initializer '${name}' does not fit in ${functionName}().`, { file: context.file, offset });
+    }
+    for (let row = 0; row < dimensions[0]; row += 1) {
+        const rowInitializer = initializer.items[row];
+        if (rowInitializer && rowInitializer.kind !== "list") {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires nested braces for row ${row} of aggregate array '${name}' in ${functionName}().`, { file: context.file, offset });
+        }
+        const items = rowInitializer?.kind === "list" ? rowInitializer.items : [];
+        if (items.length > dimensions[1]) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array row initializer '${name}[${row}]' does not fit in ${functionName}().`, { file: context.file, offset });
+        }
+        for (let column = 0; column < dimensions[1]; column += 1) {
+            appendElement([row, column], items[column]);
+        }
+    }
+    return statements;
+}
+function normalizeFlatAggregateArrayInitializer(context, elementType, initializer, dimensions, name, functionName, offset) {
+    if (!initializer.items.some((item) => item.kind === "expr")) {
+        return undefined;
+    }
+    if (!initializer.items.every((item) => item.kind === "expr")) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset does not support mixing flat and braced aggregate array initializers for '${name}' in ${functionName}().`, {
+            file: context.file,
+            offset,
+        });
+    }
+    if (elementType.aggregateKind !== "struct") {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires explicit braces for ${elementType.aggregateKind} array initializer '${name}' in ${functionName}().`, {
+            file: context.file,
+            offset,
+        });
+    }
+    const fieldCount = getFlatAggregateInitializerWidth(context, elementType);
+    if (fieldCount === undefined) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires explicit braces for nested aggregate array initializer '${name}' in ${functionName}().`, {
+            file: context.file,
+            offset,
+        });
+    }
+    const elementCount = dimensions.reduce((product, dimension) => product * dimension, 1);
+    if (initializer.items.length > elementCount * fieldCount) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array initializer '${name}' does not fit in ${functionName}().`, { file: context.file, offset });
+    }
+    const elements = [];
+    let cursor = 0;
+    for (let element = 0; element < elementCount; element += 1) {
+        const consumed = consumeFlatAggregateInitializer(context, elementType, initializer.items, cursor);
+        elements.push(consumed.initializer);
+        cursor = consumed.next;
+    }
+    return elements;
+}
+function getFlatAggregateInitializerWidth(context, type) {
+    if (type.aggregateKind !== "struct") {
+        return undefined;
+    }
+    const layout = lookupAggregateDef(context, type);
+    if (!layout) {
+        return undefined;
+    }
+    let width = 0;
+    for (const field of layout.fields) {
+        const fieldWidth = getFlatInitializerWidth(context, field.type);
+        if (fieldWidth === undefined) {
+            return undefined;
+        }
+        width += fieldWidth;
+    }
+    return width;
+}
+function getFlatInitializerWidth(context, type) {
+    if (type.kind === "scalar" || type.kind === "pointer" || type.kind === "functionPointer") {
+        return 1;
+    }
+    if (type.kind === "aggregate") {
+        return getFlatAggregateInitializerWidth(context, type);
+    }
+    if (type.kind !== "array" || type.length === undefined || type.dimensions?.length) {
+        return undefined;
+    }
+    const elementType = type.elementValueType ?? { kind: "scalar", name: type.elementType };
+    const elementWidth = getFlatInitializerWidth(context, elementType);
+    return elementWidth === undefined ? undefined : type.length * elementWidth;
+}
+function consumeFlatAggregateInitializer(context, type, items, start) {
+    const layout = lookupAggregateDef(context, type);
+    if (!layout) {
+        throw new Error(`Unknown aggregate type '${type.aggregateKind} ${type.name}'.`);
+    }
+    const values = [];
+    let cursor = start;
+    for (const field of layout.fields) {
+        if (cursor >= items.length) {
+            break;
+        }
+        const consumed = consumeFlatInitializerValue(context, field.type, items, cursor);
+        values.push(consumed.initializer);
+        cursor = consumed.next;
+    }
+    return { initializer: { kind: "list", items: values }, next: cursor };
+}
+function consumeFlatInitializerValue(context, type, items, start) {
+    if (type.kind === "scalar" || type.kind === "pointer" || type.kind === "functionPointer") {
+        return { initializer: items[start], next: start + 1 };
+    }
+    if (type.kind === "aggregate") {
+        return consumeFlatAggregateInitializer(context, type, items, start);
+    }
+    if (type.kind === "array" && type.length !== undefined && !type.dimensions?.length) {
+        const elementType = type.elementValueType ?? { kind: "scalar", name: type.elementType };
+        const values = [];
+        let cursor = start;
+        for (let index = 0; index < type.length && cursor < items.length; index += 1) {
+            const consumed = consumeFlatInitializerValue(context, elementType, items, cursor);
+            values.push(consumed.initializer);
+            cursor = consumed.next;
+        }
+        return { initializer: { kind: "list", items: values }, next: cursor };
+    }
+    throw new Error(`Unsupported flat initializer type '${JSON.stringify(type)}'.`);
+}
+function buildAggregateFieldArrayInitializerStatements(context, target, field, type, initializer, functionName, offset) {
+    const length = type.length;
+    if (length === undefined) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset requires a sized char array initializer for field '${field}' in ${functionName}().`, {
             file: context.file,
             offset,
         });
     }
     const statements = [];
+    if (initializer.kind === "expr" && initializer.expr.kind === "string") {
+        const values = Array.from(initializer.expr.value, (ch) => ch.charCodeAt(0));
+        if (values.length > length) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset char array initializer '${field}' does not fit in length ${length} in ${functionName}().`, {
+                file: context.file,
+                offset,
+            });
+        }
+        if (values.length < length) {
+            values.push(0);
+        }
+        while (values.length < length) {
+            values.push(0);
+        }
+        for (let index = 0; index < length; index += 1) {
+            statements.push(makeAggregateFieldArrayAssignStmt(target, field, { kind: "const", value: index }, { kind: "const", value: values[index] ?? 0 }));
+        }
+        return statements;
+    }
+    if (initializer.kind !== "list") {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset only supports char array list/string field initializers in ${functionName}().`, {
+            file: context.file,
+            offset,
+        });
+    }
+    if (initializer.items.length > length) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset char array initializer '${field}' does not fit in length ${length} in ${functionName}().`, {
+            file: context.file,
+            offset,
+        });
+    }
     for (let index = 0; index < length; index += 1) {
         const item = initializer.items[index];
-        statements.push({
-            kind: "arrayAssign",
-            name,
-            index: { kind: "const", value: index },
-            expr: item ? initializerItemToExpr(context, item, functionName, offset) : { kind: "const", value: 0 },
-        });
+        statements.push(makeAggregateFieldArrayAssignStmt(target, field, { kind: "const", value: index }, item ? initializerItemToExpr(context, item, functionName, offset) : { kind: "const", value: 0 }));
     }
     return statements;
 }
@@ -2847,8 +3935,12 @@ function buildAggregateInitializerStatementsForTarget(context, target, type, ini
     for (let index = 0; index < layout.fields.length; index += 1) {
         const field = layout.fields[index];
         const item = initializer.items[index];
-        if (field.type.kind === "scalar" || field.type.kind === "pointer") {
+        if (field.type.kind === "scalar" || field.type.kind === "pointer" || field.type.kind === "functionPointer") {
             statements.push(makeAggregateFieldAssignStmt(target, field.name, item ? initializerItemToExpr(context, item, functionName, offset) : { kind: "const", value: 0 }));
+            continue;
+        }
+        if (field.type.kind === "array") {
+            statements.push(...buildAggregateFieldArrayInitializerStatements(context, target, field.name, field.type, item ?? { kind: "list", items: [] }, functionName, offset));
             continue;
         }
         if (field.type.kind === "aggregate") {
@@ -2861,7 +3953,7 @@ function buildAggregateInitializerStatementsForTarget(context, target, type, ini
             statements.push(...buildAggregateInitializerStatementsForTarget(context, makeAggregateFieldAccessExpr(target, field.name), field.type, (item?.kind === "list" ? item : { kind: "list", items: [] }), functionName, offset));
             continue;
         }
-        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support nested array or function-pointer field initializers for '${field.name}' in ${functionName}().`, {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter Phase C subset does not yet support nested field initializers for '${field.name}' in ${functionName}().`, {
             file: context.file,
             offset,
         });
@@ -2951,6 +4043,46 @@ function parseArrayAccess(text) {
         indexText: match[2].trim(),
     };
 }
+function parseArrayPointerElementAccess(text) {
+    const trimmed = text.trim();
+    const dereferenceMatch = /^\(\s*\*\s*(.+)\s*\)\s*\[(.+)\]$/.exec(trimmed);
+    if (dereferenceMatch) {
+        return { pointerText: dereferenceMatch[1].trim(), indexText: dereferenceMatch[2].trim() };
+    }
+    const parenthesizedDoubleIndexMatch = /^\((.+)\)\s*\[(.+)\]\s*\[(.+)\]$/.exec(trimmed);
+    if (parenthesizedDoubleIndexMatch) {
+        return {
+            pointerText: `(${parenthesizedDoubleIndexMatch[1].trim()}) + (${parenthesizedDoubleIndexMatch[2].trim()})`,
+            indexText: parenthesizedDoubleIndexMatch[3].trim(),
+        };
+    }
+    const doubleIndexMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*\[(.+)\]$/.exec(trimmed);
+    if (doubleIndexMatch) {
+        return {
+            pointerText: `${doubleIndexMatch[1]} + (${doubleIndexMatch[2].trim()})`,
+            indexText: doubleIndexMatch[3].trim(),
+        };
+    }
+    const producerDoubleIndexMatch = /^(.+?)\s*\[(.+)\]\s*\[(.+)\]$/.exec(trimmed);
+    if (!producerDoubleIndexMatch) {
+        return null;
+    }
+    return {
+        pointerText: `(${producerDoubleIndexMatch[1].trim()}) + (${producerDoubleIndexMatch[2].trim()})`,
+        indexText: producerDoubleIndexMatch[3].trim(),
+    };
+}
+function parseMemberArrayAccess(text) {
+    const match = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(text.trim());
+    if (!match) {
+        return null;
+    }
+    return {
+        name: match[1],
+        field: match[2],
+        indexText: match[3].trim(),
+    };
+}
 function parseMemberAccess(text) {
     const match = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)$/.exec(text.trim());
     if (!match) {
@@ -2970,6 +4102,45 @@ function parsePointerMemberAccess(text) {
         name: match[1],
         field: match[2],
     };
+}
+function parsePointerMemberArrayAccess(text) {
+    const match = /^([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*\[(.+)\]$/.exec(text.trim());
+    if (!match) {
+        return null;
+    }
+    return {
+        name: match[1],
+        field: match[2],
+        indexText: match[3].trim(),
+    };
+}
+function parsePostfixMemberArrayLikeAccess(text) {
+    const trimmed = text.trim();
+    if (!trimmed.endsWith("]")) {
+        return null;
+    }
+    let depth = 0;
+    let openIndex = -1;
+    for (let index = trimmed.length - 1; index >= 0; index -= 1) {
+        if (trimmed[index] === "]") {
+            depth += 1;
+        }
+        else if (trimmed[index] === "[") {
+            depth -= 1;
+            if (depth === 0) {
+                openIndex = index;
+                break;
+            }
+        }
+    }
+    if (openIndex <= 0) {
+        return null;
+    }
+    const member = splitLastPostfixMemberLikeAccess(trimmed.slice(0, openIndex));
+    if (!member || /^[A-Za-z_]\w*$/.test(member.targetText)) {
+        return null;
+    }
+    return { ...member, indexText: trimmed.slice(openIndex + 1, -1).trim() };
 }
 function parseParenthesizedPointerMemberAccess(text) {
     if (!text.startsWith("(")) {
@@ -3083,6 +4254,15 @@ function makeAggregateFieldAssignStmt(target, field, expr) {
     return target.kind === "ref"
         ? { kind: "memberAssign", name: target.name, field, expr }
         : { kind: "memberExprAssign", target, field, expr };
+}
+function makeAggregateFieldArrayAssignStmt(target, field, index, expr) {
+    return {
+        kind: "memberArrayAssign",
+        target,
+        field,
+        index,
+        expr,
+    };
 }
 function compoundAssignOpToBinaryOp(op) {
     switch (op) {

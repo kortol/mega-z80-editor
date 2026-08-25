@@ -65,13 +65,13 @@ Phase 0B の目的は、`TsSccCompiler` の「どこまで source path で実用
 
 `lowerSourceProgram()` keeps that split and emits:
 
-- `AggregateValueIR`
+- `AggregateProducerIR`
 - `ExprIR`
 - `StmtIRHigh`
 
 `emitProgram()` lowers those to:
 
-- `AggregateValueSpec`
+- `AggregateProducerSpec`
 - `ExprSpec`
 - stack-relative offsets and explicit byte-copy assembly
 
@@ -167,7 +167,7 @@ Evidence convention:
 | int / unsigned int | runtime-pass-with-limitations | runtime: `stmt-arg-int`, `stmt-void-alias` | `int` and `unsigned int` syntax pass on the current 16-bit scalar model | distinct unsigned semantics remain normalized to `int` |
 | long / unsigned long | unsupported | no evidence | none | unsupported |
 | pointer | runtime-pass | runtime: conditional pointer-member, pointer compare, address/deref tests | runtime pass | function-pointer class excluded |
-| array / multidimensional array | runtime-pass-with-limitations | runtime: `stmt-array-assign`, `stmt-array-string-init`, `stmt-array-dynamic`, param-array tests | 1-D char-array runtime pass | multidimensional arrays unverified |
+| array / pointer-to-array / multidimensional array | runtime-pass-with-limitations | runtime: `stmt-array-assign`, `stmt-array-string-init`, `stmt-array-dynamic`, pointer-to-array runtime tests | 1-D `char` / `int` arrays and sized `char (*)[N]` / `int (*)[N]` pass, including parameter/return/value consumers | multidimensional arrays and non-scalar array elements are unsupported |
 | function type / function pointer | runtime-pass-with-limitations | runtime: `function-pointer`; parser/semantic function-pointer tests | local function-pointer declaration, `&function`, reassignment, and `fp()` indirect-call subset pass at runtime | function-pointer params/typedefs/richer declarators remain partial |
 | struct | runtime-pass | runtime: aggregate member, argument, return, chained value tests | runtime pass on many source paths, including conditional/comma aggregate return pass-through | none on covered subset |
 | union | runtime-pass | runtime: assignment, temporary aggregate value, direct return, nested return, and conditional/comma/assign pass-through tests | union runtime pass on current source-path coverage | compare/truthiness remain intentional reject |
@@ -181,7 +181,7 @@ Evidence convention:
 | item | status | source test / evidence | observed result | known limitation |
 | --- | --- | --- | --- | --- |
 | literal / identifier / string | runtime-pass | runtime: local scalar tests, string-init tests | runtime pass | none found for covered subset |
-| subscript | runtime-pass-with-limitations | runtime: `stmt-array-dynamic`, `stmt-param-array-read`, `stmt-param-array-write` | runtime pass for char arrays / pointers | non-char multidimensional indexing unverified |
+| subscript | runtime-pass-with-limitations | runtime: `stmt-array-dynamic`, `stmt-param-array-read`, `stmt-param-array-write`, pointer-to-array runtime tests | runtime pass for char/int arrays, scalar pointers, and sized pointer-to-array rows | multidimensional and non-scalar array-element indexing are unsupported |
 | function call | runtime-pass-with-limitations | runtime: `stmt-call-result`, `stmt-call-two-arg-mixed`, aggregate call tests, `function-pointer` | direct calls plus current local function-pointer indirect-call subset pass at runtime | richer indirect-call surface remains partial |
 | member / pointer member | runtime-pass | runtime: `stmt-aggregate-member`, `stmt-pointer-member` | runtime pass | aggregate value member path still limited by return ABI edge cases |
 | prefix/postfix increment/decrement | runtime-pass | runtime: `stmt-inc-dec`, `stmt-prefix-inc-dec` | runtime pass | covered subset only |

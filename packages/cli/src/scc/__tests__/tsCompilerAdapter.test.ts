@@ -157,11 +157,12 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\t.globl\t.asl",
     "\t.globl\t.mul",
     "\t.globl\t.div",
+    "\t.globl\t.arith_asr1,.arith_asl1,.arith_mul1,.arith_mul2,.arith_div1,.arith_div2,.arith_div3,.arith_deneg,.arith_bcneg,.arith_rdel,.arith_cmpbd",
     "\t.module\tarith_helpers",
     "\t.area\t_CODE",
     ".asr:",
     "\tex\tde,hl",
-    "arith_asr1:",
+    ".arith_asr1:",
     "\tdec\te",
     "\tret\tm",
     "\tld\ta,h",
@@ -172,24 +173,24 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tld\ta,l",
     "\trra",
     "\tld\tl,a",
-    "\tjr\tarith_asr1",
+    "\tjr\t.arith_asr1",
     ".asl:",
     "\tex\tde,hl",
-    "arith_asl1:",
+    ".arith_asl1:",
     "\tdec\te",
     "\tret\tm",
     "\tadd\thl,hl",
-    "\tjr\tarith_asl1",
+    "\tjr\t.arith_asl1",
     ".mul:",
     "\tld\tb,h",
     "\tld\tc,l",
     "\tld\thl,#0",
-    "arith_mul1:",
+    ".arith_mul1:",
     "\tld\ta,c",
     "\trrca",
-    "\tjr\tnc,arith_mul2",
+    "\tjr\tnc,.arith_mul2",
     "\tadd\thl,de",
-    "arith_mul2:",
+    ".arith_mul2:",
     "\txor\ta",
     "\tld\ta,b",
     "\trra",
@@ -208,7 +209,7 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tld\td,a",
     "\tor\te",
     "\tret\tz",
-    "\tjr\tarith_mul1",
+    "\tjr\t.arith_mul1",
     ".div:",
     "\tld\tb,h",
     "\tld\tc,l",
@@ -217,20 +218,20 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tpush\taf",
     "\tld\ta,d",
     "\tor\ta",
-    "\tcall\tm,arith_deneg",
+    "\tcall\tm,.arith_deneg",
     "\tld\ta,b",
     "\tor\ta",
-    "\tcall\tm,arith_bcneg",
+    "\tcall\tm,.arith_bcneg",
     "\tld\ta,#16",
     "\tpush\taf",
     "\tex\tde,hl",
     "\tld\tde,#0",
-    "arith_div1:",
+    ".arith_div1:",
     "\tadd\thl,hl",
-    "\tcall\tarith_rdel",
-    "\tjr\tz,arith_div2",
-    "\tcall\tarith_cmpbd",
-    "\tjp\tm,arith_div2",
+    "\tcall\t.arith_rdel",
+    "\tjr\tz,.arith_div2",
+    "\tcall\t.arith_cmpbd",
+    "\tjp\tm,.arith_div2",
     "\tld\ta,l",
     "\tor\t#1",
     "\tld\tl,a",
@@ -240,21 +241,21 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tld\ta,d",
     "\tsbc\ta,b",
     "\tld\td,a",
-    "arith_div2:",
+    ".arith_div2:",
     "\tpop\taf",
     "\tdec\ta",
-    "\tjr\tz,arith_div3",
+    "\tjr\tz,.arith_div3",
     "\tpush\taf",
-    "\tjr\tarith_div1",
-    "arith_div3:",
+    "\tjr\t.arith_div1",
+    ".arith_div3:",
     "\tpop\taf",
     "\tret\tp",
-    "\tcall\tarith_deneg",
+    "\tcall\t.arith_deneg",
     "\tex\tde,hl",
-    "\tcall\tarith_deneg",
+    "\tcall\t.arith_deneg",
     "\tex\tde,hl",
     "\tret",
-    "arith_deneg:",
+    ".arith_deneg:",
     "\tld\ta,d",
     "\tcpl",
     "\tld\td,a",
@@ -263,7 +264,7 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tld\te,a",
     "\tinc\tde",
     "\tret",
-    "arith_bcneg:",
+    ".arith_bcneg:",
     "\tld\ta,b",
     "\tcpl",
     "\tld\tb,a",
@@ -272,7 +273,7 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tld\tc,a",
     "\tinc\tbc",
     "\tret",
-    "arith_rdel:",
+    ".arith_rdel:",
     "\tld\ta,e",
     "\trla",
     "\tld\te,a",
@@ -281,7 +282,7 @@ function assembleArithmeticHelperRuntime(tempDir: string): string {
     "\tld\td,a",
     "\tor\te",
     "\tret",
-    "arith_cmpbd:",
+    ".arith_cmpbd:",
     "\tld\ta,e",
     "\tsub\tc",
     "\tld\ta,d",
@@ -2650,6 +2651,16 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-array-string-init-exact-fit", programRel)).toBe("AB");
   });
 
+  test("source mode for-loop char array string literal declaration initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-for-array-string-init-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-for-array-string-init-source.c",
+      "int main(){ for (char buf[] = \"AB$\"; buf[0]; buf[0] = 0) { outstr(buf); } return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-for-array-string-init", programRel)).toBe("AB");
+  });
+
   test("source mode typedef aliases, enum constants, and casts link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-typedef-enum-cast-link-"));
     const programRel = compileSourceRel(
@@ -2741,6 +2752,41 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "global-nested-aggregate-init", programRel, [], 4000)).toBe("ABC");
   });
 
+  test("source mode file-scope aggregate char array field initializers emit source asm and link", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-aggregate-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-aggregate-array-init.c",
+      "struct Foo { char name[4]; int tail; };\nstruct Foo g = { \"AB$\", 67 };\nint main(){ outchar(g.tail); return 0; }\n",
+    );
+    const stem = "global_aggregate_array_init";
+    const sccAsmPath = path.join(tempDir, stem, `${stem}.scc.asm`);
+
+    const sccAsm = fs.readFileSync(sccAsmPath, "utf8");
+    expect(sccAsm).toContain("g:\t.db\t65,66,36,0");
+    expect(sccAsm).toContain("\t.dw\t67");
+    expect(linkAndRunCom(tempDir, "global-aggregate-array-init", programRel, [], 4000)).toBe("C");
+  });
+
+  test("source mode nested local aggregate char array field initializers emit source asm and link", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-aggregate-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "local-aggregate-array-init.c",
+      "struct Inner { char name[4]; int code; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { \"AB$\", 67 }, 68 }; outchar(x.tail); return 0; }\n",
+    );
+    const stem = "local_aggregate_array_init";
+    const sccAsmPath = path.join(tempDir, stem, `${stem}.scc.asm`);
+    const sccAsm = fs.readFileSync(sccAsmPath, "utf8");
+
+    expect(sccAsm).toContain("\tld\thl,#65");
+    expect(sccAsm).toContain("\tld\thl,#66");
+    expect(sccAsm).toContain("\tld\thl,#36");
+    expect(sccAsm).toContain("\tld\thl,#0");
+    expect((sccAsm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect(linkAndRunCom(tempDir, "local-aggregate-array-init", programRel, [], 4000)).toBe("D");
+  });
+
   test("source mode file-scope pointer declarations and assignments link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-pointer-"));
     const programRel = compileSourceRel(
@@ -2824,6 +2870,341 @@ describe("TsSccCompilerAdapter", () => {
 
     expect(linkAndRunCom(tempDir, "global-function-pointer-init", programRel, [], 4000)).toBe("A");
   });
+
+  test("source mode local and file-scope aggregate function pointer field initializers emit source asm and link", () => {
+    const localTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-aggregate-function-pointer-init-"));
+    const localProgramRel = compileSourceRel(
+      localTempDir,
+      "local-aggregate-function-pointer-init.c",
+      "int putA(){ return 0; }\nstruct Foo { int (*fp)(void); char tail; };\nint main(){ struct Foo x = { &putA, 66 }; outchar(x.tail); return 0; }\n",
+    );
+    const localStem = "local_aggregate_function_pointer_init";
+    const localSccAsmPath = path.join(localTempDir, localStem, `${localStem}.scc.asm`);
+    const localSccAsm = fs.readFileSync(localSccAsmPath, "utf8");
+    expect(localSccAsm).toContain("\tld\thl,#putA");
+    expect(localSccAsm).toContain("\tld\t(hl),e");
+    expect(localSccAsm).toContain("\tld\t(hl),d");
+    expect(linkAndRunCom(localTempDir, "local-aggregate-function-pointer-init", localProgramRel, [], 4000)).toBe("B");
+
+    const globalTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-aggregate-function-pointer-init-"));
+    const globalProgramRel = compileSourceRel(
+      globalTempDir,
+      "global-aggregate-function-pointer-init.c",
+      "int putA(){ return 0; }\nstruct Foo { int (*fp)(void); char tail; };\nstruct Foo g = { &putA, 67 };\nint main(){ outchar(g.tail); return 0; }\n",
+    );
+    const globalStem = "global_aggregate_function_pointer_init";
+    const globalSccAsmPath = path.join(globalTempDir, globalStem, `${globalStem}.scc.asm`);
+    const globalSccAsm = fs.readFileSync(globalSccAsmPath, "utf8");
+    expect(globalSccAsm).toContain(".dw\tputA+0");
+    expect(globalSccAsm).toContain("\t.db\t67");
+    expect(linkAndRunCom(globalTempDir, "global-aggregate-function-pointer-init", globalProgramRel, [], 4000)).toBe("C");
+  });
+
+  test("source mode aggregate array field reads, writes, and incdec link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-array-field-access-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-array-field-access.c",
+      "struct Foo { char name[4]; };\nint main(){ struct Foo x; struct Foo *p = &x; x.name[0] = 65; p->name[1] = 66; ++x.name[0]; p->name[1]--; outchar(x.name[0]); outchar(p->name[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-array-field-access", programRel, [], 4000)).toBe("BA");
+  });
+
+  test("source mode aggregate function-pointer field calls link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-function-pointer-call-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-function-pointer-call.c",
+      "int putA(){ outchar(65); return 0; }\nstruct Foo { int (*fp)(void); };\nint main(){ struct Foo x; struct Foo *p = &x; x.fp = &putA; p->fp(); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-function-pointer-call", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls typedef function-pointer fields through parameter and producer consumers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-function-pointer-abi-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-function-pointer-abi.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nstruct Foo { Callback fp; };\nstruct Foo make(){ struct Foo x; x.fp = id; return x; }\nchar call(struct Foo *p, char value){ return p->fp(value); }\nint main(){ struct Foo x = make(); outchar(x.fp(65)); outchar(call(&x, 66)); outchar(make().fp(67)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-function-pointer-abi", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode transports aggregate returns through function-pointer field calls", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-function-pointer-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-function-pointer-return.c",
+      "struct Item { char value; };\ntypedef struct Item (*Factory)(char);\nstruct Item make(char value){ struct Item item; item.value = value; return item; }\nstruct Holder { Factory factory; };\nint main(){ struct Holder holder; holder.factory = &make; outchar(holder.factory(65).value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-function-pointer-return", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode passes aggregate values through function-pointer parameter ABI", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-function-pointer-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-function-pointer-param.c",
+      "struct Item { char value; };\ntypedef char (*Read)(struct Item);\nchar read(struct Item item){ return item.value; }\nint main(){ Read fn = &read; struct Item item; item.value = 65; outchar(fn(item)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-function-pointer-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode generalized aggregate field consumers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-generalized-aggregate-field-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "generalized-aggregate-field-consumer.c",
+      "int putC(){ outchar(67); return 0; }\nstruct Inner { char name[2]; };\nstruct Foo { struct Inner inner; int (*fp)(void); };\nstruct Foo make(){ struct Foo x; x.fp = &putC; return x; }\nstruct Foo id(struct Foo x){ return x; }\nchar first(char *p){ return p[0]; }\nint main(){ struct Foo x; struct Foo *p = &x; struct Foo *q = &x; x.inner.name[0] = 65; x.inner.name[1] = 66; outchar(first(&(x.inner.name[0]))); outchar((*(1 ? p : q)).inner.name[1]); id(make()).fp(); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "generalized-aggregate-field-consumer", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode unified aggregate array field lvalues and producers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-unified-aggregate-array-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "unified-aggregate-array-field.c",
+      "struct Foo { char name[2]; };\nstruct Foo *gp;\nstruct Foo make(){ struct Foo x; x.name[0] = 67; x.name[1] = 68; return x; }\nstruct Foo id(struct Foo x){ return x; }\nchar first(char *p){ return p[0]; }\nint show(struct Foo x){ outchar(x.name[0]); return 0; }\nint main(){ struct Foo x; struct Foo *p = &x; gp = &x; x.name[0] = 64; x.name[1] = 65; (1 ? p : gp)->name[0] += 1; ++(*(1 ? p : gp)).name[1]; show(x); outchar(gp->name[1]); outchar(id(make()).name[0]); outchar(first(&(id(make()).name[1]))); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "unified-aggregate-array-field", programRel, [], 4000)).toBe("ABCD");
+  });
+
+  test("source mode nested producer array fields and array decay link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-nested-producer-array-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "nested-producer-array-field.c",
+      "struct Inner { char name[2]; };\nstruct Outer { struct Inner inner; };\nstruct Outer make(){ struct Outer x; x.inner.name[0] = 65; x.inner.name[1] = 66; return x; }\nstruct Outer id(struct Outer x){ return x; }\nchar first(char *p){ return p[0]; }\nint main(){ struct Outer x = make(); outchar(first(x.inner.name)); outchar(first(&x.inner.name)); outchar(first(id(make()).inner.name)); outchar(first(&(id(make()).inner.name))); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "nested-producer-array-field", programRel, [], 4000)).toBe("AAAA");
+  });
+
+  test("source mode pointer-to-array field addresses scale and index correctly", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array.c",
+      "struct Inner { char name[2]; };\nstruct Foo { struct Inner inner; };\nint main(){ struct Foo x; struct Foo y; struct Foo *f = &x; char (*p)[2] = &x.inner.name; char (*q)[2] = &y.inner.name; char (*r)[2] = &f->inner.name; p[0][0] = 64; ++p[0][0]; p[0][1] = 64; p[0][1]++; (*q)[0] = 67; p = p + 1; outchar((*r)[0]); outchar((*r)[1]); outchar(p[0][0]); outchar((*q)[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array", programRel, [], 4000)).toBe("AACC");
+  });
+
+  test("source mode pointer-to-array preserves aggregate producer field addresses", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-producer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-producer.c",
+      "struct Inner { char name[2]; };\nstruct Foo { struct Inner inner; };\nstruct Foo make(){ struct Foo x; x.inner.name[0] = 80; x.inner.name[1] = 81; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(){ char (*p)[2] = &(id(make()).inner.name); outchar((*p)[0]); outchar((*p)[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-producer", programRel, [], 4000)).toBe("PQ");
+  });
+
+  test("source mode passes pointer-to-array fields through the scalar call ABI", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-param.c",
+      "struct Foo { char name[2]; };\nchar bump(char (*p)[2]){ p[0][0] += 1; p[0][1]++; return p[0][1]; }\nint main(){ struct Foo x; x.name[0] = 64; x.name[1] = 64; outchar(bump(&x.name)); outchar(x.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-param", programRel, [], 4000)).toBe("AA");
+  });
+
+  test("source mode stores pointer-to-array fields in file-scope pointers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-global-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-global.c",
+      "char (*gp)[2];\nstruct Foo { char name[2]; };\nint main(){ struct Foo x; gp = &x.name; gp[0][0] = 65; gp[0][1] = 66; outchar((*gp)[0]); outchar((*gp)[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-global", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode compares pointer-to-array values with matching bounds", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-equality-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-equality.c",
+      "struct Foo { char name[2]; };\nint main(){ struct Foo x; struct Foo y; char (*p)[2] = &x.name; char (*q)[2] = &y.name; if (p == q) outchar(65); else outchar(66); if (p != q) outchar(66); else outchar(65); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-equality", programRel, [helperRelPath], 4000)).toBe("BB");
+  });
+
+  test("source mode conditionally selects pointer-to-array values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-conditional-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-conditional.c",
+      "struct Foo { char name[2]; };\nint main(){ struct Foo x; struct Foo y; char (*p)[2] = &x.name; char (*q)[2] = &y.name; char (*r)[2]; r = 1 ? p : q; r[0][0] = 65; outchar(x.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-conditional", programRel, [helperRelPath], 4000)).toBe("A");
+  });
+
+  test("source mode consumes conditional pointer-to-array values directly", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-conditional-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-conditional-consumer.c",
+      "struct Foo { char name[2]; };\nint main(){ struct Foo x; struct Foo y; char (*p)[2] = &x.name; char (*q)[2] = &y.name; (1 ? p : q)[0][0] = 65; outchar(x.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-conditional-consumer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode consumes comma pointer-to-array values directly", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-comma-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-comma-consumer.c",
+      "struct Foo { char name[2]; };\nint main(){ struct Foo x; char (*p)[2] = &x.name; int side = 0; ((side = 1), p)[0][0] = 65; outchar(x.name[0]); outchar(side + 64); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-comma-consumer", programRel, [], 4000)).toBe("AA");
+  });
+
+  test("source mode consumes assignment pointer-to-array values directly", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-assign-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-assign-consumer.c",
+      "struct Foo { char name[2]; };\nint main(){ struct Foo x; struct Foo y; char (*p)[2] = &x.name; char (*q)[2] = &y.name; (p = q)[0][0] = 65; outchar(y.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-assign-consumer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode returns pointers to sized char arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-return.c",
+      "struct Foo { char name[2]; };\nchar (*identity(char (*p)[2]))[2]{ return p; }\nint main(){ struct Foo x; char (*p)[2] = identity(&x.name); (*p)[0] = 65; outchar(x.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-return", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode consumes pointer-to-array call results directly", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-call-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-call-consumer.c",
+      "struct Foo { char name[2]; };\nchar (*identity(char (*p)[2]))[2]{ return p; }\nint main(){ struct Foo x; identity(&x.name)[0][0] = 65; outchar(x.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-call-consumer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode applies compound assignment and incdec to pointer-to-array call results", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-call-lvalue-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-call-lvalue.c",
+      "struct Foo { char name[2]; };\nchar (*identity(char (*p)[2]))[2]{ return p; }\nint main(){ struct Foo x; identity(&x.name)[0][0] = 64; identity(&x.name)[0][0] += 1; ++identity(&x.name)[0][0]; identity(&x.name)[0][0]++; outchar(x.name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-call-lvalue", programRel, [], 4000)).toBe("C");
+  });
+
+  test("source mode consumes pointer-to-array aggregate fields through dot and arrow", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-field.c",
+      "struct Buffer { char name[2]; };\nstruct Holder { char (*rows)[2]; };\nint main(){ struct Buffer a; struct Buffer b; struct Holder h; struct Holder k; struct Holder *hp = &k; h.rows = &a.name; hp->rows = &b.name; h.rows[0][0] = 64; h.rows[0][0] += 1; ++h.rows[0][0]; h.rows[0][0]++; hp->rows[0][1] = 65; hp->rows[0][1]++; outchar(a.name[0]); outchar(b.name[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-field", programRel, [], 4000)).toBe("CB");
+  });
+
+  test("source mode initializes pointer-to-array aggregate fields locally and globally", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-array-field-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-array-field-init.c",
+      "struct Inner { char pad; char name[2]; };\nstruct Buffer { char tag; struct Inner inner; };\nstruct Holder { char (*rows)[2]; };\nstruct Buffer g;\nstruct Holder gh = { &g.inner.name };\nint main(){ struct Buffer a; struct Holder h = { &a.inner.name }; h.rows[0][0] = 65; gh.rows[0][1] = 66; outchar(a.inner.name[0]); outchar(g.inner.name[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-array-field-init", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode initializes and compares int pointer-to-array aggregate fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-to-array-field-init-equality-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "int-pointer-to-array-field-init-equality.c",
+      "struct Buffer { int values[2]; };\nstruct Holder { int (*rows)[2]; };\nstruct Buffer globalBuffer;\nstruct Holder globalHolder = { &globalBuffer.values };\nint main(){ struct Buffer localBuffer; struct Holder localHolder = { &localBuffer.values }; if (localHolder.rows == globalHolder.rows) outchar(66); else outchar(65); localHolder.rows[0][0] = 66; globalHolder.rows[0][1] = 67; outchar(localBuffer.values[0]); outchar(globalBuffer.values[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "int-pointer-to-array-field-init-equality", programRel, [helperRelPath], 4000)).toBe("ABC");
+  });
+
+  test("source mode indexes int pointer-to-array values with word stride", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-to-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "int-pointer-to-array.c",
+      "int main(){ int rows[2]; int (*p)[2] = &rows; rows[0] = 64; rows[0] += 1; ++rows[0]; rows[1] = 64; rows[1]++; outchar(p[0][0]); outchar(p[0][1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "int-pointer-to-array", programRel, [], 4000)).toBe("BA");
+  });
+
+  test("source mode addresses file-scope int arrays through pointer-to-array values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-int-pointer-to-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-int-pointer-to-array.c",
+      "int rows[2];\nint main(){ int (*p)[2] = &rows; p[0][0] = 65; p[0][1] = 66; outchar(rows[0]); outchar(rows[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "global-int-pointer-to-array", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode initializes file-scope int arrays consumed through pointer-to-array values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-int-pointer-to-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-int-pointer-to-array-init.c",
+      "int rows[2] = { 65, 66 };\nint main(){ int (*p)[2] = &rows; outchar(p[0][0]); outchar(p[0][1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "global-int-pointer-to-array-init", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode addresses aggregate int array fields through pointer-to-array values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-to-array-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "int-pointer-to-array-field.c",
+      "struct Foo { char tag; int values[2]; };\nint main(){ struct Foo x; struct Foo *q = &x; int (*p)[2] = &x.values; x.values[0] = 64; q->values[1] = 64; ++x.values[0]; q->values[1] += 3; p[0][1]--; outchar(x.values[0]); outchar(q->values[1]); outchar((*(1 ? q : q)).values[0]); outchar((1 ? q : q)->values[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "int-pointer-to-array-field", programRel, [], 4000)).toBe("ABAB");
+  });
+
+  test("source mode reads int array fields from aggregate value producers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-array-field-producer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "int-array-field-producer.c",
+      "struct Foo { char tag; int values[2]; };\nstruct Foo copy(struct Foo value){ return value; }\nint main(){ struct Foo x; x.values[0] = 65; x.values[1] = 66; outchar(copy(x).values[0]); outchar(copy(x).values[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "int-array-field-producer", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode returns and mutates int pointer-to-array call results", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-to-array-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "int-pointer-to-array-return.c",
+      "int (*identity(int (*p)[2]))[2]{ return p; }\nint main(){ int rows[2]; identity(&rows)[0][0] = 64; identity(&rows)[0][0] += 1; ++identity(&rows)[0][0]; identity(&rows)[0][1] = 65; identity(&rows)[0][1]++; outchar(rows[0]); outchar(rows[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "int-pointer-to-array-return", programRel, [], 4000)).toBe("BB");
+  });
+
+  test("source mode consumes int pointer-to-array conditional, comma, and assignment values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-int-pointer-to-array-value-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "int-pointer-to-array-value-consumer.c",
+      "int main(){ int a[2]; int b[2]; int (*p)[2] = &a; int (*q)[2] = &b; int side = 0; (1 ? p : q)[0][0] = 65; ((side = 1), q)[0][0] = 66; (p = q)[0][1] = 67; outchar(a[0]); outchar(b[0]); outchar(b[1]); outchar(side + 64); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "int-pointer-to-array-value-consumer", programRel, [], 4000)).toBe("ABCA");
+  });
+
+
+
 
   test("source mode recursion links and produces CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-recursion-link-"));
@@ -3455,6 +3836,28 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-loop-local-init", programRel, [helperRelPath], 4000)).toBe("ABA");
   });
 
+  test("source mode for-loop aggregate declaration initializers from aggregate producers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-for-aggregate-decl-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "for-aggregate-decl-init.c",
+      "struct Foo { char a; int b; };\nstruct Foo makeA(){ struct Foo x; x.a = 65; x.b = 0; return x; }\nstruct Foo makeB(){ struct Foo x; x.a = 66; x.b = 0; return x; }\nint main(){ int c = 1; for (struct Foo x = c ? makeA() : makeB(); c; c = 0) { outchar(x.a); } return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-for-aggregate-decl-init", programRel, [helperRelPath], 4000)).toBe("A");
+  });
+
+  test("source mode for-loop aggregate declaration brace initializers link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-for-aggregate-brace-link-"));
+    const helperRelPath = assembleCompareHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "for-aggregate-brace-init.c",
+      "struct Foo { char a; int b; };\nint main(){ for (struct Foo x = { 65, 66 }; x.a; x.a = 0) { outchar(x.b); } return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-for-aggregate-brace-init", programRel, [helperRelPath], 4000)).toBe("B");
+  });
+
   test("source mode chained aggregate value call paths link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-chained-value-link-"));
     const programRel = compileSourceRel(
@@ -3590,4 +3993,806 @@ describe("TsSccCompilerAdapter", () => {
     const programRel = compileSourceRel(tempDir, "stmt-extern-two-arg-int-call-source.c", "int pickfirst16(int a, int b); int main(){ int x = 85; outchar(pickfirst16(x, 86)); return 0; }\n");
     expect(linkAndRunCom(tempDir, "stmt-extern-two-arg-int-call", programRel, [helperRelPath])).toBe("U");
   });
+
+  test("source mode indexes local and global two-dimensional char arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-char-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-char.c",
+      "char g[2][3];\nint main(){ char a[2][3]; a[0][1] = 65; a[1][2] = 66; g[1][0] = 67; outchar(a[0][1]); outchar(a[1][2]); outchar(g[1][0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-char", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode decays two-dimensional int arrays to row pointers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-int-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-int.c",
+      "int readrow(int a[][2]){ return a[1][1]; }\nint main(){ int a[2][2]; int (*p)[2] = a; p[0][0] = 65; p[1][1] = 66; outchar(a[0][0]); outchar(readrow(a)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-int", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode accesses fields in two-dimensional struct arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-struct-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-struct.c",
+      "struct Cell { char value; };\nint main(){ struct Cell cells[2][2]; cells[0][1].value = 65; cells[1][0].value = 66; outchar(cells[0][1].value); outchar(cells[1][0].value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-struct", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode passes addresses of global two-dimensional struct array elements", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-struct-address-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-struct-address.c",
+      "struct Cell { char value; };\nstruct Cell cells[2][2];\nchar set(struct Cell *p, char value){ p->value = value; return p->value; }\nint main(){ outchar(set(&cells[1][0], 65)); outchar(cells[1][0].value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-struct-address", programRel, [], 4000)).toBe("AA");
+  });
+
+  test("source mode indexes two-dimensional struct array parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-struct-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-struct-param.c",
+      "struct Cell { char value; };\nchar read(struct Cell cells[][2]){ return cells[1][0].value; }\nint main(){ struct Cell cells[2][2]; cells[1][0].value = 65; outchar(read(cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-struct-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode accesses fields in one-dimensional struct arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-1d-struct-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "one-dimensional-struct.c",
+      "struct Cell { char value; };\nint main(){ struct Cell cells[2]; cells[1].value = 65; outchar(cells[1].value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "one-dimensional-struct", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode copies two-dimensional struct array elements without a temp local", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-struct-copy-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-struct-copy.c",
+      "struct Pair { char first; char second; };\nint main(){ struct Pair cells[2][2]; struct Pair value; value.first = 65; value.second = 66; cells[1][0] = value; outchar(cells[1][0].first); outchar(cells[1][0].second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-struct-copy", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode passes struct array elements by value", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-struct-array-call-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "struct-array-call.c",
+      "struct Pair { char first; char second; };\nchar first(struct Pair value){ return value.first; }\nint main(){ struct Pair cells[2][2]; cells[1][1].first = 65; outchar(first(cells[1][1])); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "struct-array-call", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode assigns aggregate-returning calls to struct array elements", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-struct-array-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "struct-array-return.c",
+      "struct Pair { char first; char second; };\nstruct Pair copy(struct Pair value){ return value; }\nint main(){ struct Pair cells[2][2]; cells[0][1].first = 65; cells[0][1].second = 66; cells[1][0] = copy(cells[0][1]); outchar(cells[1][0].first); outchar(cells[1][0].second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "struct-array-return", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode stores and dereferences pointer array elements", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-array.c",
+      "int main(){ char first; char second; char *values[2]; values[0] = &first; values[1] = &second; *values[0] = 65; *values[1] = 66; outchar(*values[0]); outchar(*values[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-array", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode indexes two-dimensional pointer arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-pointer-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-pointer-array.c",
+      "int main(){ char value; char *values[2][2]; values[1][0] = &value; *values[1][0] = 65; outchar(value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-pointer-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls function-pointer array elements", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-array.c",
+      "char id(char value){ return value; }\nint main(){ char (*callbacks[2])(char); callbacks[0] = id; outchar(callbacks[0](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode stores and calls global function-pointer array elements", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-function-pointer-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-function-pointer-array.c",
+      "char (*callbacks[2])(char);\nchar id(char value){ return value; }\nint main(){ callbacks[1] = id; outchar(callbacks[1](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "global-function-pointer-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode indexes two-dimensional function-pointer arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-function-pointer-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-function-pointer-array.c",
+      "char id(char value){ return value; }\nint main(){ char (*callbacks[2][2])(char); callbacks[1][0] = id; outchar(callbacks[1][0](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-function-pointer-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode initializes local function-pointer arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-array-init.c",
+      "char id(char value){ return value; }\nint main(){ char (*callbacks[2])(char) = { id, id }; outchar(callbacks[1](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-array-init", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode initializes global function-pointer arrays with relocations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-function-pointer-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-function-pointer-array-init.c",
+      "char id(char value){ return value; }\nchar (*callbacks[2])(char) = { id, id };\nint main(){ outchar(callbacks[1](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "global-function-pointer-array-init", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode reads pointer-array parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-array-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-array-param.c",
+      "char read(char *values[]){ return *values[1]; }\nint main(){ char first; char second; char *values[2]; values[0] = &first; values[1] = &second; second = 65; outchar(read(values)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-array-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode initializes two-dimensional struct arrays with nested braces", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-struct-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "struct-array-init.c",
+      "struct Cell { char value; };\nint main(){ struct Cell cells[2][2] = { { { 65 }, { 66 } }, { { 67 }, { 68 } } }; outchar(cells[0][1].value); outchar(cells[1][0].value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "struct-array-init", programRel, [], 4000)).toBe("BC");
+  });
+
+  test("source mode initializes file-scope two-dimensional struct arrays with nested braces", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-struct-array-init-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-struct-array-init.c",
+      "struct Cell { char value; int code; };\nstruct Cell cells[2][2] = { { { 65, 1 }, { 66, 2 } }, { { 67, 3 }, { 68, 4 } } };\nint main(){ outchar(cells[0][1].value); outchar(cells[1][0].value); return 0; }\n",
+    );
+    const stem = "global_struct_array_init";
+    const sccAsm = fs.readFileSync(path.join(tempDir, stem, `${stem}.scc.asm`), "utf8");
+
+    expect(sccAsm).toContain("cells:\t.db\t65");
+    expect(sccAsm).toContain("\t.dw\t2");
+    expect(linkAndRunCom(tempDir, "global-struct-array-init", programRel, [], 4000)).toBe("BC");
+  });
+
+  test("source mode initializes local and file-scope pointer arrays", () => {
+    const localTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-pointer-array-init-"));
+    const localProgramRel = compileSourceRel(
+      localTempDir,
+      "local-pointer-array-init.c",
+      "int main(){ char first; char second; char *values[2] = { &first, &second }; first = 65; second = 66; outchar(*values[0]); outchar(*values[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(localTempDir, "local-pointer-array-init", localProgramRel, [], 4000)).toBe("AB");
+
+    const globalTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-pointer-array-init-"));
+    const globalProgramRel = compileSourceRel(
+      globalTempDir,
+      "global-pointer-array-init.c",
+      "char first; char second; char *values[2] = { &first, &second };\nint main(){ first = 65; second = 66; outchar(*values[0]); outchar(*values[1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(globalTempDir, "global-pointer-array-init", globalProgramRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode initializes two-dimensional function-pointer arrays locally and globally", () => {
+    const localTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-2d-function-pointer-array-init-"));
+    const localProgramRel = compileSourceRel(
+      localTempDir,
+      "local-two-dimensional-function-pointer-array-init.c",
+      "char id(char value){ return value; }\nint main(){ char (*callbacks[2][2])(char) = { { id, id }, { id, id } }; outchar(callbacks[1][0](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(localTempDir, "local-two-dimensional-function-pointer-array-init", localProgramRel, [], 4000)).toBe("A");
+
+    const globalTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-2d-function-pointer-array-init-"));
+    const globalProgramRel = compileSourceRel(
+      globalTempDir,
+      "global-two-dimensional-function-pointer-array-init.c",
+      "char id(char value){ return value; }\nchar (*callbacks[2][2])(char) = { { id, id }, { id, id } };\nint main(){ outchar(callbacks[1][0](65)); return 0; }\n",
+    );
+    const stem = "global_two_dimensional_function_pointer_array_init";
+    const sccAsm = fs.readFileSync(path.join(globalTempDir, stem, `${stem}.scc.asm`), "utf8");
+    expect(sccAsm).toContain("callbacks:\t.dw\tid+0,id+0,id+0,id+0");
+    expect(linkAndRunCom(globalTempDir, "global-two-dimensional-function-pointer-array-init", globalProgramRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode passes function-pointer arrays through the parameter ABI", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-array-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-array-param.c",
+      "char id(char value){ return value; }\nchar call(char (*callbacks[])(char)){ return callbacks[1](65); }\nint main(){ char (*callbacks[2])(char) = { id, id }; outchar(call(callbacks)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-array-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode indexes two-dimensional pointer-array parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-pointer-array-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-pointer-array-param.c",
+      "char read(char *values[][2]){ return *values[1][0]; }\nint main(){ char value; char *values[2][2]; values[1][0] = &value; value = 65; outchar(read(values)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-pointer-array-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls two-dimensional function-pointer array parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-2d-function-pointer-array-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-function-pointer-array-param.c",
+      "char id(char value){ return value; }\nchar call(char (*callbacks[][2])(char)){ return callbacks[1][0](65); }\nint main(){ char (*callbacks[2][2])(char) = { { id, id }, { id, id } }; outchar(call(callbacks)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-function-pointer-array-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode initializes local and file-scope two-dimensional scalar arrays", () => {
+    const localTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-local-2d-scalar-array-init-"));
+    const localProgramRel = compileSourceRel(
+      localTempDir,
+      "local-two-dimensional-scalar-array-init.c",
+      "int main(){ char values[2][2] = { { 65, 66 }, { 67, 68 } }; outchar(values[0][1]); outchar(values[1][0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(localTempDir, "local-two-dimensional-scalar-array-init", localProgramRel, [], 12000)).toBe("BC");
+
+    const globalTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-2d-scalar-array-init-"));
+    const globalProgramRel = compileSourceRel(
+      globalTempDir,
+      "global-two-dimensional-scalar-array-init.c",
+      "char values[2][2] = { { 65, 66 }, { 67, 68 } };\nint main(){ outchar(values[0][1]); outchar(values[1][0]); return 0; }\n",
+    );
+    const stem = "global_two_dimensional_scalar_array_init";
+    const sccAsm = fs.readFileSync(path.join(globalTempDir, stem, `${stem}.scc.asm`), "utf8");
+    expect(sccAsm).toContain("values:\t.db\t65,66,67,68");
+    expect(linkAndRunCom(globalTempDir, "global-two-dimensional-scalar-array-init", globalProgramRel, [], 4000)).toBe("BC");
+  });
+
+  test("source mode uses function-pointer typedefs in local, global, and parameter declarations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-typedef-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-typedef.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nCallback globalCallback = id;\nchar call(Callback callback){ return callback(65); }\nint main(){ Callback localCallback = globalCallback; outchar(call(localCallback)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-typedef", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode links extern function-pointer typedef variables without allocating storage", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-extern-function-pointer-typedef-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "extern-function-pointer-typedef.c",
+      "typedef char (*Callback)(char);\nextern Callback externalCallback;\nint main(){ outchar(externalCallback(65)); return 0; }\n",
+    );
+    const stem = "extern_function_pointer_typedef";
+    const sccAsm = fs.readFileSync(path.join(tempDir, stem, `${stem}.scc.asm`), "utf8");
+    expect(sccAsm).toContain("\t.globl\texternalCallback");
+    expect(sccAsm).not.toContain("externalCallback:\t.ds");
+
+    const helperAsmPath = path.join(tempDir, "extern-callback.asm");
+    const helperRelPath = path.join(tempDir, "extern-callback.rel");
+    fs.writeFileSync(helperAsmPath, translateSccAsm([
+      "\t.globl\texternalCallback",
+      "\t.globl\texternalCallbackTarget",
+      "\t.module\textern_callback",
+      "\t.area\t_CODE",
+      "externalCallbackTarget:",
+      "\tld\thl,#2",
+      "\tadd\thl,sp",
+      "\tld\tl,(hl)",
+      "\tld\th,#0",
+      "\tret",
+      "\t.area\t_DATA",
+      "externalCallback:\t.dw\texternalCallbackTarget+0",
+      "",
+    ].join("\n"), { moduleName: "extern_callback" }), "utf8");
+    expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
+    expect(linkAndRunCom(tempDir, "extern-function-pointer-typedef", programRel, [helperRelPath], 4000)).toBe("A");
+  });
+
+  test("source mode supports file-scope static data and functions", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-file-static-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "file-static.c",
+      "static char value = 65;\nstatic char read(void){ return value; }\nint main(){ outchar(read()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "file-static", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode keeps same-named file-scope static data and functions module-local", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-linkage-"));
+    const providerRel = compileSourceRel(
+      tempDir,
+      "provider.c",
+      "static char value = 65;\nstatic char read(void){ return value; }\nchar provider(void){ return read(); }\n",
+    );
+    const consumerRel = compileSourceRel(
+      tempDir,
+      "consumer.c",
+      "static char value = 66;\nstatic char read(void){ return value; }\nchar provider(void);\nint main(){ outchar(provider()); outchar(read()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-linkage", consumerRel, [providerRel], 4000)).toBe("AB");
+  });
+
+  test("source mode links extern functions and data from another TS source module", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-multi-tu-"));
+    const providerRel = compileSourceRel(
+      tempDir,
+      "provider.c",
+      "char value = 65;\nchar get(void){ return value; }\n",
+    );
+    const consumerRel = compileSourceRel(
+      tempDir,
+      "consumer.c",
+      "extern char value;\nextern char get(void);\nint main(){ outchar(get()); outchar(value + 1); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "multi-tu", consumerRel, [providerRel], 4000)).toBe("AB");
+  });
+
+  test("source mode passes 2-D struct arrays through aggregate pointer-to-array parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-p2a-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-p2a.c",
+      "struct Cell { char pad; char value; };\nchar read(struct Cell (*rows)[2]){ return rows[1][0].value; }\nint main(){ struct Cell cells[2][2] = {{{0, 65}, {0, 66}}, {{0, 67}, {0, 68}}}; outchar(read(cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-p2a", programRel, [], 4000)).toBe("C");
+  });
+
+  test("source mode accepts row-braced 2-D aggregate array initialization", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-brace-elision-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-brace-elision.c",
+      "struct Cell { char value; };\nint main(){ struct Cell cells[2][2] = {{65, 66}, {67, 68}}; outchar(cells[0][1].value); outchar(cells[1][0].value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-brace-elision", programRel, [], 4000)).toBe("BC");
+  });
+
+  test("source mode accepts fully flat 2-D struct array initialization", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-flat-aggregate-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "flat-aggregate-array.c",
+      "struct Pair { char first; char second; };\nint main(){ struct Pair cells[2][2] = {65, 66, 67, 68, 69, 70, 71, 72}; outchar(cells[1][0].first); outchar(cells[1][0].second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "flat-aggregate-array", programRel, [], 4000)).toBe("EF");
+  });
+
+  test("source mode accepts fully flat 2-D nested struct array initialization", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-flat-nested-aggregate-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "flat-nested-aggregate-array.c",
+      "struct Inner { char first; char second; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer cells[2][2] = {65,66,67,68,69,70,71,72,73,74,75,76}; outchar(cells[1][0].inner.first); outchar(cells[1][0].tail); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "flat-nested-aggregate-array", programRel, [], 4000)).toBe("GI");
+  });
+
+  test("source mode accepts file-scope fully flat 2-D struct array initialization", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-flat-aggregate-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-flat-aggregate-array.c",
+      "struct Pair { char first; char second; };\nstruct Pair cells[2][2] = {65, 66, 67, 68, 69, 70, 71, 72};\nint main(){ outchar(cells[1][0].first); outchar(cells[1][0].second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "global-flat-aggregate-array", programRel, [], 4000)).toBe("EF");
+  });
+
+  test("source mode accepts file-scope fully flat 2-D nested struct array initialization", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-flat-nested-aggregate-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "global-flat-nested-aggregate-array.c",
+      "struct Inner { char first; char second; };\nstruct Outer { struct Inner inner; char tail; };\nstruct Outer cells[2][2] = {65,66,67,68,69,70,71,72,73,74,75,76};\nint main(){ outchar(cells[1][0].inner.first); outchar(cells[1][0].tail); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "global-flat-nested-aggregate-array", programRel, [], 4000)).toBe("GI");
+  });
+
+  test("source mode accepts fully flat 2-D struct arrays with char-array fields", () => {
+    const localTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-flat-array-field-"));
+    const localProgramRel = compileSourceRel(
+      localTempDir,
+      "flat-array-field.c",
+      "struct Label { char name[2]; char tag; };\nint main(){ struct Label labels[2][2] = {65,66,67,68,69,70,71,72,73,74,75,76}; outchar(labels[1][0].name[0]); outchar(labels[1][0].tag); return 0; }\n",
+    );
+    expect(linkAndRunCom(localTempDir, "flat-array-field", localProgramRel, [], 4000)).toBe("GI");
+
+    const globalTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-global-flat-array-field-"));
+    const globalProgramRel = compileSourceRel(
+      globalTempDir,
+      "global-flat-array-field.c",
+      "struct Label { char name[2]; char tag; };\nstruct Label labels[2][2] = {65,66,67,68,69,70,71,72,73,74,75,76};\nint main(){ outchar(labels[1][0].name[0]); outchar(labels[1][0].tag); return 0; }\n",
+    );
+    expect(linkAndRunCom(globalTempDir, "global-flat-array-field", globalProgramRel, [], 4000)).toBe("GI");
+  });
+
+  test("source mode reads, writes, and incdecs array fields on 2-D aggregate elements", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-element-array-field-lvalue-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-element-array-field-lvalue.c",
+      "struct Label { char name[2]; };\nint main(){ struct Label labels[2][2]; labels[1][0].name[0] = 64; ++labels[1][0].name[0]; labels[1][0].name[0]++; labels[1][0].name[1] = labels[1][0].name[0]; outchar(labels[1][0].name[1]); outchar(labels[1][0].name[0]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-element-array-field-lvalue", programRel, [], 4000)).toBe("BB");
+  });
+
+  test("source mode updates aggregate elements through pointer-to-array parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-p2a-lvalue-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-p2a-lvalue.c",
+      "struct Pair { char first; char second; };\nchar update(struct Pair (*rows)[2]){ struct Pair value = {64, 65}; rows[1][0] = value; rows[1][0].first++; return rows[1][0].second; }\nint main(){ struct Pair rows[2][2]; outchar(update(rows)); outchar(rows[1][0].first); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-p2a-lvalue", programRel, [], 4000)).toBe("AA");
+  });
+
+  test("source mode consumes 2-D aggregate rows through conditional, comma, and assignment pointer expressions", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-p2a-expression-consumer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-p2a-expression-consumer.c",
+      "struct Pair { char first; char second; };\nchar read(struct Pair (*rows)[2]){ return rows[1][0].first; }\nint main(){ struct Pair left[2][2]; struct Pair right[2][2]; struct Pair (*p)[2] = left; left[1][0].first = 65; right[1][0].first = 66; outchar(read(0 ? left : right)); outchar(read(((p = left), p))); outchar((p = right)[1][0].first); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-p2a-expression-consumer", programRel, [], 4000)).toBe("BAB");
+  });
+
+  test("source mode writes aggregate call results directly into file-scope objects", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-call-global-destination-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-call-global-destination.c",
+      "struct Pair { char first; char second; };\nstruct Pair value;\nstruct Pair make(){ struct Pair result = {65, 66}; return result; }\nint main(){ value = make(); outchar(value.first); outchar(value.second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-call-global-destination", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode writes aggregate call results directly into aggregate fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-call-field-destination-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-call-field-destination.c",
+      "struct Pair { char first; char second; };\nstruct Holder { struct Pair value; };\nstruct Pair make(){ struct Pair result = {65, 66}; return result; }\nint main(){ struct Holder holder; holder.value = make(); outchar(holder.value.first); outchar(holder.value.second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-call-field-destination", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode writes aggregate call results into nested and pointer aggregate fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-call-nested-field-destination-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-call-nested-field-destination.c",
+      "struct Pair { char first; char second; };\nstruct Holder { struct Pair value; };\nstruct Box { struct Holder nested; };\nstruct Pair make(){ struct Pair result = {65, 66}; return result; }\nint main(){ struct Box box; struct Holder holder; struct Holder *p = &holder; box.nested.value = make(); p->value = make(); outchar(p->value.first); outchar(p->value.second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-call-nested-field-destination", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode writes aggregate call results into conditional pointer field destinations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-call-conditional-field-destination-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-call-conditional-field-destination.c",
+      "struct Pair { char first; char second; };\nstruct Holder { struct Pair value; };\nstruct Pair make(){ struct Pair result = {65, 66}; return result; }\nint main(){ struct Holder left; struct Holder right; struct Holder *p = &left; struct Holder *q = &right; int flag = 0; (flag ? p : q)->value = make(); outchar(right.value.first); outchar(right.value.second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-call-conditional-field-destination", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode returns aggregate calls through the hidden return destination", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-direct-return-destination-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-direct-return-destination.c",
+      "struct Pair { char first; char second; };\nstruct Pair makeA(){ struct Pair result = {65, 66}; return result; }\nstruct Pair makeB(){ struct Pair result = {67, 68}; return result; }\nstruct Pair pass(){ return makeA(); }\nstruct Pair choose(int flag){ return flag ? makeA() : makeB(); }\nstruct Pair comma(){ int side = 0; return ((side = 1), makeB()); }\nint main(){ struct Pair a = pass(); struct Pair b = choose(0); struct Pair c = comma(); outchar(a.first); outchar(b.first); outchar(c.second); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-direct-return-destination", programRel, [], 4000)).toBe("ACD");
+  });
+
+  test("source mode calls higher-order function pointers with abstract callback parameter typedefs", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-abstract-function-pointer-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "abstract-function-pointer-param.c",
+      "typedef char (*Factory)(char (*)(char));\nchar inc(char value){ return value + 1; }\nchar apply(char (*callback)(char)){ return callback(64); }\nint main(){ Factory factory = &apply; outchar(factory(&inc)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "abstract-function-pointer-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode returns higher-order function pointers with abstract callback parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-higher-order-function-pointer-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "higher-order-function-pointer-return.c",
+      "char inc(char value){ return value + 1; }\nchar apply(char (*callback)(char)){ return callback(64); }\nchar (*factory(void))(char (*)(char)){ return &apply; }\nint main(){ outchar(factory()(&inc)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "higher-order-function-pointer-return", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode preserves static local storage across calls", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-local-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "static-local.c",
+      "char next(void){ static char value = 64; value = value + 1; return value; }\nint main(){ outchar(next()); outchar(next()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-local", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode preserves static storage declared in a for initializer", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-local-for-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "static-local-for.c",
+      "char next(void){ char result = 66; for (static char value = 65; value; value = 0) result = value; return result; }\nint main(){ outchar(next()); outchar(next()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-local-for", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode preserves static array initializers declared in a for initializer", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-array-for-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "static-array-for.c",
+      "char next(void){ char result = 66; for (static char text[2] = {65, 0}; text[0]; text[0] = 0) result = text[0]; return result; }\nint main(){ outchar(next()); outchar(next()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-array-for", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode normalizes current pointer qualifiers on declarations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-qualifier-normalization-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-qualifier-normalization.c",
+      "char read(const char * restrict pointer){ return pointer[0]; }\nchar value = 65;\nint main(){ volatile char * restrict pointer = &value; outchar(read(pointer)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-qualifier-normalization", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode preserves aggregate static local storage across calls", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-local-aggregate-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "static-local-aggregate.c",
+      "struct Item { char value; };\nchar next(void){ static struct Item item = { 64 }; item.value = item.value + 1; return item.value; }\nint main(){ outchar(next()); outchar(next()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-local-aggregate", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode initializes pointer static locals as data relocations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-local-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "static-local-pointer.c",
+      "char value = 65;\nchar read(void){ static char *pointer = &value; return *pointer; }\nint main(){ outchar(read()); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-local-pointer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode links extern function-pointer typedef arrays without allocating storage", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-extern-function-pointer-typedef-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "extern-function-pointer-typedef-array.c",
+      "typedef char (*Callback)(char);\nextern Callback callbacks[1];\nint main(){ outchar(callbacks[0](65)); return 0; }\n",
+    );
+    const stem = "extern_function_pointer_typedef_array";
+    const sccAsm = fs.readFileSync(path.join(tempDir, stem, `${stem}.scc.asm`), "utf8");
+    expect(sccAsm).toContain("\t.globl\tcallbacks");
+    expect(sccAsm).not.toContain("callbacks:\t.ds");
+
+    const helperAsmPath = path.join(tempDir, "extern-callback-array.asm");
+    const helperRelPath = path.join(tempDir, "extern-callback-array.rel");
+    fs.writeFileSync(helperAsmPath, translateSccAsm([
+      "\t.globl\tcallbacks",
+      "\t.globl\texternCallbackTarget",
+      "\t.module\textern_callback_array",
+      "\t.area\t_CODE",
+      "externCallbackTarget:",
+      "\tld\thl,#2",
+      "\tadd\thl,sp",
+      "\tld\tl,(hl)",
+      "\tld\th,#0",
+      "\tret",
+      "\t.area\t_DATA",
+      "callbacks:\t.dw\texternCallbackTarget+0",
+      "",
+    ].join("\n"), { moduleName: "extern_callback_array" }), "utf8");
+    expect(assemble(createLogger("quiet"), helperAsmPath, helperRelPath, { relVersion: 2 }).errors).toEqual([]);
+    expect(linkAndRunCom(tempDir, "extern-function-pointer-typedef-array", programRel, [helperRelPath], 4000)).toBe("A");
+  });
+
+  test("source mode calls static function-pointer typedef arrays through internal linkage", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-static-function-pointer-typedef-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "static-function-pointer-typedef-array.c",
+      "typedef char (*Callback)(char);\nchar inc(char value){ return value + 1; }\nstatic Callback callbacks[1] = { inc };\nint main(){ outchar(callbacks[0](64)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "static-function-pointer-typedef-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode uses function-pointer array typedef declarations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-array-typedef-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-array-typedef.c",
+      "typedef char (*Callbacks[2])(char);\nchar id(char value){ return value; }\nint main(){ Callbacks callbacks = { id, id }; outchar(callbacks[1](65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-array-typedef", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode dereferences pointer-to-function-pointer typedef values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-function-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-function-pointer.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nint main(){ Callback callback = id; Callback *pointer = &callback; outchar((*pointer)(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-function-pointer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode accepts direct pointer-to-function-pointer declarators", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-direct-pointer-to-function-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "direct-pointer-to-function-pointer.c",
+      "char id(char value){ return value; }\nchar call(char (**pointer)(char), char value){ return (*pointer)(value); }\nint main(){ char (*fn)(char) = id; outchar(call(&fn, 65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "direct-pointer-to-function-pointer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode initializes arrays of pointer-to-function-pointer typedef values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-function-pointer-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-function-pointer-array.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nint main(){ Callback callback = id; Callback *pointers[2] = { &callback, &callback }; outchar((*pointers[1])(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-function-pointer-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode passes pointer-to-function-pointer typedef values as parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-to-function-pointer-param-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-to-function-pointer-param.c",
+      "typedef char (*Callback)(char);\nchar call(Callback *pointer){ return (*pointer)(65); }\nchar id(char value){ return value; }\nint main(){ Callback callback = id; outchar(call(&callback)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-to-function-pointer-param", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls function pointers through double pointer typedef values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-double-pointer-to-function-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "double-pointer-to-function-pointer.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nint main(){ Callback callback = id; Callback *pointer = &callback; Callback **doublePointer = &pointer; outchar((**doublePointer)(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "double-pointer-to-function-pointer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls function pointers through triple pointer typedef values", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-triple-pointer-to-function-pointer-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "triple-pointer-to-function-pointer.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nint main(){ Callback callback = id; Callback *pointer = &callback; Callback **doublePointer = &pointer; Callback ***triplePointer = &doublePointer; outchar((***triplePointer)(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "triple-pointer-to-function-pointer", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode passes and indexes double function-pointer pointers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-double-function-pointer-param-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "double-function-pointer-param-array.c",
+      "typedef char (*Callback)(char);\nchar call(Callback **pointer){ return (**pointer)(65); }\nchar id(char value){ return value; }\nint main(){ Callback callback = id; Callback *pointer = &callback; Callback **pointers[1] = { &pointer }; outchar(call(pointers[0])); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "double-function-pointer-param-array", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode returns function-pointer typedef values into local consumers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-typedef-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-typedef-return.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nCallback select(){ return id; }\nint main(){ Callback callback = select(); outchar(callback(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-typedef-return", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls function-pointer typedef return values directly", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-typedef-return-call-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-typedef-return-call.c",
+      "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nCallback select(){ return id; }\nint main(){ outchar(select()(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-typedef-return-call", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode returns function pointers without a typedef", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-function-pointer-direct-return-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "function-pointer-direct-return.c",
+      "char id(char value){ return value; }\nchar (*select(void))(char){ return id; }\nint main(){ outchar(select()(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "function-pointer-direct-return", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode uses nested pointer-to-function-pointer typedefs in parameter and return paths", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-nested-function-pointer-typedef-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "nested-function-pointer-typedef.c",
+      "typedef char (*Callback)(char);\ntypedef Callback *CallbackRef;\nCallbackRef identity(CallbackRef value){ return value; }\nchar id(char value){ return value; }\nint main(){ Callback callback = id; CallbackRef reference = &callback; outchar((*identity(reference))(65)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "nested-function-pointer-typedef", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode computes char, int, and row pointer differences", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-pointer-difference-"));
+    const helperRelPath = assembleArithmeticHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "pointer-difference.c",
+      "int main(){ char chars[6]; int ints[4]; char (*rows)[2] = &chars; char (*rows3)[3] = &chars; outchar((chars + 3) - chars + 64); outchar((ints + 2) - ints + 64); outchar((rows + 1) - rows + 64); outchar((rows3 + 1) - rows3 + 64); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "pointer-difference", programRel, [helperRelPath], 4000)).toBe("CBAA");
+  });
+
+  test("source mode transports two-dimensional array decay through conditional and comma consumers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-two-dimensional-array-value-transport-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "two-dimensional-array-value-transport.c",
+      "int main(){ char a[2][2]; char b[2][2]; int side = 0; (1 ? a : b)[1][0] = 65; ((side = 1), a)[0][1] = 66; outchar(a[1][0]); outchar(a[0][1]); outchar(side + 64); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "two-dimensional-array-value-transport", programRel, [], 4000)).toBe("ABA");
+  });
+
+  test("source mode computes aggregate pointer differences", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-difference-"));
+    const helperRelPath = assembleArithmeticHelperRuntime(tempDir);
+    const programRel = compileSourceRel(
+      tempDir,
+      "aggregate-pointer-difference.c",
+      "struct Item { char tag; int value; };\nint main(){ struct Item items[2]; struct Item *first = &items[0]; struct Item *second = &items[1]; outchar((second - first) + 64); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "aggregate-pointer-difference", programRel, [helperRelPath], 4000)).toBe("A");
+  });
+
   });

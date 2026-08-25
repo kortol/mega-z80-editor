@@ -1,6 +1,20 @@
 import { parseProgram } from "../tsFrontendParser";
 
 describe("tsFrontendParser", () => {
+  test("parses function-pointer typedefs with abstract function-pointer parameters", () => {
+    const source = "typedef char (*Factory)(char (*)(char));\nFactory factory;\nint main(){ return 0; }\n";
+    const program = parseProgram(source, "abstract-function-pointer-param.c");
+
+    expect(program.globals[0]).toMatchObject({
+      name: "factory",
+      type: {
+        kind: "functionPointer",
+        returnType: { kind: "scalar", name: "char" },
+        params: [{ kind: "functionPointer", returnType: { kind: "scalar", name: "char" } }],
+      },
+    });
+  });
+
   test("parses compare after additive with precedence scaffolding", () => {
     const program = parseProgram("int main(int a, int b, int c){ return a + b == c; }\n", "sample.c");
     const expr = program.functions[0].body.statements[0];
@@ -169,6 +183,44 @@ describe("tsFrontendParser", () => {
     expect(program.functions[1].returnType).toEqual({ kind: "scalar", name: "int" });
     expect(program.functions[1].params[0]?.type).toEqual({ kind: "scalar", name: "int" });
     expect(program.functions[1].params[1]?.type).toEqual({ kind: "scalar", name: "char" });
+  });
+
+  test("parses static local storage duration in blocks and for initializers", () => {
+    expect(parseProgram("int main(){ static char value = 65; return value; }\n", "static-local.c").functions[0].body.declarations[0]).toMatchObject({
+      name: "value",
+      isStatic: true,
+    });
+    const forStmt = parseProgram("int main(){ for (static char value = 65; value; value--) { value--; } return 0; }\n", "static-local-for.c").functions[0].body.statements[0];
+    expect(forStmt).toMatchObject({ initializer: { kind: "localDecl", name: "value", isStatic: true } });
+  });
+
+  test("parses aggregate pointer-to-array parameters", () => {
+    const program = parseProgram("struct Cell { char value; };\nchar read(struct Cell (*rows)[2]){ return rows[1][0].value; }\n", "aggregate-p2a.c");
+    expect(program.functions[0].params[0]).toMatchObject({
+      name: "rows",
+      type: { kind: "pointer", pointee: { kind: "arrayPointer", elementValueType: { kind: "aggregate", name: "Cell" }, length: 2 } },
+    });
+  });
+
+  test("parses for-loop aggregate declaration brace initializers", () => {
+    const source = "struct Foo { char a; int b; };\nint main(){ for (struct Foo x = { 65, 66 }; x.a; x.a = 0) { return x.b; } return 0; }\n";
+    const program = parseProgram(source, "for-aggregate-brace-init.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("for");
+    if (stmt.kind !== "for" || stmt.initializer?.kind !== "localDecl") {
+      return;
+    }
+    expect(stmt.initializer.initializer).toEqual({
+      kind: "list",
+      items: [
+        { kind: "expr", expr: { kind: "const", value: 65 } },
+        { kind: "expr", expr: { kind: "const", value: 66 } },
+      ],
+    });
+    expect(stmt.initializer.initStatements).toEqual([
+      { kind: "memberAssign", name: "x", field: "a", expr: { kind: "const", value: 65 } },
+      { kind: "memberAssign", name: "x", field: "b", expr: { kind: "const", value: 66 } },
+    ]);
   });
 
   test("parses file-scope globals and local aggregate brace initializers", () => {
@@ -1406,17 +1458,28 @@ describe("tsFrontendParser", () => {
     const source = "struct Foo { char a; int b; };\nint main(){ int c = 1; struct Foo x; struct Foo y; struct Foo *p = &x; struct Foo *q = &y; ++(c ? p : q)->a; (c ? p : q)->b--; return x.a + x.b + y.a + y.b; }\n";
     const program = parseProgram(source, "aggregate-pointer-member-conditional-incdec.c");
     expect(program.functions[0].body.statements[3]).toEqual({
-      kind: "expr",
+      kind: "pointerMemberExprAssign",
+      target: {
+        kind: "conditional",
+        condition: { kind: "ref", name: "c" },
+        thenExpr: { kind: "ref", name: "p" },
+        elseExpr: { kind: "ref", name: "q" },
+      },
+      field: "a",
       expr: {
-        kind: "prePointerMemberExprIncDec",
-        target: {
-          kind: "conditional",
-          condition: { kind: "ref", name: "c" },
-          thenExpr: { kind: "ref", name: "p" },
-          elseExpr: { kind: "ref", name: "q" },
+        kind: "binary",
+        left: {
+          kind: "pointerMemberExprAccess",
+          target: {
+            kind: "conditional",
+            condition: { kind: "ref", name: "c" },
+            thenExpr: { kind: "ref", name: "p" },
+            elseExpr: { kind: "ref", name: "q" },
+          },
+          field: "a",
         },
-        field: "a",
-        op: "++",
+        op: "+",
+        right: { kind: "const", value: 1 },
       },
     });
     expect(program.functions[0].body.statements[4]).toEqual({
@@ -1703,6 +1766,22 @@ describe("tsFrontendParser", () => {
     expect(program.functions[0].body.statements).toHaveLength(3);
   });
 
+  test("parses for-loop char array string literal declaration initializers", () => {
+    const program = parseProgram("int main(){ for (char buf[] = \"AB\"; buf[0]; buf[0] = 0) { return buf[1]; } return 0; }\n", "for-array-string-init.c");
+    const stmt = program.functions[0].body.statements[0];
+    expect(stmt.kind).toBe("for");
+    if (stmt.kind !== "for" || stmt.initializer?.kind !== "localDecl") {
+      return;
+    }
+    expect(stmt.initializer.type).toEqual({ kind: "array", elementType: "char", length: 3 });
+    expect(stmt.initializer.initializer).toBeUndefined();
+    expect(stmt.initializer.initStatements).toEqual([
+      { kind: "arrayAssign", name: "buf", index: { kind: "const", value: 0 }, expr: { kind: "const", value: 65 } },
+      { kind: "arrayAssign", name: "buf", index: { kind: "const", value: 1 }, expr: { kind: "const", value: 66 } },
+      { kind: "arrayAssign", name: "buf", index: { kind: "const", value: 2 }, expr: { kind: "const", value: 0 } },
+    ]);
+  });
+
   test("rejects overflowing char array string literal initializers", () => {
     expect(() => parseProgram("int main(){ char buf[2] = \"ABC\"; return 0; }\n", "array-string-init-overflow.c")).toThrow(/does not fit in length 2/);
   });
@@ -1874,6 +1953,156 @@ describe("tsFrontendParser", () => {
     ]);
   });
 
+  test("parses aggregate char array field declarations", () => {
+    const program = parseProgram(
+      "struct Foo { char name[4]; int tail; };\nint main(){ return 0; }\n",
+      "aggregate-array-fields.c",
+    );
+    expect(program.aggregates[0]?.fields).toEqual([
+      {
+        kind: "field",
+        name: "name",
+        type: {
+          kind: "array",
+          elementType: "char",
+          length: 4,
+        },
+      },
+      {
+        kind: "field",
+        name: "tail",
+        type: { kind: "scalar", name: "int" },
+      },
+    ]);
+  });
+
+  test("parses aggregate function pointer field declarations", () => {
+    const program = parseProgram(
+      "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); char tail; };\nint main(){ return 0; }\n",
+      "aggregate-function-pointer-fields.c",
+    );
+    expect(program.aggregates[0]?.fields).toEqual([
+      {
+        kind: "field",
+        name: "fp",
+        type: {
+          kind: "functionPointer",
+          returnType: { kind: "scalar", name: "int" },
+          params: [],
+        },
+      },
+      {
+        kind: "field",
+        name: "tail",
+        type: { kind: "scalar", name: "char" },
+      },
+    ]);
+  });
+
+  test("parses aggregate array field reads, writes, and incdec", () => {
+    const source = "struct Foo { char name[4]; };\nint main(struct Foo *p){ struct Foo x; x.name[0] = 65; p->name[1] = 66; ++x.name[0]; p->name[1]--; return x.name[0] + p->name[1]; }\n";
+    const program = parseProgram(source, "aggregate-array-field-access.c");
+    const body = program.functions[0].body;
+    expect(body.statements[0]).toEqual({
+      kind: "memberArrayAssign",
+      target: { kind: "ref", name: "x" },
+      field: "name",
+      index: { kind: "const", value: 0 },
+      expr: { kind: "const", value: 65 },
+    });
+    expect(body.statements[1]).toEqual({
+      kind: "pointerMemberArrayAssign",
+      name: "p",
+      field: "name",
+      index: { kind: "const", value: 1 },
+      expr: { kind: "const", value: 66 },
+    });
+    const ret = body.statements[4];
+    expect(ret?.kind).toBe("return");
+    if (!ret || ret.kind !== "return" || ret.expr.kind !== "binary") {
+      return;
+    }
+    expect(ret.expr.left).toEqual({
+      kind: "memberArrayIndex",
+      name: "x",
+      field: "name",
+      index: { kind: "const", value: 0 },
+    });
+    expect(ret.expr.right).toEqual({
+      kind: "pointerMemberArrayIndex",
+      name: "p",
+      field: "name",
+      index: { kind: "const", value: 1 },
+    });
+  });
+
+  test("parses aggregate function-pointer field calls", () => {
+    const source = "int putA(){ return 65; }\nstruct Foo { int (*fp)(void); };\nint main(struct Foo *p){ struct Foo x; x.fp = &putA; p->fp = &putA; return x.fp() + p->fp(); }\n";
+    const program = parseProgram(source, "aggregate-function-pointer-call.c");
+    const ret = program.functions[1].body.statements[2];
+    expect(ret?.kind).toBe("return");
+    if (!ret || ret.kind !== "return" || ret.expr.kind !== "binary") {
+      return;
+    }
+    expect(ret.expr.left).toEqual({
+      kind: "indirectCall",
+      target: { kind: "memberAccess", name: "x", field: "fp" },
+      args: [],
+    });
+    expect(ret.expr.right).toEqual({
+      kind: "indirectCall",
+      target: { kind: "pointerMemberAccess", name: "p", field: "fp" },
+      args: [],
+    });
+  });
+
+  test("parses a producer function-pointer field call nested in a direct call", () => {
+    const source = "typedef char (*Callback)(char);\nchar id(char value){ return value; }\nstruct Foo { Callback fp; };\nstruct Foo make(){ struct Foo x; x.fp = id; return x; }\nint main(){ outchar(make().fp(65)); return 0; }\n";
+    const program = parseProgram(source, "aggregate-function-pointer-producer-call.c");
+    expect(program.functions[2].body.statements[0]).toEqual({
+      kind: "expr",
+      expr: {
+        kind: "call",
+        target: "outchar",
+        args: [{
+          kind: "indirectCall",
+          target: {
+            kind: "memberExprAccess",
+            target: { kind: "call", target: "make", args: [] },
+            field: "fp",
+          },
+          args: [{ kind: "const", value: 65 }],
+        }],
+      },
+    });
+  });
+
+  test("parses generalized aggregate array consumers and producer field calls", () => {
+    const source = "int putA(){ return 65; }\nstruct Inner { char name[2]; };\nstruct Foo { struct Inner inner; int (*fp)(void); };\nstruct Foo make(){ struct Foo x; return x; }\nstruct Foo id(struct Foo x){ return x; }\nint main(struct Foo *p, int c){ struct Foo x; return x.inner.name[0] + (*(c ? p : p)).inner.name[1] + id(make()).fp(); }\n";
+    const program = parseProgram(source, "generalized-field-consumer.c");
+    const ret = program.functions[3].body.statements[0];
+    expect(ret?.kind).toBe("return");
+    if (!ret || ret.kind !== "return" || ret.expr.kind !== "binary" || ret.expr.left.kind !== "binary") {
+      return;
+    }
+    expect(ret.expr.left.left).toEqual({
+      kind: "memberExprArrayIndex",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "name",
+      index: { kind: "const", value: 0 },
+    });
+    expect(ret.expr.left.right.kind).toBe("memberExprArrayIndex");
+    expect(ret.expr.right).toEqual({
+      kind: "indirectCall",
+      target: {
+        kind: "memberExprAccess",
+        target: { kind: "call", target: "id", args: [{ kind: "call", target: "make", args: [] }] },
+        field: "fp",
+      },
+      args: [],
+    });
+  });
+
   test("parses nested aggregate member chains and nested brace initializers", () => {
     const program = parseProgram(
       "struct Inner { char a; int b; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { 65, 66 }, 67 }; return x.inner.a + x.inner.b + x.tail; }\n",
@@ -1906,6 +2135,40 @@ describe("tsFrontendParser", () => {
       kind: "memberExprAccess",
       target: { kind: "memberAccess", name: "x", field: "inner" },
       field: "b",
+    });
+  });
+
+  test("parses nested local aggregate char array field initializers", () => {
+    const program = parseProgram(
+      "struct Inner { char name[4]; int code; };\nstruct Outer { struct Inner inner; char tail; };\nint main(){ struct Outer x = { { \"AB$\", 67 }, 68 }; return x.tail; }\n",
+      "nested-local-aggregate-array-init.c",
+    );
+    const body = program.functions[0].body;
+    expect(body.statements[0]).toEqual({
+      kind: "memberArrayAssign",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "name",
+      index: { kind: "const", value: 0 },
+      expr: { kind: "const", value: 65 },
+    });
+    expect(body.statements[3]).toEqual({
+      kind: "memberArrayAssign",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "name",
+      index: { kind: "const", value: 3 },
+      expr: { kind: "const", value: 0 },
+    });
+    expect(body.statements[4]).toEqual({
+      kind: "memberExprAssign",
+      target: { kind: "memberAccess", name: "x", field: "inner" },
+      field: "code",
+      expr: { kind: "const", value: 67 },
+    });
+    expect(body.statements[5]).toEqual({
+      kind: "memberAssign",
+      name: "x",
+      field: "tail",
+      expr: { kind: "const", value: 68 },
     });
   });
 
@@ -1967,6 +2230,19 @@ describe("tsFrontendParser", () => {
         field: "a",
         op: "--",
       },
+    });
+  });
+
+  test("parses functions returning a pointer to a sized char array", () => {
+    const program = parseProgram(
+      "char (*identity(char (*p)[2]))[2]{ return p; }\nint main(){ return 0; }\n",
+      "array-pointer-return.c",
+    );
+    expect(program.functions).toHaveLength(2);
+    expect(program.functions[0]).toMatchObject({
+      name: "identity",
+      returnType: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: "char", length: 2 } },
+      params: [{ name: "p", type: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: "char", length: 2 } } }],
     });
   });
 });
