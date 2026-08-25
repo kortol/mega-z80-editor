@@ -56,6 +56,7 @@ export type SemanticFunctionPointerType = {
   kind: "functionPointer";
   returnType: SemanticType;
   params: SemanticType[];
+  isVariadic?: boolean;
   width: 2;
   qualifiers?: TypeQualifiers;
 };
@@ -77,6 +78,7 @@ export type BoundFunctionSymbol = {
   name: string;
   returnType: SemanticType;
   params: SemanticType[];
+  isVariadic?: boolean;
 };
 
 export type BoundParamSymbol = {
@@ -115,6 +117,7 @@ export type BoundFunction = {
   kind: "boundFunction";
   name: string;
   isStatic?: boolean;
+  isVariadic?: boolean;
   returnType: SemanticType;
   params: BoundParamSymbol[];
   locals: BoundLocalSymbol[];
@@ -136,11 +139,15 @@ export type BoundSwitchCase = {
 export type BoundAggregateValueExpr =
   | { kind: "aggregateRef"; symbol: (BoundLocalSymbol | BoundParamSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType }; type: SemanticAggregateType }
   | { kind: "aggregateAddress"; pointer: BoundExpr; type: SemanticAggregateType }
-  | { kind: "aggregateAssignExpr"; target: (BoundLocalSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType }; source: BoundAggregateValueExpr; type: SemanticAggregateType }
+  | { kind: "aggregateAssignExpr"; target: BoundAggregateAssignmentTarget; source: BoundAggregateValueExpr; type: SemanticAggregateType }
   | { kind: "call"; target: BoundFunctionSymbol; args: BoundCallArg[]; type: SemanticAggregateType }
   | { kind: "indirectCall"; target: BoundExpr; signature: SemanticFunctionPointerType; args: BoundCallArg[]; type: SemanticAggregateType }
   | { kind: "comma"; left: BoundExpr; right: BoundAggregateValueExpr; type: SemanticAggregateType }
   | { kind: "conditional"; condition: BoundExpr; thenExpr: BoundAggregateValueExpr; elseExpr: BoundAggregateValueExpr; type: SemanticAggregateType };
+
+type BoundAggregateAssignmentTarget =
+  | ((BoundLocalSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType })
+  | { kind: "aggregateAddress"; pointer: BoundExpr; type: SemanticAggregateType };
 
 export type BoundCallArg = BoundExpr | BoundAggregateValueExpr;
 
@@ -190,6 +197,9 @@ export type BoundExpr =
   | { kind: "derefAssign"; pointer: BoundExpr; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
   | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
   | { kind: "indirectCall"; target: BoundExpr; signature: SemanticFunctionPointerType; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "vaStart"; list: BoundLocalSymbol; type: SemanticScalarType }
+  | { kind: "vaArg"; list: BoundLocalSymbol; width: ValueWidth; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
+  | { kind: "vaEnd"; type: SemanticScalarType }
   | { kind: "preIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "postIncDec"; local: BoundLocalSymbol; op: "++" | "--"; type: SemanticScalarType | SemanticPointerType }
   | { kind: "preArrayIncDec"; target: BoundLocalSymbol | BoundParamSymbol; index: BoundExpr; op: "++" | "--"; type: SemanticScalarType }
@@ -212,6 +222,8 @@ export type BoundExpr =
 type Scope = {
   parent?: Scope;
   entries: Map<string, BoundSymbol>;
+  isVariadicFunction?: boolean;
+  fixedParamCount?: number;
 };
 
 type AggregateLayout = {
@@ -264,6 +276,7 @@ export function analyzeProgram(program: SourceProgram, sourceText: string, file?
       name: fn.name,
       returnType: toSemanticType(fn.returnType),
       params: fn.params.map((param) => toSemanticType(param.type)),
+      ...(fn.isVariadic ? { isVariadic: true } : {}),
     });
   }
   const globals = program.globals.map((globalDecl) => analyzeGlobalDecl(globalDecl, sourceText, file));
@@ -293,7 +306,7 @@ function analyzeFunction(
   sourceText: string,
   file?: string,
 ): BoundFunction {
-  const functionScope: Scope = { entries: new Map() };
+  const functionScope: Scope = { entries: new Map(), ...(fn.isVariadic ? { isVariadicFunction: true, fixedParamCount: fn.params.length } : {}) };
   for (const global of globals) {
     functionScope.entries.set(global.name, global);
   }
@@ -322,6 +335,7 @@ function analyzeFunction(
     kind: "boundFunction",
     name: fn.name,
     ...(fn.isStatic ? { isStatic: true } : {}),
+    ...(fn.isVariadic ? { isVariadic: true } : {}),
     returnType: toSemanticType(fn.returnType),
     params,
     locals: localList,
@@ -400,6 +414,9 @@ function isStaticStorageInitializer(initializer: SourceInitializer): boolean {
   switch (initializer.expr.kind) {
     case "const":
     case "string":
+    case "vaStart":
+    case "vaArg":
+    case "vaEnd":
     case "addressOf":
       return true;
     default:
@@ -801,6 +818,7 @@ function analyzeAggregateProducerExpr(
         });
       }
       const aggregateTarget = symbol as (BoundLocalSymbol | BoundGlobalSymbol) & { type: SemanticAggregateType };
+      assertModifiableType(aggregateTarget.type, `aggregate object '${aggregateTarget.name}'`, functionName, sourceText, file);
       const source = analyzeAggregateProducerExpr(expr.expr, scope, functionSymbols, aggregateTarget.type, functionName, sourceText, file);
       if (targetType) {
         assertMatchingAggregateType(aggregateTarget.type, targetType, functionName, sourceText, file);
@@ -812,6 +830,50 @@ function analyzeAggregateProducerExpr(
         type: aggregateTarget.type,
       };
     }
+    case "arrayAssign": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param" && symbol.kind !== "global") || symbol.type.kind !== "array" || symbol.type.elementValueType?.kind !== "aggregate") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset expected an aggregate array assignment expression in ${functionName}().`, {
+          file,
+          offset: 0,
+        });
+      }
+      assertModifiableArrayElement(symbol.type, `array element '${expr.name}[...]'`, functionName, sourceText, file);
+      return analyzeAggregateAssignExprToAddress(
+        { kind: "arrayIndex", name: expr.name, index: expr.index },
+        expr.expr,
+        scope,
+        functionSymbols,
+        targetType,
+        functionName,
+        sourceText,
+        file,
+      );
+    }
+    case "memberAssign":
+      return analyzeAggregateAssignExprToAddress(
+        { kind: "memberAccess", name: expr.name, field: expr.field }, expr.expr,
+        scope, functionSymbols, targetType, functionName, sourceText, file,
+      );
+    case "memberExprAssign":
+      return analyzeAggregateAssignExprToAddress(
+        { kind: "memberExprAccess", target: expr.target, field: expr.field }, expr.expr,
+        scope, functionSymbols, targetType, functionName, sourceText, file,
+      );
+    case "pointerMemberAssign":
+      return analyzeAggregateAssignExprToAddress(
+        { kind: "pointerMemberAccess", name: expr.name, field: expr.field }, expr.expr,
+        scope, functionSymbols, targetType, functionName, sourceText, file,
+      );
+    case "pointerMemberExprAssign":
+      return analyzeAggregateAssignExprToAddress(
+        { kind: "pointerMemberExprAccess", target: expr.target, field: expr.field }, expr.expr,
+        scope, functionSymbols, targetType, functionName, sourceText, file,
+      );
+    case "derefAssign":
+      return analyzeAggregateAssignExprToAddress(
+        expr.target, expr.expr, scope, functionSymbols, targetType, functionName, sourceText, file,
+      );
     case "comma":
       {
       const right = analyzeAggregateProducerExpr(expr.right, scope, functionSymbols, targetType, functionName, sourceText, file);
@@ -842,7 +904,7 @@ function analyzeAggregateProducerExpr(
           offset: 0,
         });
       }
-      if (target.params.length !== expr.args.length) {
+      if (target.isVariadic ? expr.args.length < target.params.length : target.params.length !== expr.args.length) {
         throwDiagnostic(
           sourceText,
           `TsSccCompilerAdapter Phase C subset expected ${target.params.length} argument(s) for ${expr.target}(), got ${expr.args.length}.`,
@@ -855,12 +917,7 @@ function analyzeAggregateProducerExpr(
       return {
         kind: "call",
         target,
-        args: expr.args.map((arg, index) => {
-          const paramType = target.params[index];
-          return paramType.kind === "aggregate"
-            ? analyzeAggregateProducerExpr(arg, scope, functionSymbols, paramType, functionName, sourceText, file)
-            : analyzeExpr(arg, scope, functionSymbols, functionName, sourceText, file);
-        }),
+        args: expr.args.map((arg, index) => analyzeCallArg(arg, target.params[index], scope, functionSymbols, functionName, sourceText, file)),
         type: target.returnType,
       };
     }
@@ -880,7 +937,7 @@ function analyzeAggregateProducerExpr(
           offset: 0,
         });
       }
-      if (signature.params.length !== expr.args.length) {
+      if (signature.isVariadic ? expr.args.length < signature.params.length : signature.params.length !== expr.args.length) {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset expected ${signature.params.length} argument(s) for indirect aggregate call, got ${expr.args.length}.`, {
           file,
           offset: 0,
@@ -903,6 +960,30 @@ function analyzeAggregateProducerExpr(
         offset: 0,
       });
   }
+}
+
+function analyzeAggregateAssignExprToAddress(
+  targetExpr: SourceExpr,
+  sourceExpr: SourceExpr,
+  scope: Scope,
+  functionSymbols: Map<string, BoundFunctionSymbol>,
+  expectedType: SemanticAggregateType | undefined,
+  functionName: string,
+  sourceText: string,
+  file?: string,
+): BoundAggregateValueExpr {
+  const target = getAggregateBasePointerFromExpr(targetExpr, scope, functionSymbols, functionName, sourceText, file);
+  assertModifiableType(target.type, "aggregate object", functionName, sourceText, file);
+  const source = analyzeAggregateProducerExpr(sourceExpr, scope, functionSymbols, target.type, functionName, sourceText, file);
+  if (expectedType) {
+    assertMatchingAggregateType(target.type, expectedType, functionName, sourceText, file);
+  }
+  return {
+    kind: "aggregateAssignExpr",
+    target: { kind: "aggregateAddress", pointer: target.pointer, type: target.type },
+    source,
+    type: target.type,
+  };
 }
 
 function assertMatchingAggregateType(
@@ -2169,6 +2250,45 @@ function analyzeExpr(
       return { kind: "const", value: expr.value, type: toSemanticScalarType("int") };
     case "string":
       return { kind: "string", value: expr.value, type: toSemanticScalarType("int") };
+    case "vaStart": {
+      const list = lookupVisible(scope, expr.list);
+      const lastFixed = lookupVisible(scope, expr.lastFixed);
+      if (!list || list.kind !== "local" || list.type.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset requires va_start() to receive a local va_list in ${functionName}().`, { file, offset: 0 });
+      }
+      if (!lastFixed || lastFixed.kind !== "param") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset requires va_start() to name a fixed parameter in ${functionName}().`, { file, offset: 0 });
+      }
+      const variadicScope = getVariadicFunctionScope(scope);
+      if (!variadicScope || lastFixed.slot !== (variadicScope.fixedParamCount ?? 0) - 1) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset requires va_start() in a variadic function with its final fixed parameter in ${functionName}().`, { file, offset: 0 });
+      }
+      return { kind: "vaStart", list, type: toSemanticScalarType("int") };
+    }
+    case "vaArg": {
+      const list = lookupVisible(scope, expr.list);
+      const type = toSemanticType(expr.type);
+      if (!list || list.kind !== "local" || list.type.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset requires va_arg() to receive a local va_list in ${functionName}().`, { file, offset: 0 });
+      }
+      if (!getVariadicFunctionScope(scope)) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset permits va_arg() only in a variadic function in ${functionName}().`, { file, offset: 0 });
+      }
+      if (type.kind !== "scalar" && type.kind !== "pointer" && type.kind !== "functionPointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset va_arg() supports only char, int, scalar pointers, and function pointers in ${functionName}().`, { file, offset: 0 });
+      }
+      return { kind: "vaArg", list, width: type.width, type };
+    }
+    case "vaEnd": {
+      const list = lookupVisible(scope, expr.list);
+      if (!list || list.kind !== "local" || list.type.kind !== "pointer") {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset requires va_end() to receive a local va_list in ${functionName}().`, { file, offset: 0 });
+      }
+      if (!getVariadicFunctionScope(scope)) {
+        throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset permits va_end() only in a variadic function in ${functionName}().`, { file, offset: 0 });
+      }
+      return { kind: "vaEnd", type: toSemanticScalarType("int") };
+    }
     case "addressOf": {
       const symbol = lookupVisible(scope, expr.name);
       if (!symbol) {
@@ -2602,7 +2722,7 @@ function analyzeExpr(
     }
     case "call": {
       const target = functionSymbols.get(expr.target);
-      if (target && target.params.length !== expr.args.length) {
+      if (target && (target.isVariadic ? expr.args.length < target.params.length : target.params.length !== expr.args.length)) {
         throwDiagnostic(
           sourceText,
           `TsSccCompilerAdapter Phase C subset expected ${target.params.length} argument(s) for ${expr.target}(), got ${expr.args.length}.`,
@@ -2619,7 +2739,7 @@ function analyzeExpr(
         const symbol = lookupVisible(scope, expr.target);
         if (symbol && (symbol.kind === "local" || symbol.kind === "param" || symbol.kind === "global") && symbol.type.kind === "functionPointer") {
           const signature = symbol.type;
-          if (symbol.type.params.length !== expr.args.length) {
+          if (symbol.type.isVariadic ? expr.args.length < symbol.type.params.length : symbol.type.params.length !== expr.args.length) {
             throwDiagnostic(
               sourceText,
               `TsSccCompilerAdapter Phase C subset expected ${symbol.type.params.length} argument(s) for indirect call '${expr.target}()', got ${expr.args.length}.`,
@@ -2657,7 +2777,7 @@ function analyzeExpr(
         });
       }
       const signature = target.type;
-      if (target.type.params.length !== expr.args.length) {
+      if (target.type.isVariadic ? expr.args.length < target.type.params.length : target.type.params.length !== expr.args.length) {
         throwDiagnostic(
           sourceText,
           `TsSccCompilerAdapter Phase C subset expected ${target.type.params.length} argument(s) for indirect call, got ${expr.args.length}.`,
@@ -3170,6 +3290,15 @@ function lookupVisible(scope: Scope, name: string): BoundSymbol | undefined {
   return undefined;
 }
 
+function getVariadicFunctionScope(scope: Scope): Scope | undefined {
+  for (let current: Scope | undefined = scope; current; current = current.parent) {
+    if (current.isVariadicFunction) {
+      return current;
+    }
+  }
+  return undefined;
+}
+
 function isCompareOp(op: LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp): op is CompareOp {
   return op === "==" || op === "!=" || op === ">" || op === "<" || op === ">=" || op === "<=";
 }
@@ -3222,6 +3351,7 @@ function toSemanticType(type: SourceType | ScalarType): SemanticType {
       returnType: toSemanticType(type.returnType),
       params: type.params.map((param) => toSemanticType(param)),
       width: 2,
+      ...(type.isVariadic ? { isVariadic: true } : {}),
       ...(hasTypeQualifiers(type.qualifiers) ? { qualifiers: type.qualifiers } : {}),
     };
   }
@@ -3242,6 +3372,7 @@ function toSemanticFunctionPointerType(fn: BoundFunctionSymbol): SemanticFunctio
     returnType: fn.returnType,
     params: fn.params,
     width: 2,
+    ...(fn.isVariadic ? { isVariadic: true } : {}),
   };
 }
 
@@ -3430,6 +3561,9 @@ function getBoundExprStorageBytes(expr: BoundExpr): number {
   switch (expr.kind) {
     case "const":
     case "string":
+    case "vaStart":
+    case "vaArg":
+    case "vaEnd":
     case "ref":
     case "functionAddress":
     case "call":
@@ -3571,7 +3705,9 @@ function samePointerPointee(left: PointerPointee, right: PointerPointee): boolea
       && left.length === right.length;
   }
   if (left.kind === "functionPointer" || right.kind === "functionPointer") {
-    return left.kind === "functionPointer" && right.kind === "functionPointer";
+    return left.kind === "functionPointer"
+      && right.kind === "functionPointer"
+      && Boolean(left.isVariadic) === Boolean(right.isVariadic);
   }
   return samePointerPointee(left.pointee, right.pointee);
 }

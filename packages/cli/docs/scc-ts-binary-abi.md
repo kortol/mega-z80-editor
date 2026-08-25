@@ -46,6 +46,12 @@ higher address
 - local offset は frame bottom (`SP + 0`) 基準、argument offset は `localBytes + 2 + trailingArgumentBytes` 基準で計算する。
 - expression evaluation 中の `push` により `SP` が動くため、emitter は `stackDelta` を offset に加算して local/argument address を補正する。
 
+### Internal variadic calls
+
+Variadic functions are an internal TypeScript-source-path ABI only; external variadic declarations and object interoperability are not supported. A variadic call pushes every two-byte slot right-to-left. Thus fixed parameters appear after the return address in declaration order; an aggregate-return hidden destination pointer remains the nearest slot. The caller still pops every slot after return.
+
+`va_list` is a two-byte pointer to the current variadic slot. `va_start(list, lastFixed)` initializes it to the first optional slot, `va_arg(list, T)` reads one two-byte slot then advances it by two, and `va_end(list)` is a no-op. `va_arg` accepts `int`, `char` (low-byte narrowing), scalar pointers, and function pointers only.
+
 ## Calls and Returns
 
 | operation | contract |

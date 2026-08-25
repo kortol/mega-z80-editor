@@ -2007,6 +2007,22 @@ describe("tsFrontendSemantic", () => {
     expect(stmt.expr.right.args[0]?.kind).toBe("aggregateAssignExpr");
   });
 
+  test("binds aggregate assignment expression results for field, array element, and dereference destinations", () => {
+    const source = "struct Item { char value; };\nstruct Holder { struct Item item; };\nstruct Item make(char value){ struct Item x; x.value = value; return x; }\nint take(struct Item x){ return x.value; }\nint main(){ struct Holder holder; struct Item items[2]; struct Item *p = &items[1]; return (holder.item = make(65)).value + take(items[0] = make(66)) + ((*p = make(67)).value); }\n";
+    const parsed = parseProgram(source, "aggregate-assign-expr-address-result.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-expr-address-result.c");
+    const stmt = bound.functions[2].body.statements.at(-1)!;
+    expect(stmt.kind).toBe("return");
+    expect(JSON.stringify(stmt)).toContain('"aggregateAssignExpr"');
+    expect(JSON.stringify(stmt)).toContain('"aggregateAddress"');
+  });
+
+  test("rejects aggregate assignment expressions through const aggregate array elements", () => {
+    const source = "struct Item { char value; };\nstruct Item make(){ struct Item x; return x; }\nint take(struct Item x){ return x.value; }\nint main(){ const struct Item items[1]; return take(items[0] = make()); }\n";
+    const parsed = parseProgram(source, "aggregate-assign-expr-const-array.c");
+    expect(() => analyzeProgram(parsed, source, "aggregate-assign-expr-const-array.c")).toThrow(/cannot modify const-qualified (array element|aggregate object)/);
+  });
+
   test("binds file-scope aggregate assignment expression results", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ return (g = make()).a + take(g = make()); }\n";
     const parsed = parseProgram(source, "aggregate-global-assign-expr-result.c");

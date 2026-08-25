@@ -33,7 +33,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 ### Explicitly out of scope
 
 - `long`、浮動小数点、complex、atomic、bit-field、flexible array member。
-- variadic function、`goto`/label、VLA、compound literal、designated initializer。
+- `goto`/label、VLA、compound literal、designated initializer。
 - Full preprocessor、完全な linkage/storage-duration、ISO C の全 conversion rule。
 
 これらは `N` だが、失敗時は legacy compiler へ自動フォールバックせず TypeScript compiler の診断として扱う。
@@ -53,7 +53,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | D02 | `extern`, `static`, `typedef`, qualifiers | S | S | S | S | S | file-scope `extern` data/functions and internal-linkage `static` data/functions, including same-named static definitions in separate TS source modules, plus scalar/pointer/aggregate/array static locals including `for` initializer declarations with one-time data initialization are runtime-covered; qualifiers are preserved through declarations and semantic types, and writes through supported const-qualified lvalues are rejected. `volatile` / `restrict` preserve type metadata only; volatile access ordering and restrict alias analysis remain outside the Subset. |
 | D03 | struct/union definitions, members, nested fields | S | S | S | S | S | covered layout and lvalue paths |
 | D04 | enum constants and scalar/pointer typedef aliases | S | S | S | S | S | enum is normalized to int |
-| D05 | complex declarators and function-pointer typedef/parameter surface | P | P | P | P | P | direct declarator、`typedef R (*F)(A)` / `typedef F *Ref` / `typedef R (*Fs[N])(A)`、`R (**p)(A)`、local/parameter/return、extern/static `F[N]`、1-D/2-D function-pointer-array parameter、多段 `(*p)(...)`、`F f()` / `R (*f(...))(A)` と即時 `f()(...)`、abstract callback parameter を持つ nested typedef / function-return signature are covered; function-pointer-to-function, variadic, and 3-D+ declarators remain outside the current grammar |
+| D05 | complex declarators, function-pointer, and internal variadic surface | S | S | S | S | S | balanced function-pointer declarators cover named/abstract callback parameters, typedef/local/global/field/parameter/return forms, and variadic signatures. Internal direct/static and function-pointer variadic calls use the dedicated right-to-left slot ABI. `va_list` / `va_start` / `va_arg` / `va_end` support `char`/`int`/scalar-pointer/function-pointer slots and CP/M runtime evidence. External variadic linkage, variadic aggregate arguments, function-returning-function, 3-D+ declarators, and VLA remain out of scope. |
 | I01 | scalar and string-literal initialization | S | S | S | S | S | string literal support is char-array only |
 | I02 | local/file-scope aggregate brace initialization and zero fill | S | S | S | S | S | covered nested current layouts, row-braced 2-D aggregate arrays, and local/file-scope fully flat 2-D arrays of scalar/pointer/function-pointer, nested-struct, and scalar-like array-field structs; union flat initializers remain explicitly braced |
 | I03 | arbitrary nested/designated/compound-literal initialization | N | N | N | N | N | outside current initializer model |
@@ -63,10 +63,10 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | E04 | array/pointer subscripting and lvalue update | S | S | S | S | S | 1-D/2-D scalar, aggregate-element, pointer-element, and function-pointer-element local/global/parameter paths, including aggregate `T (*)[N]` lvalues, are covered |
 | E05 | struct/union field read/write/address/incdec | S | S | S | S | S | scalar/pointer field operations plus aggregate-field destinations through direct, nested, pointer, and conditional bases |
 | E06 | aggregate values through assignment/call/return/conditional/comma | S | S | S | S | S | dedicated producer/destination path; call result writes directly to local/global/aggregate-field destinations. A nested aggregate return call uses one ABI temporary because its hidden return pointer is stack-relative |
-| E07 | aggregate compare/truthiness and general aggregate lvalue expression result | N | N | N | N | N | intentional reject / future design decision |
+| E07 | aggregate compare/truthiness and general aggregate lvalue expression result | N | N | N | N | N | intentional reject. Aggregate assignment expressions are supported through X19; arbitrary aggregate lvalue expressions remain outside the value model. |
 | C01 | direct calls, scalar/pointer arguments and returns | S | S | S | S | S | current stack ABI |
 | C02 | struct/union argument and return producers | S | S | S | S | S | copy/temporary ABI is runtime-covered |
-| C03 | indirect function calls | S | S | S | S | S | local/file-scope/function-pointer-array/function-pointer-typedef/nested typedef/extern/static variable-or-array/`F *`+ / function-pointer-return target forms, including higher-order callback signatures, scalar/pointer/aggregate by-value arguments, and aggregate returns are runtime-covered |
+| C03 | indirect function calls | S | S | S | S | S | local/file-scope/function-pointer-array/function-pointer-typedef/nested typedef/extern/static variable-or-array/`F *`+ / function-pointer-return target forms, including higher-order callback signatures and internal variadic signatures, scalar/pointer/aggregate by-value arguments, and aggregate returns are runtime-covered |
 | C04 | recursion | S | S | S | S | S | scalar direct recursion runtime-covered |
 | S01 | expression/compound statements, blocks, lexical scopes | S | S | S | S | S | current nesting limit applies |
 | S02 | `if`/`else`, `switch`/`case`, `while`, `do`, `for` | S | S | S | S | S | case labels are integer literals; control nesting is capped |
@@ -137,7 +137,7 @@ Matrix notes:
 | X16 | `&&`, `||` | scalar/pointer truthy operands | S | S | S | S | S | aggregate truthiness is intentional reject |
 | X17 | `cond ? a : b` | scalar, compatible pointer, aggregate producer values | S | S | S | S | S | aggregate lvalue branch is not a general lvalue expression |
 | X18 | `(a, b)` | scalar, pointer, aggregate producer values | S | S | S | S | S | aggregate lvalue result is not generalized |
-| X19 | `lhs = rhs` expression | local/global scalar/pointer, supported array/member/deref lvalue, aggregate producer destination | S | S | S | S | P | aggregate assignment statement supports aggregate-field destinations; general aggregate assignment result remains unsupported |
+| X19 | `lhs = rhs` expression | local/global scalar/pointer, supported array/member/deref lvalue, aggregate producer destination | S | S | S | S | S | aggregate producer assignment results cover local/global, aggregate field/nested field, aggregate array element, and dereference destinations; destination address is evaluated once |
 | X20 | `op=` expression | scalar/pointer arithmetic lvalue, array/member/deref element | S | S | S | S | S | aggregate compound assignment is N |
 | X21 | prefix/postfix `++` / `--` | scalar/pointer, array element, supported field/deref lvalue | S | S | S | S | S | aggregate object inc/dec is N |
 | X22 | `a[i]` | char/int arrays, char/int pointers, sized pointer-to-array row element | S | S | S | S | S | direct 1-D and 2-D scalar array paths |
@@ -145,8 +145,8 @@ Matrix notes:
 | X24 | `.`, `->` field read | aggregate lvalue, pointer, conditional/deref base, aggregate producer | S | S | S | S | S | supported field type required |
 | X25 | field array index | `x.name[i]`, `p->name[i]`, `a[row][column].name[i]`, producer/nested field base | S | S | S | S | S | current char/int array fields, including 2-D aggregate-element read/write/prefix/postfix statement incdec |
 | X26 | field function-pointer call | `x.fp(args)`, `p->fp(args)`, aggregate producer field | S | S | S | S | S | direct/pointer/parameter/typedef/aggregate-producer field targets and scalar argument ABI are runtime-covered |
-| X27 | direct call `f(args)` | supported scalar/pointer/aggregate arguments and returns | S | S | S | S | S | variadic and unsupported declarators are N |
-| X28 | indirect call `fp(args)`, `(*p)(args)`, `f()(args)` | local/file-scope/function-pointer field target, `F *`+, function-pointer return | S | S | S | S | S | multi-level `F *` local/array/parameter, typedef field targets, scalar/aggregate by-value arguments, and aggregate-returning field calls are runtime-covered |
+| X27 | direct call `f(args)` | supported scalar/pointer/aggregate arguments and returns | S | S | S | S | S | internal variadic calls use the dedicated right-to-left ABI; external variadic linkage is N |
+| X28 | indirect call `fp(args)`, `(*p)(args)`, `f()(args)` | local/file-scope/function-pointer field target, `F *`+, function-pointer return | S | S | S | S | S | multi-level `F *` local/array/parameter, typedef field targets, internal variadic signatures, scalar/aggregate by-value arguments, and aggregate-returning field calls are runtime-covered |
 | X29 | aggregate producer expression | aggregate ref, call, assignment result, conditional, comma | S | S | S | S | S | dedicated producer/consumer representation |
 | X30 | aggregate consumer | field read/address, call argument, initializer, return | S | S | S | S | S | not a general scalar-expression conversion |
 | X31 | unsupported expression forms | compound literal, statement expression, generic selection, `typeof`, floating literal | N | N | N | N | N | outside current C Subset |
@@ -169,6 +169,6 @@ Matrix notes:
 ## Immediate Backlog
 
 1. `D02`: qualifier を型モデルへ保持し、`const` object / pointer-to-const への書込みを診断する。
-2. `D05` / `C03`: variadic を除く remaining complex function-pointer declarator と ABI の組合せを型別に実証・実装する。function-pointer-to-function と 3-D+ declarator は現行 grammar の対象外である。
+2. `D05` の残境界: function-returning-function、3-D+ declarator、VLA、external variadic linkage、variadic aggregate argument は現行 grammar/ABI の対象外である。
 3. `E07`: aggregate compare/truthiness と一般 aggregate lvalue expression result を Subset の意図的 reject として維持するか、一般 expression model の対象にするか決定する。
 4. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。

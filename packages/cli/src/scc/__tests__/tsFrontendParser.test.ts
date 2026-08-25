@@ -390,6 +390,24 @@ describe("tsFrontendParser", () => {
     expect(stmt.expr.index.kind).toBe("ref");
   });
 
+  test("parses aggregate assignment-expression destinations for field, array element, and dereference", () => {
+    const source = "struct Item { char value; };\nstruct Holder { struct Item item; };\nstruct Item make(){ struct Item x; return x; }\nint take(struct Item x){ return x.value; }\nint main(){ struct Holder holder; struct Item items[2]; struct Item *p = &items[1]; return (holder.item = make()).value + take(items[0] = make()) + ((*p = make()).value); }\n";
+    const program = parseProgram(source, "aggregate-assign-expr-address.c");
+    const stmt = program.functions[2].body.statements.at(-1)!;
+    expect(stmt.kind).toBe("return");
+    if (stmt.kind !== "return" || stmt.expr.kind !== "binary") return;
+    expect(stmt.expr.left.kind).toBe("binary");
+    if (stmt.expr.left.kind !== "binary") return;
+    expect(stmt.expr.left.left.kind).toBe("memberExprAccess");
+    expect(stmt.expr.left.right.kind).toBe("call");
+    if (stmt.expr.left.left.kind !== "memberExprAccess" || stmt.expr.left.right.kind !== "call") return;
+    expect(stmt.expr.left.left.target.kind).toBe("memberAssign");
+    expect(stmt.expr.left.right.args[0]?.kind).toBe("arrayAssign");
+    expect(stmt.expr.right.kind).toBe("memberExprAccess");
+    if (stmt.expr.right.kind !== "memberExprAccess") return;
+    expect(stmt.expr.right.target.kind).toBe("derefAssign");
+  });
+
   test("parses pointer-indexed assignment and compound assignment expressions", () => {
     const program = parseProgram("int main(){ int x = 65; int y = 66; int z = 67; int i = 1; int *p = &x; return (p[i] = z) + (p[i] |= 3); }\n", "pointer-index-assign-expr.c");
     const stmt = program.functions[0].body.statements[5];
@@ -2289,5 +2307,15 @@ describe("tsFrontendParser", () => {
       returnType: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: "char", length: 2 } },
       params: [{ name: "p", type: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: "char", length: 2 } } }],
     });
+  });
+
+  test("parses variadic declarations and stdarg subset expressions", () => {
+    const program = parseProgram(
+      "int sum(int first, ...){ va_list ap; va_start(ap, first); return va_arg(ap, int); }\n",
+      "variadic.c",
+    );
+    expect(program.functions[0]).toMatchObject({ name: "sum", isVariadic: true, params: [{ name: "first" }] });
+    expect(program.functions[0]?.body.statements[0]).toMatchObject({ kind: "expr", expr: { kind: "vaStart", list: "ap", lastFixed: "first" } });
+    expect(program.functions[0]?.body.statements[1]).toMatchObject({ kind: "return", expr: { kind: "vaArg", list: "ap" } });
   });
 });

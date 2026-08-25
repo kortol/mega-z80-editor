@@ -3725,6 +3725,26 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "stmt-aggregate-assign-expr-result", programRel, [], 4000)).toBe("AB");
   });
 
+  test("source mode aggregate assignment expression address destinations link and produce CP/M output", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-assign-expr-address-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-assign-expr-address-source.c",
+      "struct Item { char value; };\nstruct Holder { struct Item item; };\nstruct Item make(char value){ struct Item x; x.value = value; return x; }\nint take(struct Item x){ return x.value; }\nint main(){ struct Holder holder; struct Item items[2]; struct Item *p = &items[1]; outchar((holder.item = make(65)).value); outchar(take(items[0] = make(66))); outchar((*p = make(67)).value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-assign-expr-address", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode aggregate assignment expressions support 2-D elements and conditional pointer destinations", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-assign-expr-conditional-link-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "stmt-aggregate-assign-expr-conditional-source.c",
+      "struct Item { char value; };\nstruct Holder { struct Item item; };\nstruct Item make(char value){ struct Item x; x.value = value; return x; }\nint main(){ struct Item rows[1][1]; struct Holder left; struct Holder right; struct Holder *p = &left; struct Holder *q = &right; int choose = 0; outchar((rows[0][0] = make(65)).value); outchar(((choose ? p : q)->item = make(66)).value); outchar(right.item.value); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "stmt-aggregate-assign-expr-conditional", programRel, [], 4000)).toBe("ABB");
+  });
+
   test("source mode file-scope aggregate assignment expression results link and produce CP/M output", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-stmt-aggregate-global-assign-expr-result-link-"));
     const programRel = compileSourceRel(
@@ -4803,6 +4823,16 @@ describe("TsSccCompilerAdapter", () => {
       "struct Item { char tag; int value; };\nint main(){ struct Item items[2]; struct Item *first = &items[0]; struct Item *second = &items[1]; outchar((second - first) + 64); return 0; }\n",
     );
     expect(linkAndRunCom(tempDir, "aggregate-pointer-difference", programRel, [helperRelPath], 4000)).toBe("A");
+  });
+
+  test("source mode reads internal variadic slots through the stdarg subset", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-variadic-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "variadic.c",
+      "int sum(int first, ...){ va_list ap; va_start(ap, first); return first + va_arg(ap, int); }\nint main(){ outchar(sum(65, 1)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "variadic", programRel, [], 4000)).toBe("B");
   });
 
   });

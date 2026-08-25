@@ -243,6 +243,10 @@ function lowerExprIR(expr, layout) {
             return { kind: "dataAddress", label: expr.label };
         case "globalAddress":
             return { kind: "globalAddress", name: expr.name };
+        case "variadicStartAddress":
+            return { kind: "variadicStartAddress", offset: layout.variadicStartOffset };
+        case "vaArg":
+            return { kind: "vaArg", listOffset: getLocalOffset(layout, expr.listSlot), width: expr.width };
         case "localAddress":
             return { kind: "localAddress", offset: getLocalOffset(layout, expr.slot) };
         case "localArrayElement":
@@ -289,6 +293,7 @@ function lowerExprIR(expr, layout) {
                 kind: "indirectCall",
                 target: lowerExprIR(expr.target, layout),
                 args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
+                ...(expr.isVariadic ? { isVariadic: true } : {}),
             };
         case "compare":
             return {
@@ -349,6 +354,7 @@ function lowerExprIR(expr, layout) {
                 kind: "call",
                 target: expr.target,
                 args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
+                ...(expr.isVariadic ? { isVariadic: true } : {}),
             };
         case "ref":
             return lowerRefIR(expr, layout);
@@ -388,7 +394,9 @@ function lowerAggregateProducerIR(expr, layout) {
                 kind: "aggregateAssignExpr",
                 effectDestination: expr.effectDestination.kind === "localSlot"
                     ? { kind: "localSlot", offset: getLocalOffset(layout, expr.effectDestination.slot), size: expr.size }
-                    : { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size },
+                    : expr.effectDestination.kind === "globalSymbol"
+                        ? { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size }
+                        : { kind: "pointer", pointer: lowerExprIR(expr.effectDestination.pointer, layout), size: expr.size },
                 valueDestination: { kind: "localSlot", offset: getLocalOffset(layout, expr.valueDestination.slot), size: expr.size },
                 source: lowerAggregateProducerIR(expr.source, layout),
                 size: expr.size,
@@ -399,6 +407,7 @@ function lowerAggregateProducerIR(expr, layout) {
                 target: lowerExprIR(expr.target, layout),
                 args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
                 size: expr.size,
+                ...(expr.isVariadic ? { isVariadic: true } : {}),
             };
         case "call":
             return {
@@ -406,6 +415,7 @@ function lowerAggregateProducerIR(expr, layout) {
                 target: expr.target,
                 args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
                 size: expr.size,
+                ...(expr.isVariadic ? { isVariadic: true } : {}),
             };
         case "comma":
             return {
@@ -486,14 +496,27 @@ function layoutFunction(fn) {
     }
     const localBytes = localRunning;
     const paramOffsets = [];
+    let preceding = 0;
     for (let index = 0; index < fn.params.length; index += 1) {
+        if (fn.isVariadic) {
+            // Variadic calls push every slot right-to-left, so fixed parameters are
+            // laid out in declaration order immediately after the return address.
+            paramOffsets.push(localBytes + 2 + preceding);
+            preceding += getParamStackBytes(fn.params[index]);
+            continue;
+        }
         let trailing = 0;
         for (let next = index + 1; next < fn.params.length; next += 1) {
             trailing += getParamStackBytes(fn.params[next]);
         }
         paramOffsets.push(localBytes + 2 + trailing);
     }
-    return { localBytes, localOffsets, paramOffsets };
+    return {
+        localBytes,
+        localOffsets,
+        paramOffsets,
+        variadicStartOffset: localBytes + 2 + fn.params.reduce((total, width) => total + getParamStackBytes(width), 0),
+    };
 }
 function getParamStackBytes(_width) {
     return 2;
@@ -588,6 +611,10 @@ function emitExprToHl(expr, ctx) {
             return [`\tld\thl,#${expr.label}+0`];
         case "globalAddress":
             return [`\tld\thl,#${expr.name}+0`];
+        case "variadicStartAddress":
+            return emitLoadStackAddrToHl(expr.offset, ctx);
+        case "vaArg":
+            return emitVaArgExpr(expr.listOffset, expr.width, ctx);
         case "localAddress":
             return emitLoadStackAddrToHl(expr.offset, ctx);
         case "localArrayElement":
@@ -637,9 +664,9 @@ function emitExprToHl(expr, ctx) {
         case "comma":
             return [...emitExprToHl(expr.left, ctx), ...emitExprToHl(expr.right, ctx)];
         case "call":
-            return emitCallExpr(expr.target, expr.args ?? [], ctx);
+            return emitCallExpr(expr.target, expr.args ?? [], ctx, expr.isVariadic);
         case "indirectCall":
-            return emitIndirectCallExpr(expr.target, expr.args ?? [], ctx);
+            return emitIndirectCallExpr(expr.target, expr.args ?? [], ctx, expr.isVariadic);
         case "conditional":
             return emitConditionalExpr(expr.condition, expr.thenExpr, expr.elseExpr, ctx);
         case "logical":
@@ -670,17 +697,17 @@ function emitExprToHl(expr, ctx) {
             return assertNever(expr);
     }
 }
-function emitCallExpr(target, args, ctx) {
+function emitCallExpr(target, args, ctx, isVariadic = false) {
     if (args.length === 0) {
         return [`\tcall\t${target}`];
     }
-    return [...emitPushArgs(args, ctx), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
+    return [...emitPushArgs(args, ctx, isVariadic), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
-function emitIndirectCallExpr(target, args, ctx) {
+function emitIndirectCallExpr(target, args, ctx, isVariadic = false) {
     // Keep arguments on the caller stack, then evaluate the jump target with
     // their stack delta. The previous target-first sequence popped an argument
     // into HL whenever an indirect call had one or more arguments.
-    const lines = emitPushArgs(args, ctx);
+    const lines = emitPushArgs(args, ctx, isVariadic);
     const returnLabel = allocateExprLabel(ctx);
     lines.push(...emitExprToHl(target, { ...ctx, stackDelta: ctx.stackDelta + args.length * 2 }));
     lines.push(`\tld\tde,#${returnLabel}`);
@@ -690,10 +717,10 @@ function emitIndirectCallExpr(target, args, ctx) {
     lines.push(...Array.from({ length: args.length }, () => "\tpop\tbc"));
     return lines;
 }
-function emitPushArgs(args, ctx) {
+function emitPushArgs(args, ctx, isVariadic = false) {
     const lines = [];
     let stackDelta = ctx.stackDelta;
-    for (const arg of args) {
+    for (const arg of isVariadic ? [...args].reverse() : args) {
         if (arg.kind === "expr") {
             lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
         }
@@ -704,6 +731,33 @@ function emitPushArgs(args, ctx) {
         stackDelta += 2;
     }
     return lines;
+}
+function emitVaArgExpr(listOffset, width, ctx) {
+    // BC receives the current va_list slot pointer.  Advance and persist it
+    // before loading the old slot so nested expressions cannot observe a stale
+    // list. Every variadic argument occupies a two-byte ABI slot.
+    const lines = [
+        ...emitLoadStackAddrToHl(listOffset, ctx),
+        "\tld\tc,(hl)",
+        "\tinc\thl",
+        "\tld\tb,(hl)",
+        "\tdec\thl",
+        "\tinc\tbc",
+        "\tinc\tbc",
+        "\tld\ta,c",
+        "\tld\t(hl),a",
+        "\tinc\thl",
+        "\tld\ta,b",
+        "\tld\t(hl),a",
+        "\tdec\tbc",
+        "\tdec\tbc",
+        "\tld\th,b",
+        "\tld\tl,c",
+    ];
+    if (width === 1) {
+        return [...lines, "\tld\ta,(hl)", "\tld\tl,a", "\tld\th,#0"];
+    }
+    return [...lines, "\tld\te,(hl)", "\tinc\thl", "\tld\td,(hl)", "\tex\tde,hl"];
 }
 function emitAggregateProducerAddressArg(source, tempOffset, ctx) {
     if (source.kind === "aggregateAddress") {
@@ -1119,7 +1173,7 @@ function tryEmitAggregateProducerFieldPointerToHl(source, tempOffset, fieldOffse
             return [
                 ...emitAggregateAssignExprValue(source, ctx),
                 ...emitAggregateAssignExprEffectToTarget(source, ctx),
-                ...emitExprToHl(getAggregateFieldPointerFromAssignDestination(source.effectDestination, fieldOffset), ctx),
+                ...emitLoadStackAddrToHl(source.valueDestination.offset + fieldOffset, ctx),
             ];
         case "call": {
             const requiredTempOffset = requireAggregateConsumerTempOffset(source, tempOffset);
@@ -1289,14 +1343,17 @@ function getAggregateAssignEffectDestination(source) {
     if (source.effectDestination.kind === "localSlot") {
         return source.effectDestination;
     }
+    if (source.effectDestination.kind === "pointer") {
+        return source.effectDestination;
+    }
     return { kind: "pointer", pointer: { kind: "globalAddress", name: source.effectDestination.name }, size: source.size };
 }
 function emitAggregateCallToDestination(source, destination, ctx) {
     const args = [{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) }, ...(source.args ?? [])];
     if (source.kind === "indirectCall") {
-        return emitIndirectCallExpr(source.target, args, ctx);
+        return emitIndirectCallExpr(source.target, args, ctx, source.isVariadic);
     }
-    return [...emitPushArgs(args, ctx), `\tcall\t${source.target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
+    return [...emitPushArgs(args, ctx, source.isVariadic), `\tcall\t${source.target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 function getAggregateDestinationPointerExpr(destination) {
     switch (destination.kind) {

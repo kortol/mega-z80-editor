@@ -961,6 +961,17 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
+  test("lowers aggregate assignment expression results for address destinations without re-evaluating the destination", () => {
+    const source = "struct Item { char value; };\nstruct Holder { struct Item item; };\nstruct Item make(char value){ struct Item x; x.value = value; return x; }\nint take(struct Item x){ return x.value; }\nint main(){ struct Holder holder; struct Item items[2]; struct Item *p = &items[1]; return (holder.item = make(65)).value + take(items[0] = make(66)) + ((*p = make(67)).value); }\n";
+    const parsed = parseProgram(source, "aggregate-assign-expr-address-result.c");
+    const bound = analyzeProgram(parsed, source, "aggregate-assign-expr-address-result.c");
+    const spec = lowerSourceProgram(bound, "aggregate-assign-expr-address-result.i", source, "aggregate-assign-expr-address-result.c");
+    const asm = emitProgram(spec);
+
+    expect((asm.match(/\tcall\tmake/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(6);
+  });
+
   test("lowers file-scope aggregate assignment expression results", () => {
     const source = "struct Foo { char a; int b; };\nstruct Foo g;\nstruct Foo make(){ struct Foo x; return x; }\nint take(struct Foo x){ return x.b; }\nint main(){ return (g = make()).a + take(g = make()); }\n";
     const parsed = parseProgram(source, "aggregate-global-assign-expr-result.c");
@@ -1875,5 +1886,17 @@ describe("tsFrontendLowering", () => {
     expect((asm.match(/\tld\t\(hl\),e/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect((asm.match(/\tld\ta,\(hl\)/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect(asm).toContain("\tadd\thl,de");
+  });
+
+  test("lowers internal variadic calls with right-to-left slots and va_arg", () => {
+    const source = "int sum(int first, ...){ va_list ap; va_start(ap, first); return first + va_arg(ap, int); }\nint main(){ return sum(10, 20); }\n";
+    const parsed = parseProgram(source, "variadic.c");
+    const bound = analyzeProgram(parsed, source, "variadic.c");
+    const spec = lowerSourceProgram(bound, "variadic.i", source, "variadic.c");
+    const asm = emitProgram(spec);
+
+    expect(asm).toContain("\tld\thl,#20\n\tpush\thl\n\tld\thl,#10\n\tpush\thl\n\tcall\tsum");
+    expect(asm).toContain("\tld\tc,(hl)");
+    expect(asm).toContain("\tinc\tbc");
   });
 });

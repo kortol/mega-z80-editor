@@ -14,9 +14,9 @@ export type AggregateProducerSpec =
   | { kind: "aggregateRef"; scope: "local" | "arg"; offset: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; name: string; size: number }
   | { kind: "aggregateAddress"; pointer: ExprSpec; size: number }
-  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" | "globalSymbol" }>; valueDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" }>; source: AggregateProducerSpec; size: number }
-  | { kind: "call"; target: string; args?: CallArgSpec[]; size: number }
-  | { kind: "indirectCall"; target: ExprSpec; args?: CallArgSpec[]; size: number }
+  | { kind: "aggregateAssignExpr"; effectDestination: Exclude<AggregateDestinationSpec, { kind: "returnSlot" }>; valueDestination: Extract<AggregateDestinationSpec, { kind: "localSlot" }>; source: AggregateProducerSpec; size: number }
+  | { kind: "call"; target: string; args?: CallArgSpec[]; size: number; isVariadic?: boolean }
+  | { kind: "indirectCall"; target: ExprSpec; args?: CallArgSpec[]; size: number; isVariadic?: boolean }
   | { kind: "comma"; left: ExprSpec; right: AggregateProducerSpec; size: number }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: AggregateProducerSpec; elseExpr: AggregateProducerSpec; size: number };
 
@@ -40,6 +40,8 @@ export type ExprSpec =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
   | { kind: "globalAddress"; name: string }
+  | { kind: "variadicStartAddress"; offset: number }
+  | { kind: "vaArg"; listOffset: number; width: ValueWidth }
   | { kind: "localAddress"; offset: number }
   | { kind: "localArrayElement"; offset: number }
   | { kind: "localArrayElementExpr"; offset: number; index: ExprSpec }
@@ -51,7 +53,7 @@ export type ExprSpec =
   | { kind: "assignDerefByte"; pointer: ExprSpec; expr: ExprSpec }
   | { kind: "assignDerefWord"; pointer: ExprSpec; expr: ExprSpec }
   | { kind: "incDecDeref"; pointer: ExprSpec; width: ValueWidth; op: "++" | "--"; mode: "prefix" | "postfix" }
-  | { kind: "call"; target: string; args?: CallArgSpec[] }
+  | { kind: "call"; target: string; args?: CallArgSpec[]; isVariadic?: boolean }
   | { kind: "incDecLocal"; offset: number; width: ValueWidth; step: 1 | 2; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecLocalArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
   | { kind: "incDecArgArray"; offset: number; index: ExprSpec; op: "++" | "--"; mode: "prefix" | "postfix" }
@@ -61,7 +63,7 @@ export type ExprSpec =
   | { kind: "assignGlobalArray"; name: string; index: ExprSpec; expr: ExprSpec }
   | { kind: "assignArgArray"; offset: number; index: ExprSpec; expr: ExprSpec }
   | { kind: "comma"; left: ExprSpec; right: ExprSpec }
-  | { kind: "indirectCall"; target: ExprSpec; args?: CallArgSpec[] }
+  | { kind: "indirectCall"; target: ExprSpec; args?: CallArgSpec[]; isVariadic?: boolean }
   | { kind: "conditional"; condition: ExprSpec; thenExpr: ExprSpec; elseExpr: ExprSpec }
   | { kind: "logical"; left: ExprSpec; right: ExprSpec; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprSpec; right: ExprSpec; op: "&" | "^" | "|" }
@@ -98,9 +100,9 @@ export type AggregateProducerIR =
   | { kind: "aggregateRef"; scope: "local" | "arg"; slot: number; size: number }
   | { kind: "aggregateRef"; scope: "global"; slot: string; size: number }
   | { kind: "aggregateAddress"; pointer: ExprIR; size: number }
-  | { kind: "aggregateAssignExpr"; effectDestination: Extract<AggregateDestinationIR, { kind: "localSlot" | "globalSymbol" }>; valueDestination: Extract<AggregateDestinationIR, { kind: "localSlot" }>; source: AggregateProducerIR; size: number }
-  | { kind: "call"; target: string; args?: CallArgIR[]; size: number }
-  | { kind: "indirectCall"; target: ExprIR; args?: CallArgIR[]; size: number }
+  | { kind: "aggregateAssignExpr"; effectDestination: Exclude<AggregateDestinationIR, { kind: "returnSlot" }>; valueDestination: Extract<AggregateDestinationIR, { kind: "localSlot" }>; source: AggregateProducerIR; size: number }
+  | { kind: "call"; target: string; args?: CallArgIR[]; size: number; isVariadic?: boolean }
+  | { kind: "indirectCall"; target: ExprIR; args?: CallArgIR[]; size: number; isVariadic?: boolean }
   | { kind: "comma"; left: ExprIR; right: AggregateProducerIR; size: number }
   | { kind: "conditional"; condition: ExprIR; thenExpr: AggregateProducerIR; elseExpr: AggregateProducerIR; size: number };
 
@@ -124,6 +126,8 @@ export type ExprIR =
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
   | { kind: "globalAddress"; name: string }
+  | { kind: "variadicStartAddress" }
+  | { kind: "vaArg"; listSlot: number; width: ValueWidth }
   | { kind: "localAddress"; slot: number }
   | { kind: "localArrayElement"; slot: number; index: ExprIR }
   | { kind: "globalArrayElement"; name: string; index: ExprIR }
@@ -144,7 +148,7 @@ export type ExprIR =
   | { kind: "assignGlobalArray"; name: string; index: ExprIR; expr: ExprIR }
   | { kind: "assignArgArray"; slot: number; index: ExprIR; expr: ExprIR }
   | { kind: "comma"; left: ExprIR; right: ExprIR }
-  | { kind: "indirectCall"; target: ExprIR; args?: CallArgIR[] }
+  | { kind: "indirectCall"; target: ExprIR; args?: CallArgIR[]; isVariadic?: boolean }
   | { kind: "conditional"; condition: ExprIR; thenExpr: ExprIR; elseExpr: ExprIR }
   | { kind: "logical"; left: ExprIR; right: ExprIR; op: "&&" | "||" }
   | { kind: "bitwise"; left: ExprIR; right: ExprIR; op: "&" | "^" | "|" }
@@ -154,11 +158,12 @@ export type ExprIR =
   | { kind: "additive"; left: ExprIR; right: ExprIR; op: "+" | "-" }
   | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerIR, { kind: "fieldRead" | "fieldAddress" }> }
   | { kind: "globalRef"; name: string; width: ValueWidth }
-  | { kind: "call"; target: string; args?: CallArgIR[] };
+  | { kind: "call"; target: string; args?: CallArgIR[]; isVariadic?: boolean };
 
 export type FunctionIR = {
   name: string;
   params: ValueWidth[];
+  isVariadic?: boolean;
   locals: number[];
   body: StmtIRHigh[];
 };
@@ -190,6 +195,7 @@ type FunctionLayout = {
   localBytes: number;
   localOffsets: number[];
   paramOffsets: number[];
+  variadicStartOffset: number;
 };
 
 type LoweringState = {
@@ -485,6 +491,10 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
       return { kind: "dataAddress", label: expr.label };
     case "globalAddress":
       return { kind: "globalAddress", name: expr.name };
+    case "variadicStartAddress":
+      return { kind: "variadicStartAddress", offset: layout.variadicStartOffset };
+    case "vaArg":
+      return { kind: "vaArg", listOffset: getLocalOffset(layout, expr.listSlot), width: expr.width };
     case "localAddress":
       return { kind: "localAddress", offset: getLocalOffset(layout, expr.slot) };
     case "localArrayElement":
@@ -531,6 +541,7 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         kind: "indirectCall",
         target: lowerExprIR(expr.target, layout),
         args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
+        ...(expr.isVariadic ? { isVariadic: true } : {}),
       };
     case "compare":
       return {
@@ -591,6 +602,7 @@ function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
         kind: "call",
         target: expr.target,
         args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
+        ...(expr.isVariadic ? { isVariadic: true } : {}),
       };
     case "ref":
       return lowerRefIR(expr, layout);
@@ -632,7 +644,9 @@ function lowerAggregateProducerIR(expr: AggregateProducerIR, layout: FunctionLay
         kind: "aggregateAssignExpr",
         effectDestination: expr.effectDestination.kind === "localSlot"
           ? { kind: "localSlot", offset: getLocalOffset(layout, expr.effectDestination.slot), size: expr.size }
-          : { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size },
+          : expr.effectDestination.kind === "globalSymbol"
+            ? { kind: "globalSymbol", name: expr.effectDestination.name, size: expr.size }
+            : { kind: "pointer", pointer: lowerExprIR(expr.effectDestination.pointer, layout), size: expr.size },
         valueDestination: { kind: "localSlot", offset: getLocalOffset(layout, expr.valueDestination.slot), size: expr.size },
         source: lowerAggregateProducerIR(expr.source, layout),
         size: expr.size,
@@ -643,6 +657,7 @@ function lowerAggregateProducerIR(expr: AggregateProducerIR, layout: FunctionLay
         target: lowerExprIR(expr.target, layout),
         args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
         size: expr.size,
+        ...(expr.isVariadic ? { isVariadic: true } : {}),
       };
     case "call":
       return {
@@ -650,6 +665,7 @@ function lowerAggregateProducerIR(expr: AggregateProducerIR, layout: FunctionLay
         target: expr.target,
         args: expr.args?.map((arg) => lowerCallArgIR(arg, layout)),
         size: expr.size,
+        ...(expr.isVariadic ? { isVariadic: true } : {}),
       };
     case "comma":
       return {
@@ -734,14 +750,27 @@ function layoutFunction(fn: FunctionIR): FunctionLayout {
   }
   const localBytes = localRunning;
   const paramOffsets: number[] = [];
+  let preceding = 0;
   for (let index = 0; index < fn.params.length; index += 1) {
+    if (fn.isVariadic) {
+      // Variadic calls push every slot right-to-left, so fixed parameters are
+      // laid out in declaration order immediately after the return address.
+      paramOffsets.push(localBytes + 2 + preceding);
+      preceding += getParamStackBytes(fn.params[index]);
+      continue;
+    }
     let trailing = 0;
     for (let next = index + 1; next < fn.params.length; next += 1) {
       trailing += getParamStackBytes(fn.params[next]);
     }
     paramOffsets.push(localBytes + 2 + trailing);
   }
-  return { localBytes, localOffsets, paramOffsets };
+  return {
+    localBytes,
+    localOffsets,
+    paramOffsets,
+    variadicStartOffset: localBytes + 2 + fn.params.reduce((total, width) => total + getParamStackBytes(width), 0),
+  };
 }
 
 function getParamStackBytes(_width: ValueWidth): number {
@@ -842,6 +871,10 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
       return [`\tld\thl,#${expr.label}+0`];
     case "globalAddress":
       return [`\tld\thl,#${expr.name}+0`];
+    case "variadicStartAddress":
+      return emitLoadStackAddrToHl(expr.offset, ctx);
+    case "vaArg":
+      return emitVaArgExpr(expr.listOffset, expr.width, ctx);
     case "localAddress":
       return emitLoadStackAddrToHl(expr.offset, ctx);
     case "localArrayElement":
@@ -891,9 +924,9 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
     case "comma":
       return [...emitExprToHl(expr.left, ctx), ...emitExprToHl(expr.right, ctx)];
     case "call":
-      return emitCallExpr(expr.target, expr.args ?? [], ctx);
+      return emitCallExpr(expr.target, expr.args ?? [], ctx, expr.isVariadic);
     case "indirectCall":
-      return emitIndirectCallExpr(expr.target, expr.args ?? [], ctx);
+      return emitIndirectCallExpr(expr.target, expr.args ?? [], ctx, expr.isVariadic);
     case "conditional":
       return emitConditionalExpr(expr.condition, expr.thenExpr, expr.elseExpr, ctx);
     case "logical":
@@ -925,18 +958,18 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
   }
 }
 
-function emitCallExpr(target: string, args: CallArgSpec[], ctx: EmitExprContext): string[] {
+function emitCallExpr(target: string, args: CallArgSpec[], ctx: EmitExprContext, isVariadic = false): string[] {
   if (args.length === 0) {
     return [`\tcall\t${target}`];
   }
-  return [...emitPushArgs(args, ctx), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
+  return [...emitPushArgs(args, ctx, isVariadic), `\tcall\t${target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 
-function emitIndirectCallExpr(target: ExprSpec, args: CallArgSpec[], ctx: EmitExprContext): string[] {
+function emitIndirectCallExpr(target: ExprSpec, args: CallArgSpec[], ctx: EmitExprContext, isVariadic = false): string[] {
   // Keep arguments on the caller stack, then evaluate the jump target with
   // their stack delta. The previous target-first sequence popped an argument
   // into HL whenever an indirect call had one or more arguments.
-  const lines = emitPushArgs(args, ctx);
+  const lines = emitPushArgs(args, ctx, isVariadic);
   const returnLabel = allocateExprLabel(ctx);
   lines.push(...emitExprToHl(target, { ...ctx, stackDelta: ctx.stackDelta + args.length * 2 }));
   lines.push(`\tld\tde,#${returnLabel}`);
@@ -947,10 +980,10 @@ function emitIndirectCallExpr(target: ExprSpec, args: CallArgSpec[], ctx: EmitEx
   return lines;
 }
 
-function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
+function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext, isVariadic = false): string[] {
   const lines: string[] = [];
   let stackDelta = ctx.stackDelta;
-  for (const arg of args) {
+  for (const arg of isVariadic ? [...args].reverse() : args) {
     if (arg.kind === "expr") {
       lines.push(...emitExprToHl(arg.expr, { ...ctx, stackDelta }));
     } else {
@@ -964,6 +997,34 @@ function emitPushArgs(args: CallArgSpec[], ctx: EmitExprContext): string[] {
     stackDelta += 2;
   }
   return lines;
+}
+
+function emitVaArgExpr(listOffset: number, width: ValueWidth, ctx: EmitExprContext): string[] {
+  // BC receives the current va_list slot pointer.  Advance and persist it
+  // before loading the old slot so nested expressions cannot observe a stale
+  // list. Every variadic argument occupies a two-byte ABI slot.
+  const lines = [
+    ...emitLoadStackAddrToHl(listOffset, ctx),
+    "\tld\tc,(hl)",
+    "\tinc\thl",
+    "\tld\tb,(hl)",
+    "\tdec\thl",
+    "\tinc\tbc",
+    "\tinc\tbc",
+    "\tld\ta,c",
+    "\tld\t(hl),a",
+    "\tinc\thl",
+    "\tld\ta,b",
+    "\tld\t(hl),a",
+    "\tdec\tbc",
+    "\tdec\tbc",
+    "\tld\th,b",
+    "\tld\tl,c",
+  ];
+  if (width === 1) {
+    return [...lines, "\tld\ta,(hl)", "\tld\tl,a", "\tld\th,#0"];
+  }
+  return [...lines, "\tld\te,(hl)", "\tinc\thl", "\tld\td,(hl)", "\tex\tde,hl"];
 }
 
 function emitAggregateProducerAddressArg(
@@ -1482,7 +1543,7 @@ function tryEmitAggregateProducerFieldPointerToHl(
       return [
         ...emitAggregateAssignExprValue(source, ctx),
         ...emitAggregateAssignExprEffectToTarget(source, ctx),
-        ...emitExprToHl(getAggregateFieldPointerFromAssignDestination(source.effectDestination, fieldOffset), ctx),
+        ...emitLoadStackAddrToHl(source.valueDestination.offset + fieldOffset, ctx),
       ];
     case "call": {
       const requiredTempOffset = requireAggregateConsumerTempOffset(source, tempOffset);
@@ -1724,6 +1785,9 @@ function getAggregateAssignEffectDestination(
   if (source.effectDestination.kind === "localSlot") {
     return source.effectDestination;
   }
+  if (source.effectDestination.kind === "pointer") {
+    return source.effectDestination;
+  }
   return { kind: "pointer", pointer: { kind: "globalAddress", name: source.effectDestination.name }, size: source.size };
 }
 
@@ -1734,9 +1798,9 @@ function emitAggregateCallToDestination(
 ): string[] {
   const args = [{ kind: "expr", expr: getAggregateDestinationPointerExpr(destination) } satisfies CallArgSpec, ...(source.args ?? [])];
   if (source.kind === "indirectCall") {
-    return emitIndirectCallExpr(source.target, args, ctx);
+    return emitIndirectCallExpr(source.target, args, ctx, source.isVariadic);
   }
-  return [...emitPushArgs(args, ctx), `\tcall\t${source.target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
+  return [...emitPushArgs(args, ctx, source.isVariadic), `\tcall\t${source.target}`, ...Array.from({ length: args.length }, () => "\tpop\tbc")];
 }
 
 function getAggregateDestinationPointerExpr(destination: AggregateEmitDestination): ExprSpec {

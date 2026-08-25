@@ -468,6 +468,7 @@ function lowerFunction(fn, externs, definedFunctions, sourceText, state, file) {
     const functionIr = {
         name: fn.name,
         params: [...(fn.returnType.kind === "aggregate" ? [2] : []), ...fn.params.map((param) => getParamWidth(param))],
+        ...(fn.isVariadic ? { isVariadic: true } : {}),
         locals: [...fn.locals.map((local) => local.storageBytes), ...functionState.tempLocals],
         body,
     };
@@ -831,9 +832,19 @@ function materializeAggregateAssignExprProducer(source, destination, externs, de
             ...copyAggregateLocalSlotToDestination(source.target.slot, source.target.type, destination),
         ];
     }
+    if (source.target.kind === "aggregateAddress") {
+        return [{
+                kind: "materializeAggregateProducer",
+                destination: lowerAggregateDestination(destination),
+                source: lowerAggregateProducerExpr(source, externs, definedFunctions, sourceText, state, functionState, file),
+            }];
+    }
     return materializeAggregateAssignExprViaTempLocal(source, destination, externs, definedFunctions, sourceText, state, functionState, file);
 }
 function materializeAggregateAssignExprViaTempLocal(source, destination, externs, definedFunctions, sourceText, state, functionState, file) {
+    if (source.target.kind !== "global") {
+        throw new Error("Internal lowering error: aggregate assignment temporary target must be global.");
+    }
     const tempSlot = allocateTempLocal(functionState, source.type.size);
     return [
         ...materializeAggregateProducer(source.source, { kind: "localSlot", slot: tempSlot, type: source.target.type }, externs, definedFunctions, sourceText, state, functionState, file),
@@ -1148,6 +1159,12 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
             return { kind: "const", value: expr.value };
         case "string":
             return { kind: "dataAddress", label: internStringLiteral(state, expr.value) };
+        case "vaStart":
+            return { kind: "assignLocal", slot: expr.list.slot, width: 2, expr: { kind: "variadicStartAddress" } };
+        case "vaArg":
+            return { kind: "vaArg", listSlot: expr.list.slot, width: expr.width };
+        case "vaEnd":
+            return { kind: "const", value: 0 };
         case "functionAddress":
             return { kind: "dataAddress", label: expr.name };
         case "ref":
@@ -1343,6 +1360,7 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
             return {
                 kind: "call",
                 target: expr.target.name,
+                ...(expr.target.kind !== "extern" && expr.target.isVariadic ? { isVariadic: true } : {}),
                 args: expr.args.map((arg) => isAggregateCallArg(arg)
                     ? {
                         kind: "aggregateConsumer",
@@ -1361,6 +1379,7 @@ function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionS
             return {
                 kind: "indirectCall",
                 target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
+                ...(expr.signature.isVariadic ? { isVariadic: true } : {}),
                 args: expr.args.map((arg) => isAggregateCallArg(arg)
                     ? {
                         kind: "aggregateConsumer",
@@ -1556,7 +1575,13 @@ function lowerAggregateProducerExpr(expr, externs, definedFunctions, sourceText,
                 kind: "aggregateAssignExpr",
                 effectDestination: expr.target.kind === "local"
                     ? { kind: "localSlot", slot: expr.target.slot, size: expr.type.size }
-                    : { kind: "globalSymbol", name: expr.target.name, size: expr.type.size },
+                    : expr.target.kind === "global"
+                        ? { kind: "globalSymbol", name: expr.target.name, size: expr.type.size }
+                        : {
+                            kind: "pointer",
+                            pointer: lowerExpr(expr.target.pointer, externs, definedFunctions, sourceText, state, functionState, file),
+                            size: expr.type.size,
+                        },
                 valueDestination: {
                     kind: "localSlot",
                     slot: expr.target.kind === "local" ? expr.target.slot : allocateTempLocal(functionState, expr.type.size),
@@ -1569,6 +1594,7 @@ function lowerAggregateProducerExpr(expr, externs, definedFunctions, sourceText,
             return {
                 kind: "call",
                 target: expr.target.name,
+                ...(expr.target.isVariadic ? { isVariadic: true } : {}),
                 args: expr.args.map((arg) => isAggregateCallArg(arg)
                     ? {
                         kind: "aggregateConsumer",
@@ -1588,6 +1614,7 @@ function lowerAggregateProducerExpr(expr, externs, definedFunctions, sourceText,
             return {
                 kind: "indirectCall",
                 target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
+                ...(expr.signature.isVariadic ? { isVariadic: true } : {}),
                 args: expr.args.map((arg) => isAggregateCallArg(arg)
                     ? {
                         kind: "aggregateConsumer",

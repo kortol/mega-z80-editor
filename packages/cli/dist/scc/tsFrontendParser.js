@@ -20,11 +20,19 @@ function parseProgram(sourceText, file) {
     const context = {
         file,
         normalized,
-        typedefs: new Map(),
+        typedefs: new Map([["va_list", { kind: "pointer", pointee: "char" }]]),
         enumTypes: new Set(),
         enumConstants: new Map(),
     };
     const topLevelStatements = splitTopLevelSemicolonStatements(normalized);
+    for (const statement of topLevelStatements) {
+        if (/^\s*extern\b[\s\S]*\.\.\./.test(statement)) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(normalized, "TsSccCompilerAdapter C Subset does not support external variadic declarations.", {
+                file,
+                offset: normalized.indexOf(statement),
+            });
+        }
+    }
     parseEnumDefs(context, topLevelStatements);
     parseTypedefDefs(context, topLevelStatements);
     const aggregates = parseAggregateDefs(context);
@@ -60,6 +68,7 @@ function parseProgram(sourceText, file) {
                 ...(/^static\b/.test(match[0]) ? { isStatic: true } : {}),
                 returnType,
                 params: parseParams(context, normalized.slice(paramsStart, paramsEnd), match[3], match.index),
+                ...(isVariadicParamsText(normalized.slice(paramsStart, paramsEnd)) ? { isVariadic: true } : {}),
                 body: parseBodyAsBlock(context, bodyText, match[3], bodyStart),
             },
         });
@@ -99,6 +108,7 @@ function parseProgram(sourceText, file) {
                 ...(/^static\b/.test(match[0]) ? { isStatic: true } : {}),
                 returnType: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: returnElementType.name, length: Number.parseInt(returnSuffix[1], 10) } },
                 params: parseParams(context, normalized.slice(paramsStart, paramsEnd), functionName, match.index),
+                ...(isVariadicParamsText(normalized.slice(paramsStart, paramsEnd)) ? { isVariadic: true } : {}),
                 body: parseBodyAsBlock(context, normalized.slice(bodyStart, bodyEnd), functionName, bodyStart),
             },
         });
@@ -153,8 +163,10 @@ function parseProgram(sourceText, file) {
                     kind: "functionPointer",
                     returnType,
                     params: parseFunctionPointerParamTypes(context, returnParamsText),
+                    ...(isVariadicParamsText(returnParamsText) ? { isVariadic: true } : {}),
                 },
                 params: parseParams(context, normalized.slice(paramsStart, paramsEnd), functionName, match.index),
+                ...(isVariadicParamsText(normalized.slice(paramsStart, paramsEnd)) ? { isVariadic: true } : {}),
                 body: parseBodyAsBlock(context, normalized.slice(bodyStart, bodyEnd), functionName, bodyStart),
             },
         });
@@ -1153,6 +1165,22 @@ function parseExpressionByPrecedence(context, exprText, functionName, offset, le
 }
 function parsePrimaryExpr(context, exprText, functionName, offset) {
     const trimmed = exprText.trim();
+    const vaStartMatch = /^va_start\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)$/.exec(trimmed);
+    if (vaStartMatch) {
+        return { kind: "vaStart", list: vaStartMatch[1], lastFixed: vaStartMatch[2] };
+    }
+    const vaArgMatch = /^va_arg\s*\(\s*([A-Za-z_]\w*)\s*,\s*(.+)\)$/.exec(trimmed);
+    if (vaArgMatch) {
+        const type = parseTypeText(context, vaArgMatch[2]);
+        if (!type) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset expected a valid va_arg type in ${functionName}().`, { file: context.file, offset });
+        }
+        return { kind: "vaArg", list: vaArgMatch[1], type };
+    }
+    const vaEndMatch = /^va_end\s*\(\s*([A-Za-z_]\w*)\s*\)$/.exec(trimmed);
+    if (vaEndMatch) {
+        return { kind: "vaEnd", list: vaEndMatch[1] };
+    }
     const indirectCall = parseIndirectCallExpr(context, trimmed, functionName, offset);
     if (indirectCall) {
         return indirectCall;
@@ -1605,7 +1633,21 @@ function parseParams(context, paramsText, functionName, offset) {
     if (trimmed.length === 0 || trimmed === "void") {
         return [];
     }
-    return splitTopLevelArgs(trimmed).map(({ text, offset: paramOffset }) => parseParam(context, text, functionName, paramOffset || offset));
+    const entries = splitTopLevelArgs(trimmed);
+    if (entries.some((entry, index) => entry.text.trim() === "..." && index !== entries.length - 1)) {
+        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires '...' to be the final parameter in ${functionName}().`, { file: context.file, offset });
+    }
+    if (entries.at(-1)?.text.trim() === "...") {
+        if (entries.length === 1) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires a named fixed parameter before '...' in ${functionName}().`, { file: context.file, offset });
+        }
+        entries.pop();
+    }
+    return entries.map(({ text, offset: paramOffset }) => parseParam(context, text, functionName, paramOffset || offset));
+}
+function isVariadicParamsText(paramsText) {
+    const entries = splitTopLevelArgs(paramsText.trim());
+    return entries.at(-1)?.text.trim() === "...";
 }
 function parseParam(context, paramText, functionName, offset) {
     const declarator = parseTypeDeclarator(context, paramText);
@@ -2408,6 +2450,7 @@ function parseTypeDeclarator(context, text) {
             kind: "functionPointer",
             returnType,
             params: parseFunctionPointerParamTypes(context, balancedFunctionPointer.paramsText),
+            ...(isVariadicParamsText(balancedFunctionPointer.paramsText) ? { isVariadic: true } : {}),
         };
         if (balancedFunctionPointer.dimensions) {
             const [length, ...trailingDimensions] = balancedFunctionPointer.dimensions;
@@ -2472,6 +2515,7 @@ function parseTypeDeclarator(context, text) {
                     kind: "functionPointer",
                     returnType,
                     params: parseFunctionPointerParamTypes(context, functionPointerArrayMatch[4]),
+                    ...(isVariadicParamsText(functionPointerArrayMatch[4]) ? { isVariadic: true } : {}),
                 },
                 length,
                 dimensions: trailingDimensions.length > 0 ? trailingDimensions : undefined,
@@ -2488,6 +2532,7 @@ function parseTypeDeclarator(context, text) {
             kind: "functionPointer",
             returnType,
             params,
+            ...(isVariadicParamsText(functionPointerMatch[4]) ? { isVariadic: true } : {}),
         };
         for (let index = 1; index < functionPointerMatch[2].length; index += 1) {
             type = { kind: "pointer", pointee: sourceTypeToPointerPointee(type) };
@@ -2640,6 +2685,7 @@ function parseAbstractFunctionPointerType(context, text) {
         kind: "functionPointer",
         returnType,
         params: parseFunctionPointerParamTypes(context, trimmed.slice(paramsOpen + 1, -1)),
+        ...(isVariadicParamsText(trimmed.slice(paramsOpen + 1, -1)) ? { isVariadic: true } : {}),
     };
     for (let index = 1; index < pointerMatch[1].length; index += 1) {
         type = { kind: "pointer", pointee: sourceTypeToPointerPointee(type) };
@@ -2651,7 +2697,17 @@ function parseFunctionPointerParamTypes(context, paramsText) {
     if (trimmed.length === 0 || trimmed === "void") {
         return [];
     }
-    return splitTopLevelArgs(trimmed).map(({ text }) => {
+    const entries = splitTopLevelArgs(trimmed);
+    if (entries.some((entry, index) => entry.text.trim() === "..." && index !== entries.length - 1)) {
+        throw new Error("Function-pointer '...' must be the final parameter.");
+    }
+    if (entries.at(-1)?.text.trim() === "...") {
+        if (entries.length === 1) {
+            throw new Error("Function-pointer '...' requires a fixed parameter.");
+        }
+        entries.pop();
+    }
+    return entries.map(({ text }) => {
         const declarator = parseTypeDeclarator(context, text);
         const type = declarator?.type ?? parseAbstractFunctionPointerType(context, text) ?? parseTypeText(context, text);
         if (!type || type.kind === "array" || type.kind === "void") {

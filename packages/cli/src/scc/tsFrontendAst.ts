@@ -40,6 +40,7 @@ export type FunctionPointerTypeRef = {
   kind: "functionPointer";
   returnType: SourceType;
   params: SourceType[];
+  isVariadic?: boolean;
   qualifiers?: TypeQualifiers;
 };
 
@@ -95,6 +96,7 @@ export type SourceFunction = {
   isStatic?: boolean;
   returnType: SourceType;
   params: SourceParam[];
+  isVariadic?: boolean;
   body: SourceBlock;
 };
 
@@ -333,6 +335,9 @@ export type SourceExpr =
   | { kind: "arrayPointerElement"; pointer: SourceExpr; index: SourceExpr }
   | { kind: "call"; target: string; args: SourceExpr[] }
   | { kind: "indirectCall"; target: SourceExpr; args: SourceExpr[] }
+  | { kind: "vaStart"; list: string; lastFixed: string }
+  | { kind: "vaArg"; list: string; type: SourceType }
+  | { kind: "vaEnd"; list: string }
   | { kind: "preIncDec"; name: string; op: "++" | "--" }
   | { kind: "postIncDec"; name: string; op: "++" | "--" }
   | { kind: "preArrayIncDec"; name: string; index: SourceExpr; op: "++" | "--" }

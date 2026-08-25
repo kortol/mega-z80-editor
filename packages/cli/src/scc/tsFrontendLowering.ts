@@ -623,6 +623,7 @@ function lowerFunction(
   const functionIr: FunctionIR = {
     name: fn.name,
     params: [...(fn.returnType.kind === "aggregate" ? [2 as const] : []), ...fn.params.map((param) => getParamWidth(param))],
+    ...(fn.isVariadic ? { isVariadic: true } : {}),
     locals: [...fn.locals.map((local) => local.storageBytes), ...functionState.tempLocals],
     body,
   };
@@ -1193,6 +1194,14 @@ function materializeAggregateAssignExprProducer(
     ];
   }
 
+  if (source.target.kind === "aggregateAddress") {
+    return [{
+      kind: "materializeAggregateProducer",
+      destination: lowerAggregateDestination(destination),
+      source: lowerAggregateProducerExpr(source, externs, definedFunctions, sourceText, state, functionState, file),
+    }];
+  }
+
   return materializeAggregateAssignExprViaTempLocal(
     source,
     destination,
@@ -1215,6 +1224,9 @@ function materializeAggregateAssignExprViaTempLocal(
   functionState: FunctionLoweringState,
   file?: string,
 ): StmtIRHigh[] {
+  if (source.target.kind !== "global") {
+    throw new Error("Internal lowering error: aggregate assignment temporary target must be global.");
+  }
   const tempSlot = allocateTempLocal(functionState, source.type.size);
   return [
     ...materializeAggregateProducer(
@@ -1625,6 +1637,12 @@ function lowerExpr(
       return { kind: "const", value: expr.value };
     case "string":
       return { kind: "dataAddress", label: internStringLiteral(state, expr.value) };
+    case "vaStart":
+      return { kind: "assignLocal", slot: expr.list.slot, width: 2, expr: { kind: "variadicStartAddress" } };
+    case "vaArg":
+      return { kind: "vaArg", listSlot: expr.list.slot, width: expr.width };
+    case "vaEnd":
+      return { kind: "const", value: 0 };
     case "functionAddress":
       return { kind: "dataAddress", label: expr.name };
     case "ref":
@@ -1839,6 +1857,7 @@ function lowerExpr(
       return {
         kind: "call",
         target: expr.target.name,
+        ...(expr.target.kind !== "extern" && expr.target.isVariadic ? { isVariadic: true } : {}),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
             kind: "aggregateConsumer",
@@ -1857,6 +1876,7 @@ function lowerExpr(
       return {
         kind: "indirectCall",
         target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
+        ...(expr.signature.isVariadic ? { isVariadic: true } : {}),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
             kind: "aggregateConsumer",
@@ -2063,7 +2083,13 @@ function lowerAggregateProducerExpr(
         kind: "aggregateAssignExpr",
         effectDestination: expr.target.kind === "local"
           ? { kind: "localSlot", slot: expr.target.slot, size: expr.type.size }
-          : { kind: "globalSymbol", name: expr.target.name, size: expr.type.size },
+          : expr.target.kind === "global"
+            ? { kind: "globalSymbol", name: expr.target.name, size: expr.type.size }
+            : {
+              kind: "pointer",
+              pointer: lowerExpr(expr.target.pointer, externs, definedFunctions, sourceText, state, functionState, file),
+              size: expr.type.size,
+            },
         valueDestination: {
           kind: "localSlot",
           slot: expr.target.kind === "local" ? expr.target.slot : allocateTempLocal(functionState, expr.type.size),
@@ -2076,6 +2102,7 @@ function lowerAggregateProducerExpr(
       return {
         kind: "call",
         target: expr.target.name,
+        ...(expr.target.isVariadic ? { isVariadic: true } : {}),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
             kind: "aggregateConsumer",
@@ -2095,6 +2122,7 @@ function lowerAggregateProducerExpr(
       return {
         kind: "indirectCall",
         target: lowerExpr(expr.target, externs, definedFunctions, sourceText, state, functionState, file),
+        ...(expr.signature.isVariadic ? { isVariadic: true } : {}),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
             kind: "aggregateConsumer",
