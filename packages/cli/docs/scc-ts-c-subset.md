@@ -46,7 +46,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | T02 | scalar/aggregate pointers, address-of, dereference | S | S | S | S | S | covered pointer forms only |
 | T03 | 1-D `char[N]` / `int[N]` local/global/parameter arrays | S | S | S | S | S | sized arrays; unsized parameter decay only |
 | T04 | 2-D `char[M][N]` / `int[M][N]` | S | S | S | S | S | local/global brace initialization, row decay, `a[i][j]`, and `T (*)[N]` parameter paths are runtime-covered |
-| T05 | 3-D+ arrays | N | N | N | N | N | out of current near-term Subset scope |
+| T05 | 3-D+ arrays | S | S | S | S | S | fixed positive decimal-literal dimensions are represented as a recursive dimension sequence for scalar/pointer/function-pointer/aggregate arrays. Local/global/parameter/field/typedef declarators, postfix indexing, decay, and pointer-to-array stride use the same model; VLA, incomplete trailing dimensions, and flexible arrays remain out of scope. |
 | T06 | array-like values: decay pointer, `T (*)[N]`, array field/parameter | S | S | S | S | S | current `char`/`int` and `struct (*)[N]` p2a, aggregate field initializer/equality, and parameter paths are runtime-covered |
 | T07 | non-scalar array elements: aggregate/pointer/function-pointer arrays | S | S | S | S | S | `struct` 1-D/2-D local/global/parameter and `struct (*)[N]` consumer/lvalue paths, pointer 1-D/2-D local/global/parameter consumers, and function-pointer 1-D/2-D local/global/parameter initializer/call paths are runtime-covered |
 | D01 | local, parameter, and file-scope declarations | S | S | S | S | S | current scalar/pointer/aggregate subset |
@@ -110,7 +110,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 
 Matrix notes:
 
-- `1-D array` は実体の `char[N]` / `int[N]`、`2-D array` と `3-D+ array` は実体の配列次元を表す。2-D は内部の次元列と row stride で処理し、C Subset の対象とする。3-D 以上は明示的に reject する。
+- `1-D array` は実体の `char[N]` / `int[N]`、`2-D array` と `3-D+ array` は実体の配列次元を表す。固定長の任意次元は内部の次元列と remaining-dimension stride で処理する。VLA、非リテラル bound、および後続 unsized bound は明示的に reject する。
 - `array-like` の `S` は `char[N]` / `int[N]` の decay、`char (*)[N]` / `int (*)[N]`、array field/parameter の current supported forms を指す。array value を一般値として操作する意味ではない。
 - `array-like` の `P` は型モデルが scalar element + literal bound に限定されること、または runtime evidence が未完であることを示す。詳細は `X15`, `X20`, `X21` と `T06` を参照する。
 - `aggregate lvalue` の assignment statement は local/global/direct/nested/pointer/conditional aggregate-field destination まで通る。一方 assignment expression の結果を一般 aggregate lvalue として流すモデルはないため `P`。aggregate value は dedicated producer/consumer/destination 経路では `S`。
@@ -169,6 +169,6 @@ Matrix notes:
 ## Immediate Backlog
 
 1. `D02`: qualifier を型モデルへ保持し、`const` object / pointer-to-const への書込みを診断する。
-2. `D05` の残境界: function-returning-function、3-D+ declarator、VLA、external variadic linkage、variadic aggregate argument は現行 grammar/ABI の対象外である。
+2. `D05` の残境界: function-returning-function は C の不正宣言として診断し、VLA、external variadic linkage、variadic aggregate argument は現行 grammar/ABI の対象外である。固定長 3-D+ declarator は `T05` の対象である。
 3. `E07`: aggregate compare/truthiness と一般 aggregate lvalue expression result を Subset の意図的 reject として維持するか、一般 expression model の対象にするか決定する。
 4. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。

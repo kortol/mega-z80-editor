@@ -1921,11 +1921,11 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
                 });
             }
             const index = analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file);
-            if (symbol.type.elementValueType) {
-                if (symbol.type.elementValueType.kind === "aggregate") {
+            if (symbol.type.elementValueType || symbol.type.dimensions?.length) {
+                if (symbol.type.elementValueType?.kind === "aggregate") {
                     (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `TsSccCompilerAdapter C Subset only supports aggregate array elements as aggregate consumers in ${functionName}().`, { file, offset: 0 });
                 }
-                const elementPointee = toArrayElementPointee(symbol.type);
+                const elementPointee = getArrayIndexPointee(symbol.type);
                 return {
                     kind: "deref",
                     pointer: {
@@ -1939,7 +1939,9 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
                         pointee: elementPointee,
                         type: toSemanticPointerType(elementPointee),
                     },
-                    type: getArrayElementValueType(symbol.type),
+                    type: symbol.type.dimensions?.length
+                        ? toSemanticPointerType(elementPointee)
+                        : getArrayElementValueType(symbol.type),
                 };
             }
             if (symbol.kind === "global") {
@@ -2695,15 +2697,34 @@ function getTypeStorageBytes(type) {
     return getArrayStorageBytes(type);
 }
 function getArrayDecayPointee(type) {
-    const rowLength = type.dimensions?.[0];
-    return rowLength === undefined
-        ? toArrayElementPointee(type)
-        : {
+    const element = toArrayElementPointee(type);
+    const build = (dimensions) => {
+        if (dimensions.length === 0)
+            return element;
+        const [length, ...tail] = dimensions;
+        const nested = build(tail);
+        return {
             kind: "arrayPointer",
             elementType: type.elementType,
-            ...(type.elementValueType ? { elementValueType: toArrayElementPointee(type) } : {}),
-            length: rowLength,
+            ...(typeof nested === "string" ? {} : { elementValueType: nested }),
+            length,
         };
+    };
+    return build(type.dimensions ?? []);
+}
+function getArrayIndexPointee(type) {
+    const remaining = type.dimensions ?? [];
+    if (remaining.length === 0)
+        return toArrayElementPointee(type);
+    const element = toArrayElementPointee(type);
+    const build = (dimensions) => {
+        if (dimensions.length === 0)
+            return element;
+        const [length, ...tail] = dimensions;
+        const nested = build(tail);
+        return { kind: "arrayPointer", elementType: type.elementType, ...(typeof nested === "string" ? {} : { elementValueType: nested }), length };
+    };
+    return build(remaining);
 }
 function toArrayElementPointee(type) {
     if (!type.elementValueType) {
@@ -2928,6 +2949,9 @@ function getArrayPointerElementStorageBytes(type) {
         }
         return layout.size;
     }
+    if (type.elementValueType.kind === "arrayPointer") {
+        return type.elementValueType.length * getArrayPointerElementStorageBytes(type.elementValueType);
+    }
     return 2;
 }
 function getScalarPointerPointee(type, functionName, sourceText, file) {
@@ -2960,7 +2984,8 @@ function formatPointerPointee(type) {
         return `${type.aggregateKind} ${type.name}`;
     }
     if (type.kind === "arrayPointer") {
-        return `${type.elementType}[${type.length}]`;
+        const element = type.elementValueType ? formatPointerPointee(type.elementValueType) : type.elementType;
+        return `${element}[${type.length}]`;
     }
     if (type.kind === "functionPointer") {
         return "function pointer";

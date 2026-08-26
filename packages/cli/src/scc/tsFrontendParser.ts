@@ -62,6 +62,17 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
     enumConstants: new Map(),
   };
   const topLevelStatements = splitTopLevelSemicolonStatements(normalized);
+  // Match only the unparenthesized form here.  Balanced function-pointer
+  // declarators are handled by their dedicated parser below and must remain
+  // distinguishable from this ISO-C-invalid form.
+  const invalidFunctionReturn = /(?:^|\n)\s*(?:void|char|int|short|signed|unsigned)\s+([A-Za-z_]\w*)\s*\([^(){};]*\)\s*(\(|\[)/.exec(normalized);
+  if (invalidFunctionReturn) {
+    throwDiagnostic(
+      normalized,
+      `TsSccCompilerAdapter C Subset rejects '${invalidFunctionReturn[1]}': a function cannot return a function or an array; return a pointer instead.`,
+      { file, offset: invalidFunctionReturn.index },
+    );
+  }
   for (const statement of topLevelStatements) {
     if (/^\s*extern\b[\s\S]*\.\.\./.test(statement)) {
       throwDiagnostic(normalized, "TsSccCompilerAdapter C Subset does not support external variadic declarations.", {
@@ -2697,7 +2708,7 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
     };
     if (balancedFunctionPointer.dimensions) {
       const [length, ...trailingDimensions] = balancedFunctionPointer.dimensions;
-      if (balancedFunctionPointer.dimensions.length > 2 || trailingDimensions.some((dimension) => dimension === undefined)) {
+      if (trailingDimensions.some((dimension) => dimension === undefined) || balancedFunctionPointer.dimensions.some((dimension) => dimension === 0)) {
         return null;
       }
       return {
@@ -2717,7 +2728,7 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
     }
     return { name: balancedFunctionPointer.name, type };
   }
-  const arrayPointerMatch = /^(.+?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\[\s*(\d+)\s*\]$/.exec(trimmed);
+  const arrayPointerMatch = /^(.+?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*((?:\[\s*\d+\s*\])+)$/.exec(trimmed);
   if (arrayPointerMatch) {
     const elementType = parseTypeText(context, arrayPointerMatch[1]);
     if (!elementType || elementType.kind === "void" || elementType.kind === "array") {
@@ -2727,13 +2738,7 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
       name: arrayPointerMatch[2],
       type: {
         kind: "pointer",
-        pointee: {
-          kind: "arrayPointer",
-          elementType: elementType.kind === "scalar" ? elementType.name : "char",
-          ...(elementType.kind === "scalar" ? {} : { elementValueType: elementType }),
-          length: Number.parseInt(arrayPointerMatch[3], 10),
-          ...(elementType.kind === "scalar" && hasQualifiers(elementType.qualifiers) ? { elementQualifiers: elementType.qualifiers } : {}),
-        },
+        pointee: makeArrayPointerType(elementType, parseFixedArrayDimensions(arrayPointerMatch[3], context)),
       },
     };
   }
@@ -2747,7 +2752,7 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
     const dimensions = [...functionPointerArrayMatch[3].matchAll(/\[\s*(\d*)\s*\]/g)].map((match) =>
       match[1].length > 0 ? Number.parseInt(match[1], 10) : undefined);
     const [length, ...trailingDimensions] = dimensions;
-    if (dimensions.length > 2 || trailingDimensions.some((dimension) => dimension === undefined)) {
+    if (trailingDimensions.some((dimension) => dimension === undefined) || dimensions.some((dimension) => dimension === 0)) {
       return null;
     }
     return {
@@ -2795,7 +2800,7 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
     const dimensions = [...pointerArrayMatch[3].matchAll(/\[\s*(\d*)\s*\]/g)].map((match) =>
       match[1].length > 0 ? Number.parseInt(match[1], 10) : undefined);
     const [length, ...trailingDimensions] = dimensions;
-    if (trailingDimensions.some((dimension) => dimension === undefined) || dimensions.length > 2) {
+    if (trailingDimensions.some((dimension) => dimension === undefined) || dimensions.some((dimension) => dimension === 0)) {
       return null;
     }
     return {
@@ -2821,8 +2826,8 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
     if (trailingDimensions.some((dimension) => dimension === undefined)) {
       return null;
     }
-    if (dimensions.length > 2) {
-      throwDiagnostic(context.normalized, "TsSccCompilerAdapter C Subset supports arrays up to two dimensions.", {
+    if (dimensions.some((dimension) => dimension === 0)) {
+      throwDiagnostic(context.normalized, "TsSccCompilerAdapter C Subset requires positive decimal-literal array bounds (VLA and incomplete arrays are unsupported).", {
         file: context.file,
         offset: 0,
       });
@@ -2851,6 +2856,31 @@ function parseTypeDeclarator(context: ParseContext, text: string): { name: strin
   return {
     name: nameMatch[1],
     type,
+  };
+}
+
+function parseFixedArrayDimensions(text: string, context: ParseContext): number[] {
+  const dimensions = [...text.matchAll(/\[\s*(\d+)\s*\]/g)].map((match) => Number.parseInt(match[1], 10));
+  if (dimensions.length === 0 || dimensions.some((dimension) => dimension <= 0)) {
+    throwDiagnostic(context.normalized, "TsSccCompilerAdapter C Subset requires positive decimal-literal array bounds (VLA and incomplete arrays are unsupported).", { file: context.file, offset: 0 });
+  }
+  return dimensions;
+}
+
+function makeArrayPointerType(elementType: Exclude<SourceType, { kind: "void" | "array" }>, dimensions: number[]): import("./tsFrontendAst").ArrayPointerTypeRef {
+  const [length, ...remaining] = dimensions;
+  const leaf = elementType.kind === "scalar"
+    ? undefined
+    : elementType;
+  const nested = remaining.length > 0
+    ? makeArrayPointerType(elementType, remaining)
+    : leaf;
+  return {
+    kind: "arrayPointer",
+    elementType: elementType.kind === "scalar" ? elementType.name : "char",
+    ...(nested ? { elementValueType: nested } : {}),
+    length,
+    ...(elementType.kind === "scalar" && hasQualifiers(elementType.qualifiers) ? { elementQualifiers: elementType.qualifiers } : {}),
   };
 }
 
@@ -4209,8 +4239,7 @@ function buildArrayInitializerStatements(
       });
       continue;
     }
-    const rowLength = dimensions.slice(1).reduce((product, dimension) => product * dimension, 1);
-    const indices = [Math.floor(index / rowLength), index % rowLength];
+    const indices = linearArrayIndexToCoordinates(index, dimensions);
     statements.push({
       kind: "expr",
       expr: {
@@ -4288,8 +4317,7 @@ function buildAggregateArrayInitializerStatements(
         appendElement([index], flatElements[index]);
         continue;
       }
-      const rowLength = dimensions.slice(1).reduce((product, dimension) => product * dimension, 1);
-      appendElement([Math.floor(index / rowLength), index % rowLength], flatElements[index]);
+      appendElement(linearArrayIndexToCoordinates(index, dimensions), flatElements[index]);
     }
     return statements;
   }
@@ -4319,6 +4347,16 @@ function buildAggregateArrayInitializerStatements(
     }
   }
   return statements;
+}
+
+function linearArrayIndexToCoordinates(index: number, dimensions: number[]): number[] {
+  const coordinates = Array<number>(dimensions.length);
+  let remaining = index;
+  for (let position = dimensions.length - 1; position >= 0; position -= 1) {
+    coordinates[position] = remaining % dimensions[position];
+    remaining = Math.floor(remaining / dimensions[position]);
+  }
+  return coordinates;
 }
 
 function normalizeFlatAggregateArrayInitializer(
@@ -4721,11 +4759,30 @@ function parseArrayPointerElementAccess(text: string): { pointerText: string; in
   if (dereferenceMatch) {
     return { pointerText: dereferenceMatch[1].trim(), indexText: dereferenceMatch[2].trim() };
   }
+  const firstSubscript = trimmed.indexOf("[");
+  if (firstSubscript > 0) {
+    const baseText = trimmed.slice(0, firstSubscript).trim();
+    const suffix = trimmed.slice(firstSubscript);
+    const indices = [...suffix.matchAll(/\[\s*([^\[\]]+)\s*\]/g)].map((match) => match[1].trim());
+    if (indices.length >= 3 && indices.map((index) => `[${index}]`).join("") === suffix.replace(/\s+/g, "")) {
+      return {
+        pointerText: `${baseText}${indices.slice(0, -1).map((index) => `[${index}]`).join("")}`,
+        indexText: indices.at(-1) as string,
+      };
+    }
+  }
   const parenthesizedDoubleIndexMatch = /^\((.+)\)\s*\[(.+)\]\s*\[(.+)\]$/.exec(trimmed);
   if (parenthesizedDoubleIndexMatch) {
     return {
       pointerText: `(${parenthesizedDoubleIndexMatch[1].trim()}) + (${parenthesizedDoubleIndexMatch[2].trim()})`,
       indexText: parenthesizedDoubleIndexMatch[3].trim(),
+    };
+  }
+  const tripleIndexMatch = /^(.+?)\s*\[([^\[\]]+)\]\s*\[([^\[\]]+)\]\s*\[([^\[\]]+)\]$/.exec(trimmed);
+  if (tripleIndexMatch) {
+    return {
+      pointerText: `${tripleIndexMatch[1].trim()}[${tripleIndexMatch[2].trim()}][${tripleIndexMatch[3].trim()}]`,
+      indexText: tripleIndexMatch[4].trim(),
     };
   }
   const doubleIndexMatch = /^([A-Za-z_]\w*)\s*\[(.+)\]\s*\[(.+)\]$/.exec(trimmed);
@@ -4737,6 +4794,10 @@ function parseArrayPointerElementAccess(text: string): { pointerText: string; in
   }
   const producerDoubleIndexMatch = /^(.+?)\s*\[(.+)\]\s*\[(.+)\]$/.exec(trimmed);
   if (!producerDoubleIndexMatch) {
+    const trailingIndexMatch = /^(.+)\[\s*([^\[\]]+)\s*\]$/.exec(trimmed);
+    if (trailingIndexMatch && !/^[A-Za-z_]\w*$/.test(trailingIndexMatch[1].trim()) && !/[.>]/.test(trailingIndexMatch[1])) {
+      return { pointerText: trailingIndexMatch[1].trim(), indexText: trailingIndexMatch[2].trim() };
+    }
     return null;
   }
   return {

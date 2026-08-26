@@ -2027,9 +2027,13 @@ function getArrayPointerElementBytes(type: Extract<import("./tsFrontendAst").Poi
   if (!type.elementValueType) {
     return type.elementType === "char" ? 1 : 2;
   }
-  return type.elementValueType.kind === "aggregate"
-    ? getAggregateLayoutSize(type.elementValueType)
-    : 2;
+  if (type.elementValueType.kind === "aggregate") {
+    return getAggregateLayoutSize(type.elementValueType);
+  }
+  if (type.elementValueType.kind === "arrayPointer") {
+    return type.elementValueType.length * getArrayPointerElementBytes(type.elementValueType);
+  }
+  return 2;
 }
 
 function getPointerPointeeBytes(type: import("./tsFrontendAst").PointerPointee): number {

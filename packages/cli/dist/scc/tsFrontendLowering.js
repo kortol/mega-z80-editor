@@ -1529,9 +1529,13 @@ function getArrayPointerElementBytes(type) {
     if (!type.elementValueType) {
         return type.elementType === "char" ? 1 : 2;
     }
-    return type.elementValueType.kind === "aggregate"
-        ? (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type.elementValueType)
-        : 2;
+    if (type.elementValueType.kind === "aggregate") {
+        return (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type.elementValueType);
+    }
+    if (type.elementValueType.kind === "arrayPointer") {
+        return type.elementValueType.length * getArrayPointerElementBytes(type.elementValueType);
+    }
+    return 2;
 }
 function getPointerPointeeBytes(type) {
     if (type === "char") {

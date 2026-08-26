@@ -2309,6 +2309,22 @@ describe("tsFrontendParser", () => {
     });
   });
 
+  test("parses fixed three-dimensional arrays and recursive pointer-to-array declarators", () => {
+    const program = parseProgram(
+      "int main(){ char cube[2][3][4]; char (*rows)[3][4] = cube; return 0; }\n",
+      "three-dimensional-declarators.c",
+    );
+    expect(program.functions[0]?.body.declarations.map((decl) => decl.type)).toMatchObject([
+      { kind: "array", elementType: "char", length: 2, dimensions: [3, 4] },
+      { kind: "pointer", pointee: { kind: "arrayPointer", length: 3, elementValueType: { kind: "arrayPointer", length: 4 } } },
+    ]);
+  });
+
+  test("rejects declarations of functions returning functions or arrays", () => {
+    expect(() => parseProgram("int invalid()(void){ return 0; }", "function-return.c")).toThrow("cannot return a function or an array");
+    expect(() => parseProgram("int invalid()[2]{ return 0; }", "array-return.c")).toThrow("cannot return a function or an array");
+  });
+
   test("parses variadic declarations and stdarg subset expressions", () => {
     const program = parseProgram(
       "int sum(int first, ...){ va_list ap; va_start(ap, first); return va_arg(ap, int); }\n",

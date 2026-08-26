@@ -32,6 +32,8 @@ export type ArrayPointerTypeRef = {
   elementType: ScalarType;
   elementValueType?: AggregateTypeRef | PointerTypeRef | FunctionPointerTypeRef | ArrayPointerTypeRef;
   length: number;
+  // Further array bounds, represented recursively in elementValueType.  This
+  // makes `T (*)[a][b]` distinct from `T (*)[a]` without a parallel type.
   qualifiers?: TypeQualifiers;
   elementQualifiers?: TypeQualifiers;
 };

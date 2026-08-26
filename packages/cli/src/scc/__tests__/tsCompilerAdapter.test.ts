@@ -4814,6 +4814,26 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "two-dimensional-array-value-transport", programRel, [], 4000)).toBe("ABA");
   });
 
+  test("source mode reads and writes fixed three-dimensional scalar arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-three-dimensional-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-array.c",
+      "int main(){ char cube[2][3][4]; cube[1][2][3] = 65; cube[0][1][2] = 66; outchar(cube[1][2][3]); outchar(cube[0][1][2]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-array", programRel, [], 4000)).toBe("AB");
+  });
+
+  test("source mode reads fixed four-dimensional scalar arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-four-dimensional-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "four-dimensional-array.c",
+      "int main(){ char hyper[2][2][2][2]; hyper[1][0][1][1] = 65; outchar(hyper[1][0][1][1]); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "four-dimensional-array", programRel, [], 4000)).toBe("A");
+  });
+
   test("source mode computes aggregate pointer differences", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-difference-"));
     const helperRelPath = assembleArithmeticHelperRuntime(tempDir);

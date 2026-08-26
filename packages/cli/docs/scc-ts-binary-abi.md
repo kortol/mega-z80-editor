@@ -23,7 +23,7 @@
 
 - aggregate copy は semantic field offset を使う byte copy である。
 - current layout に padding/alignment rule はない。Z80 の byte addressability を前提とし、`sizeof` と field offset は semantic layout の値を使う。
-- `char` pointer arithmetic は stride 1、`int` は stride 2、`T (*)[N]` は `N * sizeof(T)` を row stride とする。
+- `char` pointer arithmetic は stride 1、`int` は stride 2、`T (*)[N]` は `N * sizeof(T)` を row stride とする。`T (*)[N1][N2]...` の stride は `N1 * N2 * ... * sizeof(T)` であり、各 postfix subscript は残りの次元積を用いる。
 
 ## Stack Frame
 
