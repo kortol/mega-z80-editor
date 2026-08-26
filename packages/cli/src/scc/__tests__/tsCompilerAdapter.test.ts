@@ -4834,6 +4834,333 @@ describe("TsSccCompilerAdapter", () => {
     expect(linkAndRunCom(tempDir, "four-dimensional-array", programRel, [], 4000)).toBe("A");
   });
 
+  test("source mode initializes and consumes three-dimensional aggregate arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-three-dimensional-aggregate-array-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-aggregate-array.c",
+      "struct Cell { char value; };\nchar read(struct Cell (*rows)[2][2]){ return rows[1][0][1].value; }\nint main(){ struct Cell cells[2][2][2] = {{{65},{66}},{{67},{68}}}; cells[1][0][1].value = 70; cells[1][0][1].value++; outchar(cells[1][0][1].value); outchar(read(cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-aggregate-array", programRel, [], 4000)).toBe("GG");
+  });
+
+  test("source mode indexes three-dimensional typedef scalar arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-typedef-scalar-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-typedef-scalar.c",
+      "typedef char Cube[2][3][5];\nchar read(char rows[][3][5]){ return rows[1][2][4]; }\nint main(){ Cube cube; cube[1][2][4] = 65; outchar(read(cube)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-typedef-scalar", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode decays three-dimensional scalar array fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-scalar-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-scalar-field.c",
+      "struct Holder { char cells[2][3][5]; };\nchar read(char rows[][3][5]){ return rows[1][2][4]; }\nint main(){ struct Holder holder; holder.cells[1][2][4] = 65; outchar(read(holder.cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-scalar-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode decays four-dimensional scalar array fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-scalar-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "four-dimensional-scalar-field.c",
+      "struct Holder { char cells[2][3][5][2]; };\nchar read(char rows[][3][5][2]){ return rows[1][2][4][1]; }\nint main(){ struct Holder holder; holder.cells[1][2][4][1] = 65; outchar(read(holder.cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "four-dimensional-scalar-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode decays three-dimensional pointer array fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-pointer-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-pointer-field.c",
+      "struct Holder { char *cells[2][3][5]; };\nchar read(char *rows[][3][5]){ return *rows[1][2][4]; }\nint main(){ char value; struct Holder holder; holder.cells[1][2][4] = &value; value = 65; outchar(read(holder.cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-pointer-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls three-dimensional function-pointer array fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-function-pointer-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-function-pointer-field.c",
+      "struct Holder { char (*cells[2][3][5])(char); };\nchar id(char value){ return value; }\nchar call(char (*rows[][3][5])(char)){ return rows[1][2][4](65); }\nint main(){ struct Holder holder; holder.cells[1][2][4] = id; outchar(call(holder.cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-function-pointer-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode updates three-dimensional aggregate array fields through parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-aggregate-field-"));
+    const programRel = compileSourceRel(
+      tempDir,
+      "three-dimensional-aggregate-field.c",
+      "struct Cell { char value; }; struct Holder { struct Cell cells[2][3][5]; };\nchar update(struct Cell (*rows)[3][5]){ struct Cell value; value.value = 65; rows[1][2][4] = value; return rows[1][2][4].value; }\nint main(){ struct Holder holder; outchar(update(holder.cells)); return 0; }\n",
+    );
+    expect(linkAndRunCom(tempDir, "three-dimensional-aggregate-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode decays four-dimensional pointer array fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-pointer-field-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-pointer-field.c",
+      "struct Holder { char *cells[2][3][5][2]; }; char read(char *rows[][3][5][2]){ return *rows[1][2][4][1]; } int main(){ char value; struct Holder holder; holder.cells[1][2][4][1] = &value; value = 65; outchar(read(holder.cells)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-pointer-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode calls four-dimensional function-pointer array fields", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-function-pointer-field-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-function-pointer-field.c",
+      "struct Holder { char (*cells[2][3][5][2])(char); }; char id(char value){ return value; } char call(char (*rows[][3][5][2])(char)){ return rows[1][2][4][1](65); } int main(){ struct Holder holder; holder.cells[1][2][4][1] = id; outchar(call(holder.cells)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-function-pointer-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode updates four-dimensional aggregate array fields through parameters", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-aggregate-field-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-aggregate-field.c",
+      "struct Cell { char value; }; struct Holder { struct Cell cells[2][3][5][2]; }; char update(struct Cell (*rows)[3][5][2]){ struct Cell value; value.value = 65; rows[1][2][4][1] = value; return rows[1][2][4][1].value; } int main(){ struct Holder holder; outchar(update(holder.cells)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-aggregate-field", programRel, [], 4000)).toBe("A");
+  });
+
+  test("source mode covers three-dimensional scalar local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-scalar-storage-"));
+    const programRel = compileSourceRel(tempDir, "three-dimensional-scalar-storage.c",
+      "typedef char Cube[2][3][5]; char global[2][3][5]; char read(char rows[][3][5]){ return rows[1][2][4]; } int main(){ char local[2][3][5]; Cube alias; local[1][2][4] = 65; global[1][2][4] = 66; alias[1][2][4] = 67; outchar(read(local)); outchar(read(global)); outchar(read(alias)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "three-dimensional-scalar-storage", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode covers four-dimensional scalar local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-scalar-storage-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-scalar-storage.c",
+      "typedef char Cube[2][3][5][2]; char global[2][3][5][2]; char read(char rows[][3][5][2]){ return rows[1][2][4][1]; } int main(){ char local[2][3][5][2]; Cube alias; local[1][2][4][1] = 65; global[1][2][4][1] = 66; alias[1][2][4][1] = 67; outchar(read(local)); outchar(read(global)); outchar(read(alias)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-scalar-storage", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode covers three-dimensional pointer local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-pointer-storage-"));
+    const programRel = compileSourceRel(tempDir, "three-dimensional-pointer-storage.c",
+      "typedef char * Cube[2][3][5]; char value; char *global[2][3][5]; char read(char *rows[][3][5]){ return *rows[1][2][4]; } int main(){ char *local[2][3][5]; Cube alias; local[1][2][4] = &value; global[1][2][4] = &value; alias[1][2][4] = &value; value = 65; outchar(read(local)); value = 66; outchar(read(global)); value = 67; outchar(read(alias)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "three-dimensional-pointer-storage", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode covers four-dimensional pointer local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-pointer-storage-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-pointer-storage.c",
+      "typedef char * Cube[2][3][5][2]; char value; char *global[2][3][5][2]; char read(char *rows[][3][5][2]){ return *rows[1][2][4][1]; } int main(){ char *local[2][3][5][2]; Cube alias; local[1][2][4][1] = &value; global[1][2][4][1] = &value; alias[1][2][4][1] = &value; value = 65; outchar(read(local)); value = 66; outchar(read(global)); value = 67; outchar(read(alias)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-pointer-storage", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode covers three-dimensional function-pointer local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-function-pointer-storage-"));
+    const programRel = compileSourceRel(tempDir, "three-dimensional-function-pointer-storage.c",
+      "typedef char (*Cube[2][3][5])(char); char id(char value){ return value; } char (*global[2][3][5])(char); char call(char (*rows[][3][5])(char), char value){ return rows[1][2][4](value); } int main(){ char (*local[2][3][5])(char); Cube alias; local[1][2][4] = id; global[1][2][4] = id; alias[1][2][4] = id; outchar(call(local,65)); outchar(call(global,66)); outchar(call(alias,67)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "three-dimensional-function-pointer-storage", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode covers four-dimensional function-pointer local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-function-pointer-storage-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-function-pointer-storage.c",
+      "typedef char (*Cube[2][3][5][2])(char); char id(char value){ return value; } char (*global[2][3][5][2])(char); char call(char (*rows[][3][5][2])(char), char value){ return rows[1][2][4][1](value); } int main(){ char (*local[2][3][5][2])(char); Cube alias; local[1][2][4][1] = id; global[1][2][4][1] = id; alias[1][2][4][1] = id; outchar(call(local,65)); outchar(call(global,66)); outchar(call(alias,67)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-function-pointer-storage", programRel, [], 4000)).toBe("ABC");
+  });
+
+  test("source mode covers three-dimensional aggregate local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-3d-aggregate-storage-"));
+    const programRel = compileSourceRel(tempDir, "three-dimensional-aggregate-storage.c",
+      "struct Cell { char value; }; typedef struct Cell Cube[2][3][5]; struct Cell global[2][3][5]; struct Cell copy(struct Cell x){ return x; } char read(struct Cell (*rows)[3][5]){ return rows[1][2][4].value; } int main(){ struct Cell local[2][3][5]; Cube alias; struct Cell value; value.value = 65; local[1][2][4] = copy(value); value.value = 66; global[1][2][4] = copy(value); value.value = 67; alias[1][2][4] = copy(value); outchar(read(local)); outchar(read(global)); outchar(read(alias)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "three-dimensional-aggregate-storage", programRel, [], 8000)).toBe("ABC");
+  });
+
+  test("source mode covers four-dimensional aggregate local global parameter and typedef arrays", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-4d-aggregate-storage-"));
+    const programRel = compileSourceRel(tempDir, "four-dimensional-aggregate-storage.c",
+      "struct Cell { char value; }; typedef struct Cell Cube[2][3][5][2]; struct Cell global[2][3][5][2]; struct Cell copy(struct Cell x){ return x; } char read(struct Cell (*rows)[3][5][2]){ return rows[1][2][4][1].value; } int main(){ struct Cell local[2][3][5][2]; Cube alias; struct Cell value; value.value = 65; local[1][2][4][1] = copy(value); value.value = 66; global[1][2][4][1] = copy(value); value.value = 67; alias[1][2][4][1] = copy(value); outchar(read(local)); outchar(read(global)); outchar(read(alias)); return 0; }\n");
+    expect(linkAndRunCom(tempDir, "four-dimensional-aggregate-storage", programRel, [], 8000)).toBe("ABC");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode scalar %s local cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-scalar-local-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-scalar-local.c`, `int main(){ char cells${bounds}; cells${index} = 65; outchar(cells${index}); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-scalar-local`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode scalar %s global cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-scalar-global-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-scalar-global.c`, `char cells${bounds}; int main(){ cells${index} = 65; outchar(cells${index}); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-scalar-global`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode scalar %s parameter cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-scalar-parameter-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-scalar-parameter.c`, `char read(char rows${parameterBounds}){ return rows${index}; } int main(){ char cells${bounds}; cells${index} = 65; outchar(read(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-scalar-parameter`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode scalar %s field cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-scalar-field-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-scalar-field-cell.c`, `struct Holder { char cells${bounds}; }; char read(char rows${parameterBounds}){ return rows${index}; } int main(){ struct Holder holder; holder.cells${index} = 65; outchar(read(holder.cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-scalar-field-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode scalar %s typedef cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-scalar-typedef-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-scalar-typedef-cell.c`, `typedef char Cube${bounds}; char read(char rows${parameterBounds}){ return rows${index}; } int main(){ Cube cells; cells${index} = 65; outchar(read(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-scalar-typedef-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode pointer %s local cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-pointer-local-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-pointer-local.c`, `int main(){ char value; char *cells${bounds}; cells${index} = &value; *cells${index} = 65; outchar(value); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-pointer-local`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode pointer %s global cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-pointer-global-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-pointer-global.c`, `char value; char *cells${bounds}; int main(){ cells${index} = &value; *cells${index} = 65; outchar(value); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-pointer-global`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode pointer %s parameter cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-pointer-parameter-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-pointer-parameter.c`, `char read(char *rows${parameterBounds}){ return *rows${index}; } int main(){ char value; char *cells${bounds}; cells${index} = &value; value = 65; outchar(read(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-pointer-parameter`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode pointer %s field cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-pointer-field-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-pointer-field-cell.c`, `struct Holder { char *cells${bounds}; }; char read(char *rows${parameterBounds}){ return *rows${index}; } int main(){ char value; struct Holder holder; holder.cells${index} = &value; value = 65; outchar(read(holder.cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-pointer-field-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode pointer %s typedef cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-pointer-typedef-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-pointer-typedef-cell.c`, `typedef char * Cube${bounds}; char read(char *rows${parameterBounds}){ return *rows${index}; } int main(){ char value; Cube cells; cells${index} = &value; value = 65; outchar(read(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-pointer-typedef-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode function-pointer %s local cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-function-pointer-local-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-function-pointer-local.c`, `char id(char x){ return x; } int main(){ char (*cells${bounds})(char); cells${index} = id; outchar(cells${index}(65)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-function-pointer-local`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode function-pointer %s global cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-function-pointer-global-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-function-pointer-global.c`, `char id(char x){ return x; } char (*cells${bounds})(char); int main(){ cells${index} = id; outchar(cells${index}(65)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-function-pointer-global`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode function-pointer %s parameter cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-function-pointer-parameter-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-function-pointer-parameter.c`, `char id(char x){ return x; } char call(char (*rows${parameterBounds})(char)){ return rows${index}(65); } int main(){ char (*cells${bounds})(char); cells${index} = id; outchar(call(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-function-pointer-parameter`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode function-pointer %s field cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-function-pointer-field-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-function-pointer-field-cell.c`, `struct Holder { char (*cells${bounds})(char); }; char id(char x){ return x; } char call(char (*rows${parameterBounds})(char)){ return rows${index}(65); } int main(){ struct Holder holder; holder.cells${index} = id; outchar(call(holder.cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-function-pointer-field-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[][3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[][3][5][2]"],
+  ])("source mode function-pointer %s typedef cell", (dimension, bounds, index, parameterBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-function-pointer-typedef-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-function-pointer-typedef-cell.c`, `typedef char (*Cube${bounds})(char); char id(char x){ return x; } char call(char (*rows${parameterBounds})(char)){ return rows${index}(65); } int main(){ Cube cells; cells${index} = id; outchar(call(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-function-pointer-typedef-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode aggregate %s local cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-aggregate-local-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-aggregate-local.c`, `struct Cell { char value; }; struct Cell copy(struct Cell x){ return x; } int main(){ struct Cell cells${bounds}; struct Cell value; value.value = 65; cells${index} = copy(value); outchar(cells${index}.value); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-aggregate-local`, programRel, [], 8000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]"],
+  ])("source mode aggregate %s global cell", (dimension, bounds, index) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-aggregate-global-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-aggregate-global.c`, `struct Cell { char value; }; struct Cell copy(struct Cell x){ return x; } struct Cell cells${bounds}; int main(){ struct Cell value; value.value = 65; cells${index} = copy(value); outchar(cells${index}.value); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-aggregate-global`, programRel, [], 8000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[3][5][2]"],
+  ])("source mode aggregate %s parameter cell", (dimension, bounds, index, trailingBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-aggregate-parameter-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-aggregate-parameter.c`, `struct Cell { char value; }; char read(struct Cell (*rows)${trailingBounds}){ return rows${index}.value; } int main(){ struct Cell cells${bounds}; cells${index}.value = 65; outchar(read(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-aggregate-parameter`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[3][5][2]"],
+  ])("source mode aggregate %s field cell", (dimension, bounds, index, trailingBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-aggregate-field-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-aggregate-field-cell.c`, `struct Cell { char value; }; struct Holder { struct Cell cells${bounds}; }; char read(struct Cell (*rows)${trailingBounds}){ return rows${index}.value; } int main(){ struct Holder holder; holder.cells${index}.value = 65; outchar(read(holder.cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-aggregate-field-cell`, programRel, [], 4000)).toBe("A");
+  });
+
+  test.each([
+    ["3d", "[2][3][5]", "[1][2][4]", "[3][5]"],
+    ["4d", "[2][3][5][2]", "[1][2][4][1]", "[3][5][2]"],
+  ])("source mode aggregate %s typedef cell", (dimension, bounds, index, trailingBounds) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `mz80-ts-source-${dimension}-aggregate-typedef-cell-`));
+    const programRel = compileSourceRel(tempDir, `${dimension}-aggregate-typedef-cell.c`, `struct Cell { char value; }; typedef struct Cell Cube${bounds}; char read(struct Cell (*rows)${trailingBounds}){ return rows${index}.value; } int main(){ Cube cells; cells${index}.value = 65; outchar(read(cells)); return 0; }\n`);
+    expect(linkAndRunCom(tempDir, `${dimension}-aggregate-typedef-cell`, programRel, [], 4000)).toBe("A");
+  });
+
   test("source mode computes aggregate pointer differences", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-ts-source-aggregate-pointer-difference-"));
     const helperRelPath = assembleArithmeticHelperRuntime(tempDir);

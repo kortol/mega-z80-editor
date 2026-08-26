@@ -85,7 +85,7 @@ function parseProgram(sourceText, file) {
     while ((match = arrayPointerReturnPattern.exec(normalized)) !== null) {
         const paramsStart = arrayPointerReturnPattern.lastIndex;
         const paramsEnd = findMatchingParenInText(normalized, paramsStart - 1);
-        const returnSuffix = /^\s*\)\s*\[\s*(\d+)\s*\]/.exec(normalized.slice(paramsEnd + 1));
+        const returnSuffix = /^\s*\)\s*((?:\[\s*\d+\s*\])+)/.exec(normalized.slice(paramsEnd + 1));
         if (!returnSuffix) {
             arrayPointerReturnPattern.lastIndex = paramsEnd + 1;
             continue;
@@ -113,7 +113,7 @@ function parseProgram(sourceText, file) {
                 kind: "function",
                 name: functionName,
                 ...(/^static\b/.test(match[0]) ? { isStatic: true } : {}),
-                returnType: { kind: "pointer", pointee: { kind: "arrayPointer", elementType: returnElementType.name, length: Number.parseInt(returnSuffix[1], 10) } },
+                returnType: { kind: "pointer", pointee: makeArrayPointerType(returnElementType, parseFixedArrayDimensions(returnSuffix[1], context)) },
                 params: parseParams(context, normalized.slice(paramsStart, paramsEnd), functionName, match.index),
                 ...(isVariadicParamsText(normalized.slice(paramsStart, paramsEnd)) ? { isVariadic: true } : {}),
                 body: parseBodyAsBlock(context, normalized.slice(bodyStart, bodyEnd), functionName, bodyStart),
@@ -3846,31 +3846,23 @@ function buildAggregateArrayInitializerStatements(context, name, type, initializ
         }
         return statements;
     }
-    if (dimensions.length === 1) {
-        if (initializer.items.length > dimensions[0]) {
-            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array initializer '${name}' does not fit in ${functionName}().`, { file: context.file, offset });
+    const visit = (value, depth, indices) => {
+        if (depth === dimensions.length) {
+            appendElement(indices, value);
+            return;
         }
-        for (let index = 0; index < dimensions[0]; index += 1) {
-            appendElement([index], initializer.items[index]);
+        if (value && value.kind !== "list") {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires nested braces for aggregate array '${name}' in ${functionName}().`, { file: context.file, offset });
         }
-        return statements;
-    }
-    if (initializer.items.length > dimensions[0]) {
-        (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array initializer '${name}' does not fit in ${functionName}().`, { file: context.file, offset });
-    }
-    for (let row = 0; row < dimensions[0]; row += 1) {
-        const rowInitializer = initializer.items[row];
-        if (rowInitializer && rowInitializer.kind !== "list") {
-            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset requires nested braces for row ${row} of aggregate array '${name}' in ${functionName}().`, { file: context.file, offset });
+        const items = value?.kind === "list" ? value.items : [];
+        if (items.length > dimensions[depth]) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array initializer '${name}' does not fit at dimension ${depth} in ${functionName}().`, { file: context.file, offset });
         }
-        const items = rowInitializer?.kind === "list" ? rowInitializer.items : [];
-        if (items.length > dimensions[1]) {
-            (0, tsFrontendDiagnostics_1.throwDiagnostic)(context.normalized, `TsSccCompilerAdapter C Subset aggregate array row initializer '${name}[${row}]' does not fit in ${functionName}().`, { file: context.file, offset });
+        for (let index = 0; index < dimensions[depth]; index += 1) {
+            visit(items[index], depth + 1, [...indices, index]);
         }
-        for (let column = 0; column < dimensions[1]; column += 1) {
-            appendElement([row, column], items[column]);
-        }
-    }
+    };
+    visit(initializer, 0, []);
     return statements;
 }
 function linearArrayIndexToCoordinates(index, dimensions) {

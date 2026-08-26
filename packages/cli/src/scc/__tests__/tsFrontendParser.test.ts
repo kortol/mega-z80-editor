@@ -2325,6 +2325,13 @@ describe("tsFrontendParser", () => {
     expect(() => parseProgram("int invalid()[2]{ return 0; }", "array-return.c")).toThrow("cannot return a function or an array");
   });
 
+  test("rejects non-fixed multidimensional array bounds while accepting fixed four-dimensional declarators", () => {
+    expect(() => parseProgram("int main(){ char zero[2][0][5]; return 0; }", "zero-bound.c")).toThrow("positive decimal-literal array bounds");
+    expect(() => parseProgram("int main(){ int n = 2; char vla[2][n][5]; return 0; }", "vla-bound.c")).toThrow();
+    expect(() => parseProgram("int main(){ char trailing[2][][5]; return 0; }", "trailing-unsized.c")).toThrow();
+    expect(() => parseProgram("int main(){ char fixed[2][3][5][2]; return fixed[1][2][4][1]; }", "fixed-four-dimensional.c")).not.toThrow();
+  });
+
   test("parses variadic declarations and stdarg subset expressions", () => {
     const program = parseProgram(
       "int sum(int first, ...){ va_list ap; va_start(ap, first); return va_arg(ap, int); }\n",

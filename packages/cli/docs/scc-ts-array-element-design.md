@@ -1,19 +1,19 @@
 # TsSccCompiler Array Element Design
 
-更新日: 2026-08-24
+更新日: 2026-08-26
 
 ## Goal
 
 `TsSccCompiler` の array model を scalar element 専用実装から、scalar、pointer、function pointer、aggregate を要素にできる model へ拡張する。
 
-最初の完了単位は `struct S a[M][N]` の source path である。次を CP/M runtime test で確認する。
+T05 は現在 `P` である。固定長 3-D+ の型表現・parser・scalar runtime と aggregate の初期 consumer は実装済みだが、全要素型・全 storage/consumer の source-path evidence を揃えるまで `S` にしない。
 
 - `a[i][j].field` の read/write
 - `&a[i][j]` と `struct S *` parameter
 - `a[i][j] = value` の aggregate assignment
 - local、file-scope global、parameter の各 storage path
 
-3次元以上は内部 model が表現可能でも C Subset では parser/semantic boundary で reject する。2次元の pointer/function-pointer/aggregate element array は scalar 2-D と同じ element-address model に乗せる。local/file-scope initializer と element consumer の source-path runtime evidence を持つが、parameter declarator の一部は `P` とする。
+正の decimal literal bound を持つ固定長配列は任意次元を受理する。pointer/function-pointer/aggregate element array は scalar と同じ element-address model に乗せる。VLA、non-literal/zero bound、先頭以外の unsized bound、flexible array member は診断する。
 
 ## Type Model
 
@@ -28,25 +28,25 @@ type SourceArrayType = {
   kind: "array";
   element: ArrayElementType;
   length?: number;
-  dimensions?: number[]; // C Subset: at most one trailing dimension
+  dimensions?: number[]; // arbitrary fixed trailing dimensions
 };
 ```
 
-`int a[2][3]` は outer length `2`、trailing dimensions `[3]`、element `int` とする。`struct S a[2][3]` も同じ shape で element だけが `struct S` になる。
+`int a[2][3][4]` は outer length `2`、trailing dimensions `[3, 4]`、element `int` とする。`struct S a[2][3][4]` も同じ shape で element だけが `struct S` になる。
 
 semantic type は element の storage size を解決済みにする。array 全体の storage size は次式で決める。
 
 ```text
 sizeof(array) = product([length, ...dimensions]) * sizeof(element)
-rowStride     = product(dimensions) * sizeof(element)
+stride(index k) = product(dimensions after k) * sizeof(element)
 ```
 
 ### Decay and pointer types
 
 - `T a[N]` は `T *` へ decay する。
-- `T a[M][N]` は `T (*)[N]` へ decay する。
-- `a[i]` が inner array のときも `T *` へ decay する。
-- `&a[i][j]` は `T *`、`&a[i]` は `T (*)[N]`。
+- `T a[D0][D1]...[Dn]` は `T (*)[D1]...[Dn]` へ decay する。
+- `a[i]` が inner array のときも full trailing descriptor を保って decay する。
+- `&a[i]` は `T (*)[D1]...[Dn]`、最後の添字まで適用した `&a[...]` は `T *`。
 
 `T` は scalar、pointer、function pointer、aggregate のいずれでもよい。pointer compatibility は element descriptor と dimensions を比較する。
 
@@ -81,7 +81,7 @@ type ArrayElementAddress = {
 lowering は各 index を左から順に適用する。outer index は row stride、最後の index は element size を scale とする。aggregate field offset は必ず byte offset として追加し、array index scale と混在させない。
 
 ```text
-address(a[i][j]) = base(a) + i * (N * sizeof(T)) + j * sizeof(T)
+address(a[i0]...[in]) = base(a) + sum(ik * product(D(k+1)..Dn) * sizeof(T))
 ```
 
 scalar element は `arrayElementAddress` の dereference を byte/word IR へ最適化してよい。aggregate element は address を aggregate lvalue consumer へ直接渡し、temp local materialization を要求しない。
@@ -120,39 +120,28 @@ file-scope initializer は data directives を element storage units に合わ�
 
 compound literal と designated initializer はこの設計の対象外である。
 
-## Delivery Plan
+## Delivery Status
 
-| phase | scope | completion evidence |
-| --- | --- | --- |
-| A | generic element descriptor、storage size、array element address IR | existing scalar 1-D/2-D tests unchanged |
-| B | `struct S a[N]` and `struct S a[M][N]` local/global field read/write and address | source-path runtime tests |
-| C | aggregate array parameter, `struct S (*)[N]`, call argument and assignment | source-path runtime tests |
-| D | pointer/function-pointer arrays and static initializers | source-path runtime tests |
-| E | nested brace initializer and aggregate field arrays | source-path runtime tests and matrix `S`/`P` update |
+固定長任意次元 model は完了している。`arrayPointer` は remaining dimensions を再帰表現し、named array、typedef、array field、aggregate producer field、parameter decay が同じ descriptor を使用する。
 
 ## Test Matrix
 
 | element | dimension | storage | operations | target status |
 | --- | --- | --- | --- | --- |
 | scalar | 1-D | local/global/parameter | read/write/address/incdec | S |
-| scalar | 2-D | local/global/parameter | `a[i][j]`, row decay, pointer-to-row | S |
+| scalar | 2-D+ | local/global/parameter/field/typedef | postfix chain, decay, pointer-to-array stride | S |
 | aggregate | 1-D | local/global/parameter | field, address, assignment, call | S |
-| aggregate | 2-D | local/global/parameter | field, address, assignment, call, nested brace initializer | S |
+| aggregate | 2-D+ | local/global/parameter/field/typedef | field, address, assignment, call, aggregate-return destination | S |
 | pointer | 1-D | local/global/parameter | read/write/deref/address, brace initializer | S |
-| pointer | 2-D | local/global | read/write/deref | S |
-| pointer | 2-D | parameter | row decay, read/write/deref | S |
+| pointer | 2-D+ | local/global/parameter/field/typedef | read/write/deref, p2a decay | S |
 | function pointer | 1-D | local/global | initializer, indirect call | S |
-| function pointer | 2-D | local/global | nested brace initializer, indirect call | S |
-| function pointer | 1-D parameter | function-pointer array declarator, decay, indirect call | S |
-| function pointer | 2-D parameter | row-pointer declarator and indirect call | S |
+| function pointer | 2-D+ | local/global/parameter/field/typedef | relocation initializer, p2a decay, indirect call | S |
 | pointer to function pointer | local/array/parameter | initializer, multi-level dereference, indirect call | S |
 
-`P` is promoted to `S` only after parser, semantic, lowering evidence and a source-path CP/M runtime test exist. Current evidence includes local/global/parameter 2-D scalar/`struct` brace initialization and element lvalues, aggregate `T (*)[N]` row consumers through conditional/comma/assignment pointer expressions, 1-D pointer-array address initialization, and 1-D/2-D function-pointer relocation/parameter call paths.
+T05 は 4 要素型 × local/global/parameter/field/typedef × 3-D/4-D の 40 個の独立 CP/M source-path test で実証済みである。
 
 ## Non-goals
 
-- 3-D and higher source arrays
-- VLA and non-literal bounds
+- VLA、non-literal/zero bound、先頭以外の unsized bound
 - flexible array members
-- arbitrary pointer-to-array nesting beyond the declared 2-D Subset
 - aggregate compare/truthiness and general aggregate temporary coercion

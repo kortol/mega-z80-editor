@@ -1680,14 +1680,17 @@ function getArrayFieldAddressFromConsumerExpr(
   sourceText: string,
   file?: string,
 ): BoundExpr | null {
-  const arrayPointerType = (elementType: ScalarType, length: number): SemanticPointerType =>
-    toSemanticPointerType({ kind: "arrayPointer", elementType, length });
+  // An array field decays exactly like a named array.  In particular, retain
+  // every trailing bound so `field[M][N][O]` produces `T (*)[N][O]`, rather
+  // than the former one-dimensional descriptor.
+  const arrayPointerType = (type: SemanticArrayType): SemanticPointerType =>
+    toSemanticPointerType(getArrayDecayPointee(type));
   const makeAddress = (pointer: BoundExpr, field: AggregateFieldLayout): BoundExpr => ({
     kind: "pointerAdd",
     pointer,
     index: { kind: "const", value: field.offset, type: toSemanticScalarType("int") },
     pointee: "char",
-    type: arrayPointerType((field.type as SemanticArrayType).elementType, getSizedArrayLength(field.type as SemanticArrayType)),
+    type: arrayPointerType(field.type as SemanticArrayType),
   });
 
   if (expr.kind === "pointerMemberAccess" || expr.kind === "pointerMemberExprAccess") {
@@ -1722,7 +1725,7 @@ function getArrayFieldAddressFromConsumerExpr(
     kind: "aggregateProducerFieldAddress",
     source: producer.source,
     offset: producer.offset + field.offset,
-    type: arrayPointerType(field.type.elementType, field.type.length),
+    type: arrayPointerType(toSemanticType(field.type) as SemanticArrayType),
   };
 }
 
@@ -2458,14 +2461,7 @@ function analyzeExpr(
       }
       const rawField = getAggregateFieldLayout(symbol.type, expr.field, functionName, sourceText, file);
       if (rawField.type.kind === "array") {
-        return analyzeExpr(
-          { kind: "addressOfExpr", expr: { kind: "memberArrayIndex", name: expr.name, field: expr.field, index: { kind: "const", value: 0 } } },
-          scope,
-          functionSymbols,
-          functionName,
-          sourceText,
-          file,
-        );
+        return getArrayFieldAddressFromConsumerExpr(expr, scope, functionSymbols, functionName, sourceText, file) as BoundExpr;
       }
       const field = getReadableAggregateFieldLayout(symbol.type, expr.field, functionName, sourceText, file);
       if (field.type.kind === "scalar") {
@@ -2506,14 +2502,7 @@ function analyzeExpr(
     }
     case "memberExprAccess": {
       if (getAggregateFieldLayoutForConsumerTarget(expr.target, expr.field, scope, functionSymbols, functionName, sourceText, file).type.kind === "array") {
-        return analyzeExpr(
-          { kind: "addressOfExpr", expr: { kind: "memberExprArrayIndex", target: expr.target, field: expr.field, index: { kind: "const", value: 0 } } },
-          scope,
-          functionSymbols,
-          functionName,
-          sourceText,
-          file,
-        );
+        return getArrayFieldAddressFromConsumerExpr(expr, scope, functionSymbols, functionName, sourceText, file) as BoundExpr;
       }
       const target = getAggregateFieldReadFromTargetExpr(expr.target, expr.field, scope, functionSymbols, functionName, sourceText, file);
       if (target.kind === "value") {
@@ -2547,14 +2536,7 @@ function analyzeExpr(
         }) as SemanticAggregateType;
       const rawField = getAggregateFieldLayout(aggregateType, expr.field, functionName, sourceText, file);
       if (rawField.type.kind === "array") {
-        return analyzeExpr(
-          { kind: "addressOfExpr", expr: { kind: "pointerMemberArrayIndex", name: expr.name, field: expr.field, index: { kind: "const", value: 0 } } },
-          scope,
-          functionSymbols,
-          functionName,
-          sourceText,
-          file,
-        );
+        return getArrayFieldAddressFromConsumerExpr(expr, scope, functionSymbols, functionName, sourceText, file) as BoundExpr;
       }
       const field = getReadableAggregateFieldLayout(aggregateType, expr.field, functionName, sourceText, file);
       return {
@@ -2581,14 +2563,7 @@ function analyzeExpr(
       }) as SemanticAggregateType;
       const rawField = getAggregateFieldLayout(aggregateType, expr.field, functionName, sourceText, file);
       if (rawField.type.kind === "array") {
-        return analyzeExpr(
-          { kind: "addressOfExpr", expr: { kind: "pointerMemberExprArrayIndex", target: expr.target, field: expr.field, index: { kind: "const", value: 0 } } },
-          scope,
-          functionSymbols,
-          functionName,
-          sourceText,
-          file,
-        );
+        return getArrayFieldAddressFromConsumerExpr(expr, scope, functionSymbols, functionName, sourceText, file) as BoundExpr;
       }
       const field = getReadableAggregateFieldLayout(
         aggregateType,
@@ -2655,23 +2630,29 @@ function analyzeExpr(
       }
       const index = analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file);
       if (symbol.type.elementValueType || symbol.type.dimensions?.length) {
-        if (symbol.type.elementValueType?.kind === "aggregate") {
+        if (symbol.type.elementValueType?.kind === "aggregate" && !symbol.type.dimensions?.length) {
           throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset only supports aggregate array elements as aggregate consumers in ${functionName}().`, { file, offset: 0 });
         }
         const elementPointee = getArrayIndexPointee(symbol.type);
+        const elementAddress: BoundExpr = {
+          kind: "pointerAdd",
+          pointer: symbol.kind === "global"
+            ? { kind: "globalAddress", symbol, type: toSemanticPointerType(elementPointee) }
+            : symbol.kind === "local"
+              ? { kind: "localAddress", symbol, type: toSemanticPointerType(elementPointee) }
+              : { kind: "ref", symbol, type: toSemanticPointerType(elementPointee) },
+          index,
+          pointee: elementPointee,
+          type: toSemanticPointerType(elementPointee),
+        };
+        // A non-final subscript is an array lvalue.  Preserve its address and
+        // trailing descriptor for the next postfix operation.
+        if (typeof elementPointee !== "string" && elementPointee.kind === "arrayPointer") {
+          return elementAddress;
+        }
         return {
           kind: "deref",
-          pointer: {
-            kind: "pointerAdd",
-            pointer: symbol.kind === "global"
-              ? { kind: "globalAddress", symbol, type: toSemanticPointerType(elementPointee) }
-              : symbol.kind === "local"
-                ? { kind: "localAddress", symbol, type: toSemanticPointerType(elementPointee) }
-                : { kind: "ref", symbol, type: toSemanticPointerType(elementPointee) },
-            index,
-            pointee: elementPointee,
-            type: toSemanticPointerType(elementPointee),
-          },
+          pointer: elementAddress,
           type: symbol.type.dimensions?.length
             ? toSemanticPointerType(elementPointee)
             : getArrayElementValueType(symbol.type),
@@ -2710,15 +2691,22 @@ function analyzeExpr(
         throwDiagnostic(sourceText, `TsSccCompilerAdapter C Subset only supports aggregate array elements as aggregate consumers in ${functionName}().`, { file, offset: 0 });
       }
       const elementPointee = pointer.type.pointee.elementValueType ?? pointer.type.pointee.elementType;
+      const elementAddress: BoundExpr = {
+        kind: "pointerAdd",
+        pointer,
+        index: analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file),
+        pointee: elementPointee,
+        type: toSemanticPointerType(elementPointee),
+      };
+      // An intermediate multidimensional subscript denotes an array lvalue.
+      // Carry its address onward; materializing it as a word dereference would
+      // read the first two element bytes as a pointer.
+      if (typeof elementPointee !== "string" && elementPointee.kind === "arrayPointer") {
+        return elementAddress;
+      }
       return {
         kind: "deref",
-        pointer: {
-          kind: "pointerAdd",
-          pointer,
-          index: analyzeExpr(expr.index, scope, functionSymbols, functionName, sourceText, file),
-          pointee: elementPointee,
-          type: toSemanticPointerType(elementPointee),
-        },
+        pointer: elementAddress,
         type: getArrayPointerElementValueType(pointer.type.pointee),
       };
     }
@@ -3872,7 +3860,16 @@ function buildAggregateLayouts(
       if (type.length === undefined) {
         throw new Error(`Unsized arrays are only supported for parameters, got ${JSON.stringify(type)}`);
       }
-      return getArrayStorageBytes(type);
+      // Layout construction is recursive and runs before
+      // currentAggregateLayouts is published.  Resolve aggregate array
+      // elements through this resolver instead of the global layout map.
+      const element: SourceType = type.elementValueType
+        ? type.elementValueType
+        : { kind: "scalar", name: type.elementType };
+      return [type.length, ...(type.dimensions ?? [])].reduce(
+        (size, dimension) => size * dimension,
+        resolveFieldSize(element),
+      );
     }
     return resolveLayout(`${type.aggregateKind}:${type.name}`).size;
   };
