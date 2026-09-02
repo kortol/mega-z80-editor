@@ -104,5 +104,5 @@ Small-C proof obligations are: 8/16-bit return register, argument push order and
 ## Non-Goals
 
 - This is not an ABI stability promise for external object modules yet.
-- Varargs, floating point, non-current scalar widths, and recursive array ABI are outside the current contract.
-- Future 2-D arrays must preserve this frame model; only element size and row stride should change.
+- External varargs、floating point、non-current scalar widths、VLA、および external object ABI interoperability は current contract の外である。
+- Fixed-size recursive array descriptors are supported internally: `T [D0][D1]...[Dn]` decays to `T (*)[D1]...[Dn]`, and pointer add/difference stride is the product of all trailing bounds and the final element size. This frame model applies to every fixed dimension count.

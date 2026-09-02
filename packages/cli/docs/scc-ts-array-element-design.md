@@ -1,17 +1,17 @@
 # TsSccCompiler Array Element Design
 
-更新日: 2026-08-26
+更新日: 2026-09-02
 
 ## Goal
 
 `TsSccCompiler` の array model を scalar element 専用実装から、scalar、pointer、function pointer、aggregate を要素にできる model へ拡張する。
 
-T05 は現在 `P` である。固定長 3-D+ の型表現・parser・scalar runtime と aggregate の初期 consumer は実装済みだが、全要素型・全 storage/consumer の source-path evidence を揃えるまで `S` にしない。
+T05 は `S` である。固定長 3-D/4-D について scalar、pointer、function pointer、aggregate × local/global/parameter/aggregate-field/typedef の 40 個の独立 CP/M source-path runtime cell を実証済みである。各 pointer-to-array cell は full trailing-dimension descriptor を保持し、aggregate cell は assignment、by-value call、または aggregate return consumer を含む。
 
-- `a[i][j].field` の read/write
-- `&a[i][j]` と `struct S *` parameter
-- `a[i][j] = value` の aggregate assignment
-- local、file-scope global、parameter の各 storage path
+- `a[i][j][k]...field` の read/write
+- `&a[i][j][k]...` と recursive `struct S (*)[D1]...[Dn]` parameter
+- aggregate array element assignment、by-value call、aggregate return consumer
+- local、file-scope global、parameter、aggregate field、typedef の各 declaration path
 
 正の decimal literal bound を持つ固定長配列は任意次元を受理する。pointer/function-pointer/aggregate element array は scalar と同じ element-address model に乗せる。VLA、non-literal/zero bound、先頭以外の unsized bound、flexible array member は診断する。
 

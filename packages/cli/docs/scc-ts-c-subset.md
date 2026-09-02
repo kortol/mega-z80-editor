@@ -86,36 +86,36 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 
 | expression family | scalar | pointer | 1-D array | 2-D array | 3-D+ array | array-like | aggregate lvalue | aggregate value | function pointer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| literal / identifier read | S | S | S | S | N | S | S | S | S |
+| literal / identifier read | S | S | S | S | S | S | S | S | S |
 | unary `+ - ~ !` | S | N | N | N | N | N | N | N | N |
-| address-of `&` | S | S | S | S | N | S | S | P | S |
+| address-of `&` | S | S | S | S | S | S | S | S | S |
 | dereference `*` | N | S | N | N | N | S | S | N | N |
-| `sizeof` | S | S | S | S | N | S | S | P | S |
-| scalar cast | S | S | N | N | N | P | N | N | P |
+| `sizeof` | S | S | S | S | S | S | S | N | S |
+| scalar cast | S | S | N | N | N | N | N | N | N |
 | arithmetic / shift / bitwise | S | N | N | N | N | N | N | N | N |
-| pointer `+/-` integer | N | S | N | S | N | S | N | N | N |
-| relational / equality | S | S | N | N | N | P | N | N | N |
-| logical truthiness | S | S | N | N | N | P | N | N | S |
-| conditional `?:` | S | S | N | S | N | S | N | S | P |
-| comma | S | S | N | S | N | S | N | S | P |
-| assignment expression | S | S | P | S | N | S | P | S | S |
-| compound assignment | S | S | P | N | N | P | N | N | N |
-| prefix/postfix incdec | S | S | P | N | N | P | N | N | N |
-| subscript / indexed lvalue | P | S | S | S | N | S | P | P | N |
-| member `.` / `->` | N | P | N | N | N | P | S | S | P |
+| pointer `+/-` integer | N | S | N | S | S | S | N | N | N |
+| relational / equality | S | S | N | N | N | S | N | N | N |
+| logical truthiness | S | S | N | N | N | S | N | N | S |
+| conditional `?:` | S | S | N | S | S | S | N | S | S |
+| comma | S | S | N | S | S | S | N | S | S |
+| assignment expression | S | S | N | N | N | S | S | S | S |
+| compound assignment | S | S | N | N | N | S | N | N | N |
+| prefix/postfix incdec | S | S | N | N | N | S | N | N | N |
+| subscript / indexed lvalue | N | S | S | S | S | S | S | S | N |
+| member `.` / `->` | N | S | N | N | N | S | S | S | N |
 | direct call | - | - | - | - | - | - | - | - | - |
-| indirect call target | N | N | N | N | N | N | N | N | P |
-| call argument | S | S | S | S | N | S | S | S | P |
-| return expression | S | S | N | N | N | S | N | S | P |
+| indirect call target | N | N | N | N | N | N | N | N | S |
+| call argument | S | S | S | S | S | S | S | S | S |
+| return expression | S | S | N | N | N | S | N | S | S |
 
 Matrix notes:
 
 - `1-D array` は実体の `char[N]` / `int[N]`、`2-D array` と `3-D+ array` は実体の配列次元を表す。固定長の任意次元は内部の次元列と remaining-dimension stride で処理する。VLA、非リテラル bound、および後続 unsized bound は明示的に reject する。
 - `array-like` の `S` は `char[N]` / `int[N]` の decay、`char (*)[N]` / `int (*)[N]`、array field/parameter の current supported forms を指す。array value を一般値として操作する意味ではない。
-- `array-like` の `P` は型モデルが scalar element + literal bound に限定されること、または runtime evidence が未完であることを示す。詳細は `X15`, `X20`, `X21` と `T06` を参照する。
-- `aggregate lvalue` の assignment statement は local/global/direct/nested/pointer/conditional aggregate-field destination まで通る。一方 assignment expression の結果を一般 aggregate lvalue として流すモデルはないため `P`。aggregate value は dedicated producer/consumer/destination 経路では `S`。
+- `array-like` は全固定次元・current element type の decay pointer / pointer-to-array transport を表す。配列実体の assignment、compare、incdec は C の不正操作として `N` である。
+- aggregate assignment、conditional、comma、call return は型付き aggregate value producer として field read、field address、by-value argument、return、assignment destination に接続する。aggregate producer member address は dedicated temporary/destination path で実装する。
 - `direct call` は値カテゴリではなく function symbol 構文を target とするため全列 `-`。function pointer target は `indirect call target` 行で扱う。
-- `member` 行の pointer/p2a/function pointer `P` は member *value* の後続利用可能性を示す。field read/address/call の実証済み主要経路は `X24-X26` を正とする。
+- `member` 行の `S` は aggregate object/pointer/value を base にする field read/address/call と array-field decay を指す。function pointer 単体は member base ではない。
 
 | id | syntax | allowed operands / lvalues | Parser | Semantic | Lowering/emit | Runtime | status | remaining boundary |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
