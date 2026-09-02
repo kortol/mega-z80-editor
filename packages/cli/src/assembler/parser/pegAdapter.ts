@@ -190,21 +190,28 @@ function splitStatementSeparators(source: string): string {
 }
 
 function normalizeAsxxxxCompat(source: string): string {
+  const aliases: Record<string, string> = {
+    module: "ASXXXX_MODULE",
+    globl: "ASXXXX_GLOBL",
+    area: "ASXXXX_AREA",
+    ascii: "ASXXXX_ASCII",
+    asciz: "ASXXXX_ASCIZ",
+    db: "ASXXXX_DB",
+    dw: "ASXXXX_DW",
+    ds: "ASXXXX_DS",
+  };
   return source
     .split(/\r?\n/)
     .map((line) => {
-      if (/^\s*\.module\b/i.test(line)) {
-        return line.replace(/^(\s*)\.module\b/i, "$1MODULE");
-      }
-      if (/^\s*\.globl\b/i.test(line)) {
-        return line.replace(/^(\s*)\.globl\b/i, "$1GLOBL");
-      }
-      return line;
+      return line.replace(/^(\s*)\.(module|globl|area|ascii|asciz|db|dw|ds)\b/i, (_match, leading, name) => `${leading}${aliases[String(name).toLowerCase()]}`);
     })
     .join("\n");
 }
 
 export function parsePeg(ctx: AsmContext, source: string): Node[] {
+  if (/^\s*:\s*(?:;.*)?$/m.test(source)) {
+    throw makeError(AssemblerErrorCode.SyntaxError, "Syntax error: label name is required before ':'.", { pos: ctx.currentPos });
+  }
   let ast: any;
   try {
     ast = pegParser.parse(splitStatementSeparators(normalizeAsxxxxCompat(source)));
@@ -228,8 +235,19 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
     "ASEG", "CSEG", "DSEG", "TITLE", "PAGE", "LIST", "COMMON", "EXTERNAL", "EXT",
     "OUTPUT", "OUTEND",
     ".MODULE", ".GLOBL", ".AREA", ".ASCII", ".ASCIZ", ".DB", ".DW", ".DS",
-    "MODULE", "GLOBL"
+    "MODULE", "GLOBL",
+    "ASXXXX_MODULE", "ASXXXX_GLOBL", "ASXXXX_AREA", "ASXXXX_ASCII", "ASXXXX_ASCIZ", "ASXXXX_DB", "ASXXXX_DW", "ASXXXX_DS"
   ]);
+  const asxxxxPseudoAliases: Record<string, string> = {
+    ASXXXX_MODULE: ".MODULE",
+    ASXXXX_GLOBL: ".GLOBL",
+    ASXXXX_AREA: ".AREA",
+    ASXXXX_ASCII: ".ASCII",
+    ASXXXX_ASCIZ: ".ASCIZ",
+    ASXXXX_DB: "DB",
+    ASXXXX_DW: "DW",
+    ASXXXX_DS: "DS",
+  };
 
   const macroNames = new Set<string>();
   const useMacroOverride = !ctx.options?.strictMacro;
@@ -384,10 +402,11 @@ export function parsePeg(ctx: AsmContext, source: string): Node[] {
         const selfUpper = String(instr.name).toUpperCase();
         const isPseudoSelf = pseudoOps.has(selfUpper);
         if (isPseudoSelf) {
+          const normalizedOp = asxxxxPseudoAliases[selfUpper] ?? selfUpper;
           if (selfUpper === "DEFL" && rawArgs.length >= 2) {
             nodes.push(makePseudo("SET", [{ key: String(rawArgs[0]), value: String(rawArgs[1]) }], linePos));
           } else {
-            nodes.push(makePseudo(selfUpper, rawArgs.map((v: any) => ({ value: String(v) })), linePos));
+            nodes.push(makePseudo(normalizedOp, rawArgs.map((v: any) => ({ value: String(v) })), linePos));
           }
           continue;
         }

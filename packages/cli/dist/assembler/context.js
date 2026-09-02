@@ -150,6 +150,7 @@ function createAsmContext(overrides = {}) {
             sectionId: merged.currentSection,
             type: "CONST",
             pos: merged.currentPos,
+            internal: true,
         });
     }
     const version = (0, exports.canon)("_VERSION", merged);
@@ -159,6 +160,7 @@ function createAsmContext(overrides = {}) {
             sectionId: merged.currentSection,
             type: "CONST",
             pos: merged.currentPos,
+            internal: true,
         });
     }
     // logger の最終確定（ctx.id でプレフィクス）

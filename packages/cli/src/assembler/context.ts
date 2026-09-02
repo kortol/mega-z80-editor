@@ -46,6 +46,8 @@ export interface SymbolEntry {
   sectionId: number;              // セクションID（0=.text, 1=.data, 2=.bss, ...）
   type: "LABEL" | "CONST" | "EXTERN";
   pos?: SourcePos;                // 定義元ソース位置
+  /** Context が注入する互換シンボル。REL export table には出力しない。 */
+  internal?: boolean;
 }
 
 export interface RequesterInfo {
@@ -370,6 +372,7 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
       sectionId: merged.currentSection,
       type: "CONST",
       pos: merged.currentPos,
+      internal: true,
     });
   }
   const version = canon("_VERSION", merged);
@@ -379,6 +382,7 @@ export function createAsmContext(overrides: Partial<AsmContext> = {}): AsmContex
       sectionId: merged.currentSection,
       type: "CONST",
       pos: merged.currentPos,
+      internal: true,
     });
   }
 

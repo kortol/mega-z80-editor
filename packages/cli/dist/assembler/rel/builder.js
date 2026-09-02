@@ -64,6 +64,9 @@ function buildRelFile(ctx) {
         if (typeof entry !== "number" && entry.type === "EXTERN") {
             continue;
         }
+        if (typeof entry !== "number" && entry.internal) {
+            continue;
+        }
         if (exportFilterEnabled) {
             const key = ctx.caseInsensitive ? sym.toUpperCase() : sym;
             if (!ctx.exportSymbols.has(key)) {

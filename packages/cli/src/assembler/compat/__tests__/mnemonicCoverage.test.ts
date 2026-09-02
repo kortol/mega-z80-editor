@@ -50,6 +50,11 @@ function extractGrammarMnemonics(text: string): string[] {
     ".SYMLEN",
     ".WORD32",
     "DZ",
+    "DEFINE",
+    "DUP",
+    "EDUP",
+    "GLOBL",
+    "MODULE",
     // macro keywords
     "MACRO",
     "ENDM",

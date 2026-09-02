@@ -292,27 +292,6 @@ function parseNumber(text) {
     if (/^'\\\\'$/.test(text)) {
         return 0x5c; // バックスラッシュ
     }
-    if (/^'([^'\\]|\\.)+'$/.test(text)) {
-        const inner = text.slice(1, -1);
-        const chars = [];
-        for (let i = 0; i < inner.length; i++) {
-            const ch = inner[i];
-            if (ch === "\\" && i + 1 < inner.length) {
-                const esc = inner[++i];
-                if (esc === "n")
-                    chars.push(10);
-                else if (esc === "r")
-                    chars.push(13);
-                else if (esc === "t")
-                    chars.push(9);
-                else
-                    chars.push(esc.charCodeAt(0));
-                continue;
-            }
-            chars.push(ch.charCodeAt(0));
-        }
-        return chars.reduce((acc, value) => ((acc << 8) | (value & 0xff)) >>> 0, 0);
-    }
     // 16進
     if (/^0X[0-9A-F]+$/.test(s)) {
         return parseInt(s.slice(2), 16);
