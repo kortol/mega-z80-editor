@@ -1,0 +1,25 @@
+import { printDisasm } from "./commandRunner";
+export declare function dbgBinary(inputFile: string, opts: {
+    sym?: string;
+    base?: string;
+    from?: string;
+    bytes?: string;
+    decode?: string;
+    cpm?: boolean;
+    cpmInteractive?: boolean;
+    steps?: string;
+    progressEvery?: string;
+    saveState?: string;
+    loadState?: string;
+    saveStateEvery?: string;
+    entry?: string;
+    trace?: boolean;
+    bdosTrace?: boolean;
+    cmd?: string;
+    cpmRoot?: string;
+    tail?: string;
+    smap?: string;
+    rpcStdio?: boolean;
+    rpcListen?: string;
+}): void;
+export { printDisasm };

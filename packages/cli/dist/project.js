@@ -11,13 +11,9 @@ exports.cleanProject = cleanProject;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const yaml_1 = __importDefault(require("yaml"));
-const mz80_as_1 = require("./cli/mz80-as");
-const mz80_link_1 = require("./cli/mz80-link");
-const compileProgram_1 = require("./scc/compileProgram");
-const compilerAdapter_1 = require("./scc/compilerAdapter");
-const runtime_1 = require("./scc/runtime");
-const externalToolchain_1 = require("./scc/externalToolchain");
-const translateAsm_1 = require("./scc/translateAsm");
+const core_1 = require("@mz80/core");
+const assembler_1 = require("@mz80/assembler");
+const c_compiler_1 = require("@mz80/c-compiler");
 function loadProjectConfig(configPath, logger) {
     try {
         if (!fs_1.default.existsSync(configPath))
@@ -94,7 +90,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
     const tempDir = target.cc?.tempDir
         ? path_1.default.resolve(target.cc.tempDir)
         : path_1.default.join(path_1.default.dirname(target.output), `.mz80-scc-${target.name}`);
-    const compilerAdapter = new compilerAdapter_1.ExternalSccCompilerAdapter({
+    const compilerAdapter = new c_compiler_1.ExternalSccCompilerAdapter({
         dcppPath: target.cc?.dcpp,
         sccz80Path: target.cc?.sccz80,
         toolMode: target.cc?.toolMode ?? "host",
@@ -102,9 +98,9 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
     });
     if (target.runtime) {
         fs_1.default.mkdirSync(path_1.default.dirname(target.runtime.source), { recursive: true });
-        fs_1.default.writeFileSync(target.runtime.source, (0, runtime_1.getBundledSccRuntime)(target.runtime.name), "utf8");
-        fs_1.default.writeFileSync(target.runtime.asm, (0, translateAsm_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: target.runtime.name }), "utf8");
-        (0, mz80_as_1.assemble)(logger, target.runtime.asm, target.runtime.object, {
+        fs_1.default.writeFileSync(target.runtime.source, (0, c_compiler_1.getBundledSccRuntime)(target.runtime.name), "utf8");
+        fs_1.default.writeFileSync(target.runtime.asm, (0, c_compiler_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: target.runtime.name }), "utf8");
+        (0, assembler_1.assemble)(logger, target.runtime.asm, target.runtime.object, {
             ...(target.as ?? {}),
             relVersion: normalizeRelVersion(target.as?.relVersion),
             symLen: normalizeSymLen(target.as?.symLen),
@@ -116,7 +112,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
         for (const mod of target.modules) {
             fs_1.default.mkdirSync(path_1.default.dirname(mod.object), { recursive: true });
             if (mod.kind === "c") {
-                (0, compileProgram_1.compileSccSourceToRel)(logger, {
+                (0, c_compiler_1.compileSccSourceToRel)(logger, {
                     inputFile: mod.source,
                     outputRelFile: mod.object,
                     includeDirs: target.cc?.includeDirs ?? [],
@@ -129,7 +125,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
                 }, compilerAdapter);
                 continue;
             }
-            (0, mz80_as_1.assemble)(logger, mod.source, mod.object, {
+            (0, assembler_1.assemble)(logger, mod.source, mod.object, {
                 ...(target.as ?? {}),
                 relVersion: normalizeRelVersion(target.as?.relVersion),
                 symLen: normalizeSymLen(target.as?.symLen),
@@ -138,7 +134,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
             });
         }
         fs_1.default.mkdirSync(path_1.default.dirname(target.output), { recursive: true });
-        (0, mz80_link_1.link)([
+        (0, core_1.link)([
             ...(target.runtime ? [target.runtime.object] : []),
             ...target.modules.map((mod) => mod.object),
             ...target.libraries,
@@ -147,7 +143,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
     }
     finally {
         if (!target.cc?.keepTemps && !target.cc?.tempDir) {
-            (0, externalToolchain_1.safeRmDir)(tempDir);
+            (0, c_compiler_1.safeRmDir)(tempDir);
         }
     }
 }

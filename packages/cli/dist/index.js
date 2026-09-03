@@ -8,7 +8,7 @@ const commander_1 = require("commander");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const yaml_1 = __importDefault(require("yaml"));
-const logger_1 = require("./logger");
+const core_1 = require("@mz80/core");
 const project_1 = require("./project");
 function loadConfigFile(configPath, logger) {
     try {
@@ -78,19 +78,14 @@ function validateConfig(cfg) {
     return { valid: errors.length === 0, errors };
 }
 // P1 assembler / linker を import
-const mz80_as_1 = require("./cli/mz80-as");
+const assembler_1 = require("@mz80/assembler");
 const mz80_cc_1 = require("./cli/mz80-cc");
-const mz80_ar_1 = require("./cli/mz80-ar");
-const mz80_link_1 = require("./cli/mz80-link");
+const core_2 = require("@mz80/core");
 const mz80_dbg_1 = require("./cli/mz80-dbg");
 const mz80_dbg_remote_1 = require("./cli/mz80-dbg-remote");
 const mz80_dap_1 = require("./cli/mz80-dap");
-const mz80_scc_lib_1 = require("./cli/mz80-scc-lib");
-const mz80_scc_asm_1 = require("./cli/mz80-scc-asm");
-const mz80_scc_runtime_1 = require("./cli/mz80-scc-runtime");
+const c_compiler_1 = require("@mz80/c-compiler");
 const console_1 = require("./console");
-const runtime_1 = require("./scc/runtime");
-const libraryPresets_1 = require("./scc/libraryPresets");
 const program = new commander_1.Command();
 program.enablePositionalOptions();
 function normalizeArgvForFullpath(argv) {
@@ -133,9 +128,9 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     try {
-        (0, mz80_scc_asm_1.translateSccAsmFile)(logger, path_1.default.resolve(input), path_1.default.resolve(output));
+        (0, c_compiler_1.translateSccAsmFile)(logger, path_1.default.resolve(input), path_1.default.resolve(output));
     }
     catch (err) {
         logger.error(`Failed to translate SCC asm: ${err?.message ?? err}`);
@@ -144,7 +139,7 @@ program
 });
 program
     .command("scc-runtime <name> <output>")
-    .description(`Write bundled SCC runtime source (${runtime_1.SCC_RUNTIME_NAMES.join(", ")})`)
+    .description(`Write bundled SCC runtime source (${c_compiler_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--verbose", "Show detailed output")
     .option("--quiet", "Suppress logs")
     .action((name, output, opts) => {
@@ -153,13 +148,13 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
-    if (!runtime_1.SCC_RUNTIME_NAMES.includes(name)) {
+    const logger = (0, core_1.createLogger)(logLevel);
+    if (!c_compiler_1.SCC_RUNTIME_NAMES.includes(name)) {
         logger.error(`Unknown SCC runtime: ${name}`);
         process.exit(1);
     }
     try {
-        (0, mz80_scc_runtime_1.writeSccRuntimeFile)(logger, name, path_1.default.resolve(output));
+        (0, c_compiler_1.writeSccRuntimeFile)(logger, name, path_1.default.resolve(output));
     }
     catch (err) {
         logger.error(`Failed to write SCC runtime: ${err?.message ?? err}`);
@@ -170,7 +165,7 @@ program
     .command("cc <input> <output>")
     .description("Compile Small-C source into mz80 output")
     .option("--compiler <kind>", "Compiler backend: sccz80 | ts", "sccz80")
-    .option("--runtime <name>", `Bundled runtime to link (${runtime_1.SCC_RUNTIME_NAMES.join(", ")})`)
+    .option("--runtime <name>", `Bundled runtime to link (${c_compiler_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--library <path>", "Add a .lib/.a archive to the link", collect, [])
     .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])
     .option("--cpp-arg <arg>", "Pass a raw argument to dcpp", collect, [])
@@ -198,8 +193,8 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
-    if (opts.runtime && !runtime_1.SCC_RUNTIME_NAMES.includes(opts.runtime)) {
+    const logger = (0, core_1.createLogger)(logLevel);
+    if (opts.runtime && !c_compiler_1.SCC_RUNTIME_NAMES.includes(opts.runtime)) {
         logger.error(`Unknown SCC runtime: ${opts.runtime}`);
         process.exit(1);
     }
@@ -249,9 +244,9 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     try {
-        (0, mz80_ar_1.archiveRelFiles)(logger, output, inputs);
+        (0, core_2.createArchive)(inputs.map((file) => path_1.default.resolve(file)), path_1.default.resolve(output));
     }
     catch (err) {
         logger.error(`Failed to create archive: ${err?.message ?? err}`);
@@ -261,7 +256,7 @@ program
 program
     .command("scc-lib <output> <inputs...>")
     .description("Build an mz80 archive from Small-C library sources via dcpp + sccz80")
-    .option("--preset <name>", `Use a bundled source preset (${Object.keys(libraryPresets_1.SCC_LIBRARY_PRESETS).join(", ")})`)
+    .option("--preset <name>", `Use a bundled source preset (${Object.keys(c_compiler_1.SCC_LIBRARY_PRESETS).join(", ")})`)
     .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])
     .option("--cpp-arg <arg>", "Pass a raw argument to dcpp", collect, [])
     .option("--scc-arg <arg>", "Pass a raw argument to sccz80", collect, [])
@@ -278,9 +273,9 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     try {
-        (0, mz80_scc_lib_1.buildSccLibraryArchive)(logger, output, inputs, {
+        (0, c_compiler_1.buildSccLibraryArchive)(logger, output, inputs, {
             include: opts.include,
             preset: opts.preset,
             cppArg: opts.cppArg,
@@ -302,7 +297,7 @@ program
     .command("build [target]")
     .description("Build target from mz80.yaml project configuration")
     .option("--list", "list available targets and exit")
-    .option("--runtime <name>", `Override bundled runtime (${runtime_1.SCC_RUNTIME_NAMES.join(", ")})`)
+    .option("--runtime <name>", `Override bundled runtime (${c_compiler_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--library <path>", "Override link archive input", collect, [])
     .option("-I, --include <dir>", "Override include directory for dcpp", collect, [])
     .option("--cpp-arg <arg>", "Override raw dcpp argument", collect, [])
@@ -321,7 +316,7 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     const globalOpts = program.opts();
     const configPath = path_1.default.resolve(process.cwd(), globalOpts.config ?? "mz80.yaml");
     const cfg = loadConfigFile(configPath, logger);
@@ -370,7 +365,7 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     const globalOpts = program.opts();
     const configPath = path_1.default.resolve(process.cwd(), globalOpts.config ?? "mz80.yaml");
     const cfg = loadConfigFile(configPath, logger);
@@ -397,7 +392,7 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     const configPath = path_1.default.resolve(process.cwd(), opts.config);
     logger.debug(`Using config path: ${configPath}`);
     if (!fs_1.default.existsSync(configPath)) {
@@ -451,7 +446,7 @@ program
         : opts.verbose
             ? "verbose"
             : "normal";
-    const logger = (0, logger_1.createLogger)(logLevel);
+    const logger = (0, core_1.createLogger)(logLevel);
     const globalOpts = program.opts();
     const configPath = path_1.default.resolve(process.cwd(), globalOpts.config ?? "mz80.yaml");
     const cfg = loadConfigFile(configPath, logger);
@@ -480,7 +475,7 @@ program
     const symLen = Number(opts.symlen ?? "32");
     const out = new console_1.Console(opts.verbose);
     try {
-        (0, mz80_as_1.assemble)(logger, input, output, {
+        (0, assembler_1.assemble)(logger, input, output, {
             verbose: !!opts.verbose,
             relVersion,
             sym: !!opts.sym,
@@ -519,7 +514,7 @@ program
     try {
         const globalOpts = program.opts();
         const configPath = path_1.default.resolve(process.cwd(), globalOpts.config ?? "mz80.yaml");
-        const logger = (0, logger_1.createLogger)(opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal");
+        const logger = (0, core_1.createLogger)(opts.quiet ? "quiet" : opts.verbose ? "verbose" : "normal");
         const cfg = loadConfigFile(configPath, logger);
         if (cfg.link) {
             if (shouldUseConfig(command.getOptionValueSource("map")))
@@ -547,7 +542,7 @@ program
             if (shouldUseConfig(command.getOptionValueSource("fullpath")))
                 opts.fullpath = cfg.link.fullpath ?? opts.fullpath;
         }
-        (0, mz80_link_1.link)(inputs, output, opts);
+        (0, core_2.link)(inputs, output, opts);
     }
     catch (err) {
         console.error(`❌ Link failed: ${err.message}`);

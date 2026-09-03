@@ -4,8 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MinimalDapAdapter = void 0;
-const rpcClient_1 = require("../debugger/rpcClient");
-const disasm_1 = require("../debugger/disasm");
+const core_1 = require("@mz80/core");
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
 const fs_1 = __importDefault(require("fs"));
@@ -81,7 +80,7 @@ function mapStopReason(kind) {
 }
 class MinimalDapAdapter {
     seq = 1;
-    client = new rpcClient_1.DebugRpcClient();
+    client = new core_1.DebugRpcClient();
     bpsBySource = new Map();
     connected = false;
     connectAddr = "127.0.0.1:4700";
@@ -436,7 +435,7 @@ class MinimalDapAdapter {
         const before = await this.getRegisters();
         const pc = asNumber(before.pc, 0) & 0xffff;
         const bytes = await this.readMemory(pc, 4);
-        const decoded = (0, disasm_1.decodeOne)(Uint8Array.from(bytes), 0, pc);
+        const decoded = (0, core_1.decodeOne)(Uint8Array.from(bytes), 0, pc);
         const fallthrough = (pc + decoded.size) & 0xffff;
         const isCallLike = /^(CALL\b|RST\b)/i.test(decoded.text);
         if (!isCallLike) {

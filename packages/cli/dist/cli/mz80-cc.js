@@ -5,20 +5,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.compileSccProgramFromCli = compileSccProgramFromCli;
 const node_path_1 = __importDefault(require("node:path"));
-const compileProgram_1 = require("../scc/compileProgram");
-const compilerAdapter_1 = require("../scc/compilerAdapter");
-const tsCompilerAdapter_1 = require("../scc/tsCompilerAdapter");
+const c_compiler_1 = require("@mz80/c-compiler");
+const c_compiler_2 = require("@mz80/c-compiler");
 function compileSccProgramFromCli(logger, inputFile, outputFile, opts) {
     const resolvedOutput = node_path_1.default.resolve(outputFile);
     const defaultCom = /\.com$/i.test(resolvedOutput);
     const compilerAdapter = opts.compiler === "ts"
-        ? new tsCompilerAdapter_1.TsSccCompilerAdapter()
-        : new compilerAdapter_1.ExternalSccCompilerAdapter({
+        ? new c_compiler_2.TsSccCompilerAdapter()
+        : new c_compiler_2.ExternalSccCompilerAdapter({
             dcppPath: opts.dcpp,
             sccz80Path: opts.sccz80,
             toolMode: opts.wsl ? "wsl" : "host",
         });
-    (0, compileProgram_1.compileSccProgram)(logger, {
+    (0, c_compiler_1.compileSccProgram)(logger, {
         inputFile: node_path_1.default.resolve(inputFile),
         outputFile: resolvedOutput,
         includeDirs: opts.include ?? [],

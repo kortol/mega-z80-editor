@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
-import {
-  LanguageClient,
+import type {
+  LanguageClient as LanguageClientType,
   LanguageClientOptions,
-  ServerOptions,
-  TransportKind
+  ServerOptions
 } from "vscode-languageclient/node";
+const languageClient: typeof import("vscode-languageclient/node") = require("../server/node_modules/vscode-languageclient/node");
+const { LanguageClient, TransportKind } = languageClient;
 import { importProjectFromSimpleMakefile } from "./makefileImport";
 import { buildTarget, toLaunchConfiguration } from "./projectBuild";
 import { generateLaunchJson, writeLaunchJson } from "./projectLaunch";
@@ -24,7 +25,7 @@ import {
   type ResolvedTargetConfig,
 } from "./projectConfig";
 
-let client: LanguageClient;
+let client: LanguageClientType;
 let dapOutput: vscode.OutputChannel | undefined;
 let buildOutput: vscode.OutputChannel | undefined;
 
@@ -80,11 +81,11 @@ function looksLikeProjectRoot(dir: string): boolean {
 }
 
 function resolveBundledCliEntryPath(context: vscode.ExtensionContext): string {
-  return path.join(context.extensionPath, "server", "packages", "cli", "dist", "index.js");
+  return path.join(context.extensionPath, "server", "node_modules", "@mz80", "cli", "dist", "index.js");
 }
 
 function resolveBundledLspEntryPath(context: vscode.ExtensionContext): string {
-  return path.join(context.extensionPath, "server", "lsp", "dist", "index.js");
+  return path.join(context.extensionPath, "server", "node_modules", "@mz80", "lsp", "dist", "index.js");
 }
 
 function resolveCliEntryPath(cfg: Mz80DebugConfiguration, context: vscode.ExtensionContext): string {
@@ -97,13 +98,7 @@ function resolveCliEntryPath(cfg: Mz80DebugConfiguration, context: vscode.Extens
   const bundled = resolveBundledCliEntryPath(context);
   if (fs.existsSync(bundled)) return bundled;
 
-  const wsRoot = findWorkspaceRoot();
-  if (wsRoot) {
-    const fromWorkspace = path.join(wsRoot, "packages", "cli", "dist", "index.js");
-    if (fs.existsSync(fromWorkspace)) return fromWorkspace;
-  }
-
-  return path.resolve(context.extensionPath, "..", "..", "packages", "cli", "dist", "index.js");
+  return bundled;
 }
 
 function guessSidecarFile(programPath: string, ext: ".sym" | ".smap"): string | undefined {

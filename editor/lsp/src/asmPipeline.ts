@@ -93,28 +93,28 @@ export type AsmPipeline = {
   tokens: AsmTokenLike[];
 };
 
-const { createAsmContext } = require("../../../packages/cli/dist/assembler/context.js") as {
+const { createAsmContext } = require("@mz80/assembler") as {
   createAsmContext: (overrides?: Partial<AsmContextLike>) => AsmContextLike;
 };
-const { tokenize } = require("../../../packages/cli/dist/assembler/tokenizer.js") as {
+const { tokenize } = require("@mz80/assembler") as {
   tokenize: (ctx: AsmContextLike, source: string) => AsmTokenLike[];
 };
-const { parsePeg } = require("../../../packages/cli/dist/assembler/parser/pegAdapter.js") as {
+const { parsePeg } = require("@mz80/assembler") as {
   parsePeg: (ctx: AsmContextLike, source: string) => ParsedNodeLike[];
 };
-const { expandMacros } = require("../../../packages/cli/dist/assembler/macro.js") as {
+const { expandMacros } = require("@mz80/assembler") as {
   expandMacros: (ctx: AsmContextLike) => void;
 };
-const { runAnalyze } = require("../../../packages/cli/dist/assembler/analyze.js") as {
+const { runAnalyze } = require("@mz80/assembler") as {
   runAnalyze: (ctx: AsmContextLike) => void;
 };
-const { initCodegen } = require("../../../packages/cli/dist/assembler/codegen/emit.js") as {
+const { initCodegen } = require("@mz80/assembler") as {
   initCodegen: (ctx: AsmContextLike, options?: { withDefaultSections?: boolean }) => void;
 };
-const { setPhase } = require("../../../packages/cli/dist/assembler/phaseManager.js") as {
+const { setPhase } = require("@mz80/assembler") as {
   setPhase: (ctx: AsmContextLike, next: string) => void;
 };
-const { runEmit } = require("../../../packages/cli/dist/cli/mz80-as.js") as {
+const { runEmit } = require("@mz80/assembler") as {
   runEmit: (ctx: AsmContextLike) => void;
 };
 

@@ -1,0 +1,16 @@
+{
+  "name": "@mz80/assembler",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Z80 assembler and language service for MZ80.",
+  "repository": { "type": "git", "url": "https://github.com/kortol/mega-z80-editor.git", "directory": "packages/assembler" },
+  "engines": { "node": ">=18" },
+  "files": ["dist/**/*", "README.md"],
+  "publishConfig": { "access": "public" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "require": "./dist/index.js" } },
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "scripts": { "build": "pnpm run build:parser && pnpm run build:dist", "build:parser": "pnpm exec peggy -o src/parser/gen/z80_assembler.js src/grammar/z80_assembler.pegjs", "build:dist": "pnpm exec tsc -p tsconfig.build.json && node tools/copy-parser.js", "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json", "test": "jest --config jest.config.cjs --runInBand", "prepack": "pnpm run build:dist" },
+  "dependencies": { "@mz80/core": "workspace:*", "pino": "^10.1.0" },
+  "devDependencies": { "@types/jest": "^30.0.0", "@types/node": "^24.5.2", "jest": "^30.1.3", "peggy": "^5.0.6", "ts-jest": "^29.4.4", "typescript": "^5.6.3" }
+}

@@ -1,11 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createArchive } from "../linker/archive";
+import { createArchive, createLogger, Z80DebugCore } from "@mz80/core";
 import { buildProjectTarget } from "../project";
-import { createLogger } from "../logger";
-import { assemble } from "../cli/mz80-as";
-import { Z80DebugCore } from "../debugger/core";
+import { assemble } from "@mz80/assembler";
 
 describe("buildProjectTarget", () => {
   test("links bundled runtime and archive libraries declared in config", () => {

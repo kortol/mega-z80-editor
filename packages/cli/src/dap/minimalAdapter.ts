@@ -1,5 +1,4 @@
-import { DebugRpcClient } from "../debugger/rpcClient";
-import { decodeOne } from "../debugger/disasm";
+import { DebugRpcClient, decodeOne } from "@mz80/core";
 import path from "path";
 import { ChildProcessByStdio, spawn } from "child_process";
 import { Readable } from "stream";

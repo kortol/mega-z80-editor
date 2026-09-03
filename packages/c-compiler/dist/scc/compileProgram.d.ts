@@ -1,0 +1,44 @@
+import { assemble } from "@mz80/assembler";
+import { link, Logger } from "@mz80/core";
+import { CompilerAdapter, ExternalSccCompilerAdapterOptions } from "./compilerAdapter";
+import { SccRuntimeName } from "./runtime";
+type AssembleFile = typeof assemble;
+type LinkFiles = typeof link;
+export type CompileSccProgramOptions = {
+    inputFile: string;
+    outputFile: string;
+    includeDirs?: string[];
+    cppArgs?: string[];
+    sccArgs?: string[];
+    dcppPath?: string;
+    sccz80Path?: string;
+    tempDir?: string;
+    keepTemps?: boolean;
+    verbose?: boolean;
+    toolMode?: ExternalSccCompilerAdapterOptions["toolMode"];
+    runtime?: SccRuntimeName;
+    libraries?: string[];
+    com?: boolean;
+    orgText?: string | number;
+    orgData?: string | number;
+    orgBss?: string | number;
+    orgCustom?: string | number;
+    map?: boolean;
+    sym?: boolean;
+    smap?: boolean;
+    log?: boolean;
+    fullpath?: "off" | "rel" | "on" | boolean | string;
+};
+type CompileDeps = {
+    compilerAdapter?: CompilerAdapter;
+    assembleFile?: AssembleFile;
+    linkFiles?: LinkFiles;
+};
+export { compileSccSourceToRel } from "./compilerAdapter";
+export type { CompileSccSourceResult } from "./compilerAdapter";
+export declare function compileSccProgram(logger: Logger, opts: CompileSccProgramOptions, deps?: CompileDeps): {
+    outputFile: string;
+    relFile: string;
+    runtimeRelFile?: string;
+    tempDir: string;
+};

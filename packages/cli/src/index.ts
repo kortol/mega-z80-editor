@@ -3,7 +3,7 @@ import { Command } from "commander";
 import fs from "fs";
 import path from "path";
 import yaml from "yaml";
-import { createLogger } from "./logger";
+import { createLogger } from "@mz80/core";
 import { buildProjectTarget, cleanProject, listProjectTargets, loadProjectConfig, Mz80Config } from "./project";
 
 function loadConfigFile(configPath: string, logger?: ReturnType<typeof createLogger>): Mz80Config {
@@ -77,19 +77,14 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
 }
 
 // P1 assembler / linker を import
-import { assemble } from "./cli/mz80-as";
+import { assemble } from "@mz80/assembler";
 import { compileSccProgramFromCli } from "./cli/mz80-cc";
-import { archiveRelFiles } from "./cli/mz80-ar";
-import { link } from "./cli/mz80-link";
+import { createArchive, link } from "@mz80/core";
 import { dbgBinary } from "./cli/mz80-dbg";
 import { dbgRemote } from "./cli/mz80-dbg-remote";
 import { dap } from "./cli/mz80-dap";
-import { buildSccLibraryArchive } from "./cli/mz80-scc-lib";
-import { translateSccAsmFile } from "./cli/mz80-scc-asm";
-import { writeSccRuntimeFile } from "./cli/mz80-scc-runtime";
+import { buildSccLibraryArchive, translateSccAsmFile, writeSccRuntimeFile, SCC_LIBRARY_PRESETS, SCC_RUNTIME_NAMES } from "@mz80/c-compiler";
 import { Console } from "./console";
-import { SCC_RUNTIME_NAMES } from "./scc/runtime";
-import { SCC_LIBRARY_PRESETS } from "./scc/libraryPresets";
 
 const program = new Command();
 
@@ -254,7 +249,7 @@ program
         : "normal";
     const logger = createLogger(logLevel);
     try {
-      archiveRelFiles(logger, output, inputs);
+      createArchive(inputs.map((file: string) => path.resolve(file)), path.resolve(output));
     } catch (err: any) {
       logger.error(`Failed to create archive: ${err?.message ?? err}`);
       process.exit(1);

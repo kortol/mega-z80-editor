@@ -24,6 +24,13 @@ Thumbs.db
 
 # emulators
 tools/
+!tools/
+tools/*
+!tools/check-boundaries.cjs
+!tools/check-packages.cjs
+!tools/check-versions.cjs
+!tools/check-vsix.cjs
+!tools/verify-dist.cjs
 tools/emulator/*
 tools/sjasmplus/*
 tools/sjasmplus-bin/*
@@ -42,6 +49,9 @@ packages/cli/.tmp_peg_compare/
 *.tmp_*
 **/.tmp_*
 packages/cli/src/assembler/rel/__tests__/.tmp.rel
+packages/assembler/src/core-integration/__tests__/.tmp.rel
+packages/core/src/rel/__tests__/.tmp.rel
+packages/core/test.bin
 
 # local outputs
 DUMP.ASM

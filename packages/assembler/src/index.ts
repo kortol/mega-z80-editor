@@ -1,0 +1,10 @@
+export { assemble, runEmit } from "./assemble";
+export { createAsmContext, createContext } from "./context";
+export type { AsmContext, AsmOptions, SourcePos } from "./context";
+export { tokenize } from "./tokenizer";
+export { parsePeg } from "./parser/pegAdapter";
+export { expandMacros } from "./macro";
+export { runAnalyze } from "./analyze";
+export { initCodegen } from "./codegen/emit";
+export { setPhase } from "./phaseManager";
+export type { AssemblerError } from "./errors";

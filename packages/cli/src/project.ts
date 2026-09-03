@@ -1,14 +1,9 @@
 import fs from "fs";
 import path from "path";
 import yaml from "yaml";
-import { Logger } from "./logger";
-import { assemble } from "./cli/mz80-as";
-import { link } from "./cli/mz80-link";
-import { compileSccSourceToRel } from "./scc/compileProgram";
-import { ExternalSccCompilerAdapter } from "./scc/compilerAdapter";
-import { getBundledSccRuntime, SccRuntimeName } from "./scc/runtime";
-import { safeRmDir, ToolMode } from "./scc/externalToolchain";
-import { translateSccAsm } from "./scc/translateAsm";
+import { Logger, link } from "@mz80/core";
+import { assemble } from "@mz80/assembler";
+import { compileSccSourceToRel, ExternalSccCompilerAdapter, getBundledSccRuntime, SccRuntimeName, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;

@@ -1,0 +1,10 @@
+import { AsmContext } from "../context";
+import { NodePseudo } from "../node";
+export declare function handleGLOBAL(ctx: AsmContext, node: NodePseudo): void;
+export declare function handleLOCAL(_ctx: AsmContext, _node: NodePseudo): void;
+export declare function handleSectionAlias(ctx: AsmContext, node: NodePseudo, kind: "ASEG" | "CSEG" | "DSEG" | "COMMON"): void;
+export declare function handleEXTERNALAlias(ctx: AsmContext, node: NodePseudo): void;
+export declare function handleTITLE(ctx: AsmContext, node: NodePseudo): void;
+export declare function handlePAGE(ctx: AsmContext, node: NodePseudo): void;
+export declare function handleLIST(ctx: AsmContext, node: NodePseudo): void;
+export declare function handleEXITM(ctx: AsmContext, node: NodePseudo): void;

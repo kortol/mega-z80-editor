@@ -1,0 +1,28 @@
+import { Logger } from "@mz80/core";
+import { SccRuntimeName } from "@mz80/c-compiler";
+export type Mz80CcCompilerKind = "sccz80" | "ts";
+export type Mz80CcCliOptions = {
+    compiler?: Mz80CcCompilerKind;
+    runtime?: SccRuntimeName;
+    library?: string[];
+    include?: string[];
+    cppArg?: string[];
+    sccArg?: string[];
+    dcpp?: string;
+    sccz80?: string;
+    tempDir?: string;
+    keepTemps?: boolean;
+    verbose?: boolean;
+    wsl?: boolean;
+    com?: boolean;
+    orgText?: string | number;
+    orgData?: string | number;
+    orgBss?: string | number;
+    orgCustom?: string | number;
+    map?: boolean;
+    sym?: boolean;
+    smap?: boolean;
+    log?: boolean;
+    fullpath?: "off" | "rel" | "on" | boolean | string;
+};
+export declare function compileSccProgramFromCli(logger: Logger, inputFile: string, outputFile: string, opts: Mz80CcCliOptions): void;

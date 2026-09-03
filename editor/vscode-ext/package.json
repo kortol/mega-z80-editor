@@ -201,8 +201,9 @@
     "vscode:prepublish": "pnpm run build:full",
     "build:grammar": "node tools/generate-textmate-grammar.js",
     "build:runtimes": "node tools/copy-runtime.js",
-    "build:full": "pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && pnpm run build",
+    "build:full": "pnpm -C ../../packages/core run build && pnpm -C ../../packages/assembler run build && pnpm -C ../../packages/c-compiler run build && pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && pnpm run build",
     "build": "pnpm run build:grammar && pnpm run build:runtimes && pnpm exec tsc -p tsconfig.json",
+    "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json",
     "package:vsix": "vsce package --no-dependencies --skip-license"
   },
   "devDependencies": {

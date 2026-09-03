@@ -38,7 +38,8 @@ exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
-const node_1 = require("vscode-languageclient/node");
+const languageClient = require("../server/node_modules/vscode-languageclient/node");
+const { LanguageClient, TransportKind } = languageClient;
 const makefileImport_1 = require("./makefileImport");
 const projectBuild_1 = require("./projectBuild");
 const projectLaunch_1 = require("./projectLaunch");
@@ -87,10 +88,10 @@ function looksLikeProjectRoot(dir) {
     return false;
 }
 function resolveBundledCliEntryPath(context) {
-    return path.join(context.extensionPath, "server", "packages", "cli", "dist", "index.js");
+    return path.join(context.extensionPath, "server", "node_modules", "@mz80", "cli", "dist", "index.js");
 }
 function resolveBundledLspEntryPath(context) {
-    return path.join(context.extensionPath, "server", "lsp", "dist", "index.js");
+    return path.join(context.extensionPath, "server", "node_modules", "@mz80", "lsp", "dist", "index.js");
 }
 function resolveCliEntryPath(cfg, context) {
     if (typeof cfg.cliEntry === "string" && cfg.cliEntry.trim().length > 0) {
@@ -102,13 +103,7 @@ function resolveCliEntryPath(cfg, context) {
     const bundled = resolveBundledCliEntryPath(context);
     if (fs.existsSync(bundled))
         return bundled;
-    const wsRoot = findWorkspaceRoot();
-    if (wsRoot) {
-        const fromWorkspace = path.join(wsRoot, "packages", "cli", "dist", "index.js");
-        if (fs.existsSync(fromWorkspace))
-            return fromWorkspace;
-    }
-    return path.resolve(context.extensionPath, "..", "..", "packages", "cli", "dist", "index.js");
+    return bundled;
 }
 function guessSidecarFile(programPath, ext) {
     const dir = path.dirname(programPath);
@@ -134,10 +129,10 @@ function activate(context) {
     }
     const serverModule = resolveBundledLspEntryPath(context);
     const serverOptions = {
-        run: { module: serverModule, transport: node_1.TransportKind.stdio },
+        run: { module: serverModule, transport: TransportKind.stdio },
         debug: {
             module: serverModule,
-            transport: node_1.TransportKind.stdio,
+            transport: TransportKind.stdio,
             options: { execArgv: ["--nolazy", "--inspect=6009"] }
         }
     };
@@ -145,7 +140,7 @@ function activate(context) {
         documentSelector: [{ scheme: "file", language: "z80-asm" }],
         outputChannelName: "MZ80 Language Server",
     };
-    client = new node_1.LanguageClient("mz80Lsp", "MZ80 LSP", serverOptions, clientOptions);
+    client = new LanguageClient("mz80Lsp", "MZ80 LSP", serverOptions, clientOptions);
     client.start();
     context.subscriptions.push(client);
     context.subscriptions.push(vscode.commands.registerCommand("mz80.runMake", () => {

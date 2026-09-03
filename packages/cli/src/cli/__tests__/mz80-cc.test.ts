@@ -2,10 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { compileSccProgramFromCli } from "../mz80-cc";
-import { assemble } from "../../cli/mz80-as";
-import { createArchive } from "../../linker/archive";
-import { createLogger } from "../../logger";
-import { Z80DebugCore } from "../../debugger/core";
+import { assemble } from "@mz80/assembler";
+import { createArchive, createLogger, Z80DebugCore } from "@mz80/core";
 
 function assembleEmitCharArchive(tempDir: string, helperName: string, charCode: number): string {
   const helperAsmPath = path.join(tempDir, `${helperName}.asm`);

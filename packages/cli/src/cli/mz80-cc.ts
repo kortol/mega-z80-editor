@@ -1,9 +1,7 @@
 import path from "node:path";
-import { Logger } from "../logger";
-import { compileSccProgram } from "../scc/compileProgram";
-import { ExternalSccCompilerAdapter } from "../scc/compilerAdapter";
-import { SccRuntimeName } from "../scc/runtime";
-import { TsSccCompilerAdapter } from "../scc/tsCompilerAdapter";
+import { Logger } from "@mz80/core";
+import { compileSccProgram, SccRuntimeName } from "@mz80/c-compiler";
+import { ExternalSccCompilerAdapter, TsSccCompilerAdapter } from "@mz80/c-compiler";
 
 export type Mz80CcCompilerKind = "sccz80" | "ts";
 

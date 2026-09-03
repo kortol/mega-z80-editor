@@ -1,0 +1,16 @@
+{
+  "name": "@mz80/core",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Core object, linker, project, device, source map, and debugger facilities for MZ80.",
+  "repository": { "type": "git", "url": "https://github.com/kortol/mega-z80-editor.git", "directory": "packages/core" },
+  "engines": { "node": ">=18" },
+  "files": ["dist/**/*", "README.md"],
+  "publishConfig": { "access": "public" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "require": "./dist/index.js" } },
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "scripts": { "build": "pnpm exec tsc -p tsconfig.build.json", "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json", "test": "jest --config jest.config.cjs --runInBand", "prepack": "pnpm run build" },
+  "dependencies": { "pino": "^10.1.0", "yaml": "^2.6.0" },
+  "devDependencies": { "@types/jest": "^30.0.0", "@types/node": "^24.5.2", "jest": "^30.1.3", "ts-jest": "^29.4.4", "typescript": "^5.6.3" }
+}

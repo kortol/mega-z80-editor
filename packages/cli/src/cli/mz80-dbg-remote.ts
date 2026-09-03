@@ -1,4 +1,4 @@
-import { DebugRpcClient, runRemoteRepl, runRemoteScript } from "../debugger/rpcClient";
+import { DebugRpcClient, runRemoteRepl, runRemoteScript } from "@mz80/core";
 
 export async function dbgRemote(opts: { connect?: string; cmd?: string }): Promise<void> {
   const client = new DebugRpcClient();
@@ -14,4 +14,3 @@ export async function dbgRemote(opts: { connect?: string; cmd?: string }): Promi
     client.close();
   }
 }
-

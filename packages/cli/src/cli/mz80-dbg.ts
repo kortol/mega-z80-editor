@@ -1,4 +1,4 @@
-import { dbgBinary as runBinaryDebugger } from "../debugger/binaryDebugger";
+import { dbgBinary as runBinaryDebugger } from "@mz80/core";
 
 export function dbgBinary(
   inputFile: string,
