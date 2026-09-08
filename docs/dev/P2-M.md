@@ -261,7 +261,7 @@ P2-M の目的は、未定義だった sjasm/m80 互換の疑似命令を実装�
 1. 対象20疑似命令が PEG で受理される（文法再現優先、`LOCAL` はマクロ文脈で意味有効）
 2. P2-M 仕様どおりに pseudo/conditional/macro で意味処理される
 3. 主要回帰テストが通る
-4. `packages/cli/docs/peg-compat-cases.md` に対応状況が反映される
+4. `packages/assembler/docs/peg-compat-cases.md` に対応状況が反映される
 5. CLI 実行で `.rel/.lst/.sym` が生成可能
 6. 簡易実装項目が本書に明記され、未対応範囲が診断または注記で追跡可能
 

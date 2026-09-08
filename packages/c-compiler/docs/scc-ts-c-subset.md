@@ -20,7 +20,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | `N` | 現行 C Subset の未実装。意図的 reject もここへ置き、理由を記録する |
 | `-` | その層が feature に適用されない |
 
-`Runtime` は `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts` の CP/M link/run test を指す。`Unit` は parser/semantic/lowering の unit test を指す。
+`Runtime` は `packages/c-compiler/src/scc/__tests__/tsCompilerAdapter.test.ts` の CP/M link/run test を指す。`Unit` は parser/semantic/lowering の unit test を指す。
 
 ## Scope
 

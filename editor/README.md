@@ -1,17 +1,14 @@
-# Editor Components
+# Editor components
 
-`editor/` 配下は VSCode 連携まわりの実装を置く場所です。
+`editor/` は VS Code integration を所有します。
 
-## Current Path
+- `lsp/`: private `@mz80/lsp`。`@mz80/assembler` の公開 language-service API だけを使う stdio LSP runtime
+- `vscode-ext/`: packaged LSP と CLI/DAP runtime を起動・接続する VS Code extension
 
-- `vscode-ext/`
-  - 現在のユーザー向け入口
-  - `packages/cli` の DAP と LSP を起動・接続する
-- `lsp/`
-  - `vscode-ext` に同梱する LSP runtime
-  - diagnostics と semantic tokens を提供する
+extension は core、assembler、C compiler の source/dist/private export を直接参照しません。配布物は runtime dependency を含む VSIX として `pnpm run check:vsix` で検証します。
 
-## Rule
-
-- 新しい editor 連携を追加する場合は、まず `vscode-ext` と `packages/cli` の責務を優先する
-- LSP 機能は `editor/lsp`、DAP 機能は `packages/cli/src/dap` に寄せる
+```bash
+pnpm --filter @mz80/lsp run build
+pnpm --filter z80-assembler-language run build
+pnpm --filter z80-assembler-language run package:vsix
+```

@@ -10,18 +10,18 @@ The goal is output/diagnostic parity for assembler and linker inputs.
 
 ## Core Instructions/Operands
 - Basic instruction parsing: `LD A,1`, `CALL START`
-  - Source: `packages/cli/src/assembler/__tests__/parser.test.ts`
+  - Source: `packages/assembler/src/__tests__/parser.test.ts`
 - Label + instruction on same line: `START: LD A,1`
-  - Source: `packages/cli/src/assembler/__tests__/parser.test.ts`
+  - Source: `packages/assembler/src/__tests__/parser.test.ts`
 - Conditional jumps and indirect forms (JP/JR/DJNZ)
   - Source: minimal fixtures to be added
 - Edge Z80 opcode forms
   - `IM 0/1/2`, `EX AF,AF'`, `IN (C)`, `IN F,(C)`, `OUT (C),0`, `LD SP,IX/IY`
-  - Source: `packages/cli/src/assembler/compat/fixtures.ts` (`z80_edge_io`)
+  - Source: `packages/assembler/src/compat/fixtures.ts` (`z80_edge_io`)
   - `OUT (n),r` などは **パース可**、エンコードでエラー
 - ALU indexed operands
   - `ADD/ADC/SUB/SBC/AND/OR/XOR/CP` with `(IX+d)` / `(IY+d)`
-  - Source: `packages/cli/src/assembler/compat/fixtures.ts` (`z80_edge_alu_indexed`)
+  - Source: `packages/assembler/src/compat/fixtures.ts` (`z80_edge_alu_indexed`)
 
 ## Accepted-But-Encode-Error (Examples)
 - `IN r,(n)` where r ≠ A
@@ -69,20 +69,20 @@ The goal is output/diagnostic parity for assembler and linker inputs.
 - R800: add fixtures for `MULUB`, `MULUW`, IX/IY 8-bit regs, and `SLL` behavior note
 - Z180/HD64180: add fixtures for `SLP`, `MLT`, `IN0/OUT0`, `OTIM/OTDM` families, `TST/TSTIO`
 - Z280: add fixtures for `JAF/JAR`, `LDUP/LOUD`, and `MULT/DIV` families
- - Implemented: encode-error tests in `packages/cli/src/assembler/encoder/__tests__/extended_isa.test.ts`
+ - Implemented: encode-error tests in `packages/assembler/src/encoder/__tests__/extended_isa.test.ts`
 
 ## Directives
 - ORG, DB, DW, DS, END
-  - Source: `packages/cli/src/assembler/__tests__/parser.test.ts`
+  - Source: `packages/assembler/src/__tests__/parser.test.ts`
 - DEFB/DEFW/DEFS (aliases)
   - Source: add minimal fixture
 - EXTERN
   - Source: add minimal fixture (EXTERN symbol list)
 - SECTION / ALIGN
-  - Source: `packages/cli/src/assembler/__tests__/p2a_section_org.test.ts`
+  - Source: `packages/assembler/src/__tests__/p2a_section_org.test.ts`
 - INCLUDE
-  - Source: `packages/cli/src/assembler/__tests__/parser.test.ts`
-  - Multi-file: `packages/cli/src/assembler/__tests__/macro_local.test.ts` (assembleSourceMulti)
+  - Source: `packages/assembler/src/__tests__/parser.test.ts`
+  - Multi-file: `packages/assembler/src/__tests__/macro_local.test.ts` (assembleSourceMulti)
 - .SYMLEN / .WORD32
   - Source: add minimal fixture
 
@@ -92,19 +92,19 @@ The goal is output/diagnostic parity for assembler and linker inputs.
 
 ## Macros
 - MACRO/ENDM basic parsing
-  - Source: `packages/cli/src/assembler/__tests__/macro.parse.test.ts`
+  - Source: `packages/assembler/src/__tests__/macro.parse.test.ts`
 - Macro with args expansion
-  - Source: `packages/cli/src/assembler/__tests__/macro.expand.test.ts`
+  - Source: `packages/assembler/src/__tests__/macro.expand.test.ts`
 - Macro args edge cases
-  - Source: `packages/cli/src/assembler/__tests__/macro-args.stage2.test.ts`
+  - Source: `packages/assembler/src/__tests__/macro-args.stage2.test.ts`
 - LOCALMACRO scoping/visibility
-  - Source: `packages/cli/src/assembler/__tests__/macro_local.test.ts`
+  - Source: `packages/assembler/src/__tests__/macro_local.test.ts`
 
 ## Loop Macros
 - REPT / nested REPT / IRP / IRPC
-  - Source: `packages/cli/src/assembler/__tests__/macro_loop_source.test.ts`
+  - Source: `packages/assembler/src/__tests__/macro_loop_source.test.ts`
 - WHILE and loop counters (if required for PEG parity)
-  - Source: `packages/cli/src/assembler/__tests__/macro_loop_source.test.ts`
+  - Source: `packages/assembler/src/__tests__/macro_loop_source.test.ts`
 
 ## Macro / Pseudo Compatibility Report (sjasm / m80)
 ### Implemented (PEG/legacy parity)
@@ -223,5 +223,5 @@ Status:
 
 ## Listings / Output
 - .lst formatting parity for macro-expanded sources
-  - Source: `packages/cli/src/assembler/__tests__/lst_output.test.ts`
+  - Source: `packages/assembler/src/__tests__/lst_output.test.ts`
 

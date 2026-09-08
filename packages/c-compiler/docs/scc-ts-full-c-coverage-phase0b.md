@@ -38,18 +38,18 @@ Phase 0B の目的は、`TsSccCompiler` の「どこまで source path で実用
 | --- | --- | --- | --- | --- | --- | --- |
 | CLI option parse | `packages/cli/src/index.ts` | `program.command("cc")` | argv -> CLI call | Commander options | command action throws | backend selection only |
 | CLI adapter select | `packages/cli/src/cli/mz80-cc.ts` | `compileSccProgramFromCli()` | CLI opts -> `compileSccProgram()` | `Mz80CcCliOptions` | direct throw | yes: `opts.compiler !== "ts"` selects `ExternalSccCompilerAdapter`; `ts` path does not auto-fallback |
-| compile orchestration | `packages/cli/src/scc/compileProgram.ts` | `compileSccProgram()` | source path -> `.rel` + linked output | `CompileSccProgramOptions` | wraps preprocess / compile / asm / link failures into `Error` | default adapter is legacy only when caller does not inject TS adapter |
-| TS compile entry | `packages/cli/src/scc/tsCompilerAdapter.ts` | `TsSccCompilerAdapter.compileToRel()` | `CompilerAdapterCompileOptions` -> `CompileSccSourceResult` | source / fixture branch | direct throw | no automatic handoff to legacy |
-| source read | `packages/cli/src/scc/tsCompilerAdapter.ts` | `compileFromSource()` | file path -> source text | UTF-8 string | `fs` read throws | none |
-| parse | `packages/cli/src/scc/tsFrontendParser.ts` | `parseProgram()` | source text -> `SourceProgram` | source AST | diagnostics via `throwDiagnostic()` | none |
-| semantic | `packages/cli/src/scc/tsFrontendSemantic.ts` | `analyzeProgram()` | `SourceProgram` -> `BoundProgram` | typed / bound AST | diagnostics via `throwDiagnostic()` | none |
-| lowering | `packages/cli/src/scc/tsFrontendLowering.ts` | `lowerSourceProgram()` | `BoundProgram` -> `ProgramSpec` | frontend IR bridge | internal lowering errors throw | none |
-| emit | `packages/cli/src/scc/tsProgram.ts` | `emitProgram()` | `ProgramSpec` -> `.scc.asm` text | low-level emit spec / stack offsets | unhandled node throws | none |
-| translate | `packages/cli/src/scc/tsCompilerAdapter.ts` + `translateAsm.ts` | `translateSccAsm()` | `.scc.asm` -> `.asm` | Small-C asm -> mz80 asm | throw on translate failure | none |
+| compile orchestration | `packages/c-compiler/src/scc/compileProgram.ts` | `compileSccProgram()` | source path -> `.rel` + linked output | `CompileSccProgramOptions` | wraps preprocess / compile / asm / link failures into `Error` | default adapter is legacy only when caller does not inject TS adapter |
+| TS compile entry | `packages/c-compiler/src/scc/tsCompilerAdapter.ts` | `TsSccCompilerAdapter.compileToRel()` | `CompilerAdapterCompileOptions` -> `CompileSccSourceResult` | source / fixture branch | direct throw | no automatic handoff to legacy |
+| source read | `packages/c-compiler/src/scc/tsCompilerAdapter.ts` | `compileFromSource()` | file path -> source text | UTF-8 string | `fs` read throws | none |
+| parse | `packages/c-compiler/src/scc/tsFrontendParser.ts` | `parseProgram()` | source text -> `SourceProgram` | source AST | diagnostics via `throwDiagnostic()` | none |
+| semantic | `packages/c-compiler/src/scc/tsFrontendSemantic.ts` | `analyzeProgram()` | `SourceProgram` -> `BoundProgram` | typed / bound AST | diagnostics via `throwDiagnostic()` | none |
+| lowering | `packages/c-compiler/src/scc/tsFrontendLowering.ts` | `lowerSourceProgram()` | `BoundProgram` -> `ProgramSpec` | frontend IR bridge | internal lowering errors throw | none |
+| emit | `packages/c-compiler/src/scc/tsProgram.ts` | `emitProgram()` | `ProgramSpec` -> `.scc.asm` text | low-level emit spec / stack offsets | unhandled node throws | none |
+| translate | `packages/c-compiler/src/scc/tsCompilerAdapter.ts` + `translateAsm.ts` | `translateSccAsm()` | `.scc.asm` -> `.asm` | Small-C asm -> mz80 asm | throw on translate failure | none |
 | assemble | `packages/cli/src/cli/mz80-as.ts` via adapter | `assemble()` | `.asm` -> `.rel` | REL v2 object | returns context; caller throws on `ctx.errors.length > 0` | none |
-| bundled runtime build | `packages/cli/src/scc/compileProgram.ts` | `buildBundledRuntime()` | runtime name -> runtime `.rel` | runtime `.scc.asm` -> `.asm` -> `.rel` | throw on assembly error | runtime source is bundled fixture-like asset, not legacy compile |
+| bundled runtime build | `packages/c-compiler/src/scc/compileProgram.ts` | `buildBundledRuntime()` | runtime name -> runtime `.rel` | runtime `.scc.asm` -> `.asm` -> `.rel` | throw on assembly error | runtime source is bundled fixture-like asset, not legacy compile |
 | link | `packages/cli/src/cli/mz80-link.ts` via `compileProgram.ts` | `link()` | object files -> `.com` / linked output | linker inputs / memory layout | caller throws on link failure | none |
-| CP/M runtime evidence | `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts` | `linkAndRunCom()` | `.rel` -> emulator output | linked COM image | `expect(result.reason).toBe("BDOS 0: terminate")` | none |
+| CP/M runtime evidence | `packages/c-compiler/src/scc/__tests__/tsCompilerAdapter.test.ts` | `linkAndRunCom()` | `.rel` -> emulator output | linked COM image | `expect(result.reason).toBe("BDOS 0: terminate")` | none |
 
 ### 2.2 Aggregate value path
 
@@ -81,9 +81,9 @@ The current design is therefore not “general value model first”; aggregate v
 
 検索範囲:
 
-- `packages/cli/src/scc/**/*.ts`
+- `packages/c-compiler/src/scc/**/*.ts`
 - `packages/cli/src/cli/**/*.ts`
-- `packages/cli/src/scc/__tests__/**/*.ts`
+- `packages/c-compiler/src/scc/__tests__/**/*.ts`
 
 主な検索語:
 
@@ -102,15 +102,15 @@ The current design is therefore not “general value model first”; aggregate v
 
 | kind | file / lines | condition | caller | related tests | impact |
 | --- | --- | --- | --- | --- | --- |
-| explicit fixture branch | `packages/cli/src/scc/tsCompilerAdapter.ts:173-183` | constructor `fixtureId` present | `TsSccCompilerAdapter.compileToRel()` | `tsCompilerAdapter.test.ts` fixture-backed tests near `2417`, `2430` | direct bypass of source parse/analyze/lower path |
-| fixture-backed SCC asm emission | `packages/cli/src/scc/tsCompilerAdapter.ts:192-235` | `compileFromFixture()` | same | same | writes fake preprocessed file and fixture-backed `.scc.asm` |
-| golden fixture table | `packages/cli/src/scc/fixtures.ts:17-66` | static fixture id lookup | `getSccFixture()` / `readSccFixture()` | translator / linker / adapter fixture tests | source compiler coverage can be overstated if these are counted as source passes |
-| hard-coded fixture program spec attempt | `packages/cli/src/scc/tsCompilerAdapter.ts:906-913` | `emitFixtureBackedSccAsm()` calls `makeFixtureProgramSpec()` then returns `readSccFixture()` | fixture path only | fixture-backed tests | indicates transitional code; source path does not use it |
+| explicit fixture branch | `packages/c-compiler/src/scc/tsCompilerAdapter.ts:173-183` | constructor `fixtureId` present | `TsSccCompilerAdapter.compileToRel()` | `tsCompilerAdapter.test.ts` fixture-backed tests near `2417`, `2430` | direct bypass of source parse/analyze/lower path |
+| fixture-backed SCC asm emission | `packages/c-compiler/src/scc/tsCompilerAdapter.ts:192-235` | `compileFromFixture()` | same | same | writes fake preprocessed file and fixture-backed `.scc.asm` |
+| golden fixture table | `packages/c-compiler/src/scc/fixtures.ts:17-66` | static fixture id lookup | `getSccFixture()` / `readSccFixture()` | translator / linker / adapter fixture tests | source compiler coverage can be overstated if these are counted as source passes |
+| hard-coded fixture program spec attempt | `packages/c-compiler/src/scc/tsCompilerAdapter.ts:906-913` | `emitFixtureBackedSccAsm()` calls `makeFixtureProgramSpec()` then returns `readSccFixture()` | fixture path only | fixture-backed tests | indicates transitional code; source path does not use it |
 | legacy backend selection | `packages/cli/src/cli/mz80-cc.ts:40-46` | `opts.compiler !== "ts"` | CLI `cc` command | `mz80-cc.test.ts`, external-toolchain tests | explicit backend choice, not silent fallback |
-| legacy default in orchestration | `packages/cli/src/scc/compileProgram.ts:67-71` | no injected adapter | `compileSccProgram()` | `compileProgram.test.ts`, `buildLibrary.test.ts` | compile orchestrator is legacy-biased unless caller injects TS adapter |
-| legacy preprocess + sccz80 path | `packages/cli/src/scc/compilerAdapter.ts:68-126` | `ExternalSccCompilerAdapter.compileToRel()` | CLI / project / library flows | external adapter tests | still required for non-TS compiler mode |
-| fixture-like bundled runtime | `packages/cli/src/scc/compileProgram.ts:128-160` | runtime selected | `compileSccProgram()` | runtime/link integration tests | not a fallback to legacy C compile, but still relies on bundled `.scc.asm` asset |
-| test-only helper object code | `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts:13-129` | compare helper / external helper assembly | runtime tests only | many CP/M runtime tests | runtime success for compare/extern cases depends on test-specific helper RELs |
+| legacy default in orchestration | `packages/c-compiler/src/scc/compileProgram.ts:67-71` | no injected adapter | `compileSccProgram()` | `compileProgram.test.ts`, `buildLibrary.test.ts` | compile orchestrator is legacy-biased unless caller injects TS adapter |
+| legacy preprocess + sccz80 path | `packages/c-compiler/src/scc/compilerAdapter.ts:68-126` | `ExternalSccCompilerAdapter.compileToRel()` | CLI / project / library flows | external adapter tests | still required for non-TS compiler mode |
+| fixture-like bundled runtime | `packages/c-compiler/src/scc/compileProgram.ts:128-160` | runtime selected | `compileSccProgram()` | runtime/link integration tests | not a fallback to legacy C compile, but still relies on bundled `.scc.asm` asset |
+| test-only helper object code | `packages/c-compiler/src/scc/__tests__/tsCompilerAdapter.test.ts:13-129` | compare helper / external helper assembly | runtime tests only | many CP/M runtime tests | runtime success for compare/extern cases depends on test-specific helper RELs |
 
 ### 3.2 Negative findings
 
@@ -120,7 +120,7 @@ The current design is therefore not “general value model first”; aggregate v
 | source text equality match for canned asm | no source-text equality dispatch found |
 | unsupported syntax silently delegated to legacy from `TsSccCompilerAdapter` | none found |
 | automatic `sccz80` handoff after TS parse/semantic failure | none found |
-| `TODO` / `FIXME` markers in `packages/cli/src/scc` for fallback routing | none found by text search |
+| `TODO` / `FIXME` markers in `packages/c-compiler/src/scc` for fallback routing | none found by text search |
 
 ### 3.3 Conclusion
 
@@ -159,8 +159,8 @@ Count summary for this 58-row matrix (2026-08-10 historical snapshot):
 
 Evidence convention:
 
-- parser / semantic evidence: `packages/cli/src/scc/__tests__/tsFrontendParser.test.ts`, `tsFrontendSemantic.test.ts`
-- runtime evidence: `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts`
+- parser / semantic evidence: `packages/c-compiler/src/scc/__tests__/tsFrontendParser.test.ts`, `tsFrontendSemantic.test.ts`
+- runtime evidence: `packages/c-compiler/src/scc/__tests__/tsCompilerAdapter.test.ts`
 - implementation: `tsFrontendParser.ts`, `tsFrontendSemantic.ts`, `tsFrontendLowering.ts`, `tsProgram.ts`
 
 ### 4.1 Types
@@ -333,10 +333,10 @@ Remaining unverified items:
 
 Relevant code points:
 
-- hidden return arg injection: `packages/cli/src/scc/tsFrontendLowering.ts:61, 485-530`
-- hidden destination loads from arg slot `0`: `packages/cli/src/scc/tsFrontendLowering.ts:444-468, 511`
-- aggregate materialization emitter: `packages/cli/src/scc/tsProgram.ts:1167-1211`
-- failing runtime assertions: `packages/cli/src/scc/__tests__/tsCompilerAdapter.test.ts:2865-2882`
+- hidden return arg injection: `packages/c-compiler/src/scc/tsFrontendLowering.ts:61, 485-530`
+- hidden destination loads from arg slot `0`: `packages/c-compiler/src/scc/tsFrontendLowering.ts:444-468, 511`
+- aggregate materialization emitter: `packages/c-compiler/src/scc/tsProgram.ts:1167-1211`
+- failing runtime assertions: `packages/c-compiler/src/scc/__tests__/tsCompilerAdapter.test.ts:2865-2882`
 
 The decisive assembly symptom was that translated asm contained duplicate global labels such as `__scc_local_4` / `__scc_local_5` across multiple functions, and branch instructions inside `passthroughComma` / `pick` could resolve to the later duplicate block near another function instead of their own local continuation.
 
@@ -348,8 +348,8 @@ Root cause confidence: medium.
 
 | category | location | note |
 | --- | --- | --- |
-| parser unit tests | `packages/cli/src/scc/__tests__/tsFrontendParser.test.ts` | source parser coverage |
-| semantic tests | `packages/cli/src/scc/__tests__/tsFrontendSemantic.test.ts` | bound/type and rejection coverage |
+| parser unit tests | `packages/c-compiler/src/scc/__tests__/tsFrontendParser.test.ts` | source parser coverage |
+| semantic tests | `packages/c-compiler/src/scc/__tests__/tsFrontendSemantic.test.ts` | bound/type and rejection coverage |
 | lowering unit tests | not found as a dedicated `tsFrontendLowering.test.ts` | lowering is covered indirectly through adapter/runtime tests |
 | assembly snapshot / golden tests | fixture-backed translator / asm tests, fixture files under `src/scc/__tests__` | not pure source-path proof |
 | source compile tests | many `TsSccCompilerAdapter.compileToRel()` tests | compile / emit proof without runtime |
@@ -372,7 +372,7 @@ Examples confirmed in `tsCompilerAdapter.test.ts`:
 | --- | --- |
 | legacy-only tests | `compileProgram.test.ts`, `buildLibrary.test.ts`, `mz80-cc.test.ts` include `ExternalSccCompilerAdapter` paths |
 | fixture-only tests | `TsSccCompilerAdapter({ fixtureId: "frag-helper-call-scc" })` tests near `2417`, `2430`; translator fixture assets in `fixtures.ts` |
-| skipped / todo / disabled | none found by search for `skip` / `todo` in `packages/cli/src/scc/__tests__` |
+| skipped / todo / disabled | none found by search for `skip` / `todo` in `packages/c-compiler/src/scc/__tests__` |
 | flaky / environment-dependent | CP/M runtime and some external-toolchain tests are environment-sensitive by nature; this Phase 0B ran the TS frontend trio only |
 
 ### 7.4 Executed commands
@@ -391,7 +391,7 @@ Passing suites:
 
 ### 8.1 Overstated or mixed-status items
 
-- `packages/cli/docs/scc-ts-migration.md` grouped coverage as `S / P / N`, which hid the distinction between compile-only, link-pass, and runtime-pass.
+- `packages/c-compiler/docs/scc-ts-migration.md` grouped coverage as `S / P / N`, which hid the distinction between compile-only, link-pass, and runtime-pass.
 - The migration doc correctly called out aggregate return ABI instability at the time of investigation.
 - P0 and its follow-up runtime extension now promote struct/union aggregate return pass-through for `conditional` / `comma` to runtime-pass.
 
@@ -417,7 +417,7 @@ Passing suites:
 
 ### 8.5 Phase 10 exit criteria gap
 
-Still open relative to `packages/cli/docs/scc-ts-migration.md`:
+Still open relative to `packages/c-compiler/docs/scc-ts-migration.md`:
 
 - qualifier-preserving type semantics and const-write diagnostics
 - variadic and the remaining unsupported complex declarators

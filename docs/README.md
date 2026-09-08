@@ -1,30 +1,22 @@
-# Docs
+# Documentation map
 
-このディレクトリは「現行の参照資料」と「開発履歴メモ」を分けて読む前提です。
+## Current documentation
 
-## Current References
+- [architecture.md](architecture.md): runtime layers と ownership
+- [package-boundaries.md](package-boundaries.md): package dependency と public API 境界
+- [spec/](spec/README.md): assembler、REL、linker、source model の仕様
+- [../packages/assembler/docs/](../packages/assembler/docs/README.md): PEG parser compatibility
+- [../packages/c-compiler/docs/](../packages/c-compiler/docs/README.md): SCC TypeScript C compiler、ABI、C subset
+- [examples-repo.md](examples-repo.md): sibling examples repository の扱い
+- [../editor/README.md](../editor/README.md): LSP と VS Code extension
 
-- [architecture.md](C:/Workspace/work/mega-z80-editor/docs/architecture.md)
-  - 現在のモジュール責務と読みに行く場所
-- [spec/README.md](C:/Workspace/work/mega-z80-editor/docs/spec/README.md)
-  - assembler/linker/source/relocation などの仕様メモ
-- [../packages/cli/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/README.md)
-  - CLI package の利用方法と内部構成
-- [../packages/cli/docs/README.md](C:/Workspace/work/mega-z80-editor/packages/cli/docs/README.md)
-  - package ローカル docs の入口
-- [examples-repo.md](C:/Workspace/work/mega-z80-editor/docs/examples-repo.md)
-  - examples を別 repo として扱う方針と参照方法
-- [../editor/README.md](C:/Workspace/work/mega-z80-editor/editor/README.md)
-  - editor 配下の現役/実験コンポーネントの整理
+## Historical documentation
 
-## Historical Notes
+[dev/](dev/README.md) は過去の設計判断を保存する履歴です。現行仕様としては扱わず、現在の README と上記の current documentation を優先します。
 
-- [dev/README.md](C:/Workspace/work/mega-z80-editor/docs/dev/README.md)
-  - P0/P1/P2 のフェーズ別メモ
-  - 実装の意図を追うには有用ですが、現状説明としては古い記述を含みます
+## Documentation ownership
 
-## Reading Order
-
-1. [../README.md](C:/Workspace/work/mega-z80-editor/README.md)
-2. [architecture.md](C:/Workspace/work/mega-z80-editor/docs/architecture.md)
-3. 必要に応じて `docs/spec/` と `packages/cli/docs/`
+- cross-package architecture: `docs/`
+- assembler/linker contracts: `docs/spec/`
+- C compiler behavior and ABI: `packages/c-compiler/docs/`
+- package usage and exports: each package `README.md`

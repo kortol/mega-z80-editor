@@ -1,21 +1,25 @@
-# CLI Docs
+# SCC TypeScript C compiler documentation
 
-`packages/cli/docs/` は package ローカルの補助資料置き場です。
+この directory は `@mz80/c-compiler` の現行 behavior、ABI、C subset の一次資料です。
 
-## Files
+## Current references
 
-- `peg-compat-cases.md`
-  - PEG parser の互換状況メモ
-- `scc-cpm-library.md`
-  - Small-C library を `mz80` archive / CP/M runtime と組み合わせる手順
+- [scc-ts-c-subset.md](scc-ts-c-subset.md): supported / unsupported C subset matrix
+- [scc-ts-binary-abi.md](scc-ts-binary-abi.md): generated code、aggregate、pointer-to-array、variadic ABI
+- [scc-ts-array-element-design.md](scc-ts-array-element-design.md): fixed-size multidimensional array design
+- [scc-cpm-library.md](scc-cpm-library.md): CP/M runtime と library build
+
+## Historical and planning notes
+
 - `scc-ts-migration.md`
-  - Small-C compiler を TypeScript 化するための adapter / fixture / helper 棚卸しメモ
 - `scc-ts-full-c-coverage-phase0.md`
-  - `TsSccCompiler` の Full C coverage 現状調査と次タスク整理
 - `scc-ts-full-c-coverage-phase0b.md`
-  - Phase 0 の追加証跡。pipeline / fallback / ABI / runtime failure を含む詳細調査
 
-## Rule
+これらは調査・移行の背景として保持します。現在の対応可否を判断する際は C subset matrix と ABI 文書を優先してください。
 
-- 全体設計や cross-package の話は `docs/` に置く
-- `@mz80/cli` に閉じる詳細メモだけをここに置く
+## Related documentation
+
+- package usage: [../README.md](../README.md)
+- assembler compatibility: [../../assembler/docs/README.md](../../assembler/docs/README.md)
+- assembler/linker contracts: [../../../docs/spec/README.md](../../../docs/spec/README.md)
+- package boundaries: [../../../docs/package-boundaries.md](../../../docs/package-boundaries.md)

@@ -59,4 +59,6 @@
 ## Rule
 
 - 仕様を更新する場合は、実装とズレた抽象説明を増やしすぎない
-- package ローカルの挙動メモは `packages/cli/docs/` に置く
+- C compiler 固有の挙動・ABI・subset matrix は `packages/c-compiler/docs/` に置く
+- assembler 固有の parser compatibility は `packages/assembler/docs/` に置く
+- package dependency の一次資料は `docs/package-boundaries.md` に置く
