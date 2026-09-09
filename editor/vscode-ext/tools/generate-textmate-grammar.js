@@ -2,8 +2,19 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const EXT_ROOT = path.resolve(__dirname, "..");
-const REPO_ROOT = path.resolve(EXT_ROOT, "..", "..");
-const MNEMONICS_JSON = path.join(REPO_ROOT, "packages", "assembler", "src", "grammar", "z80_mnemonics.json");
+// The runtime staging step copies this public assembler asset first.  Keeping
+// grammar generation on the staged copy prevents the extension build from
+// reaching into another package's source tree.
+const MNEMONICS_JSON = path.join(
+  EXT_ROOT,
+  "server",
+  "node_modules",
+  "@mz80",
+  "assembler",
+  "dist",
+  "grammar",
+  "z80_mnemonics.json",
+);
 const OUT_FILE = path.join(EXT_ROOT, "syntaxes", "z80-asm.tmLanguage.json");
 
 const EXTRA_DIRECTIVES = [

@@ -12,3 +12,5 @@ export { ExternalSccCompilerAdapter } from "./scc/compilerAdapter";
 export { TsSccCompilerAdapter } from "./scc/tsCompilerAdapter";
 export { safeRmDir } from "./scc/externalToolchain";
 export type { ToolMode } from "./scc/externalToolchain";
+export { compileCFile, compileCSource } from "./publicApi";
+export type { CompileCFileOptions, CompileCSourceOptions } from "./publicApi";

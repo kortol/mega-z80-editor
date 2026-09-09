@@ -8,7 +8,7 @@ exports.assembleSourceMulti = assembleSourceMulti;
 exports.phaseAnalyze = phaseAnalyze;
 exports.phaseEmit = phaseEmit;
 exports.getBytes = getBytes;
-// packages/cli/src/assembler/testUtils.ts
+// Assembler test utilities.
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const assemble_1 = require("./assemble");

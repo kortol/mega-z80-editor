@@ -7,7 +7,7 @@ exports.RelBuilder = void 0;
 exports.buildRelFile = buildRelFile;
 exports.buildRelModuleV2 = buildRelModuleV2;
 exports.emitRelV2 = emitRelV2;
-// packages/cli/src/assembler/rel/builder.ts
+// Core REL builder consumes structural data without importing assembler types.
 const fs_1 = __importDefault(require("fs"));
 const writerV2_1 = require("./writerV2");
 class RelBuilder {

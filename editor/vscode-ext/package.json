@@ -198,15 +198,17 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run build:full",
+    "vscode:prepublish": "pnpm run build",
     "build:grammar": "node tools/generate-textmate-grammar.js",
     "build:runtimes": "node tools/copy-runtime.js",
     "build:full": "pnpm -C ../../packages/core run build && pnpm -C ../../packages/assembler run build && pnpm -C ../../packages/c-compiler run build && pnpm -C ../../packages/cli run build && pnpm -C ../lsp run build && pnpm run build",
-    "build": "pnpm run build:grammar && pnpm run build:runtimes && pnpm exec tsc -p tsconfig.json",
+    "build": "pnpm run build:runtimes && pnpm run build:grammar && pnpm exec tsc -p tsconfig.json",
     "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json",
-    "package:vsix": "vsce package --no-dependencies --skip-license"
+    "package:vsix:prepared": "vsce package --no-dependencies --skip-license",
+    "package:vsix": "pnpm run build:full && pnpm run package:vsix:prepared"
   },
   "devDependencies": {
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.6.2",
     "typescript": "^5.9.2",
     "@types/node": "^20.14.11",

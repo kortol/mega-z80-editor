@@ -4,13 +4,13 @@ Z80 向けの assembler、SCC TypeScript C compiler、linker、debugger、CLI、
 
 ## Workspace
 
-`pnpm-workspace.yaml` は次の workspace と native build 承認を定義します。
+`pnpm-workspace.yaml` は workspace 範囲を定義し、native build の承認は root `package.json` が定義します。
 
 - `packages/*`: 公開する `@mz80/core`、`@mz80/assembler`、`@mz80/c-compiler`、`@mz80/cli`
 - `editor/*`: private `@mz80/lsp` と VS Code extension
-- `allowBuilds`: install 時に native build script を実行してよい依存 package の明示的な allowlist
+- root `package.json` の `pnpm.onlyBuiltDependencies`: install 時に native build script を実行してよい依存 package の明示的な allowlist
 
-この設定は package 検出と install の安全性に関わるため、意図を確認せず変更しません。
+pnpm `9.12.0` では `allowBuilds` ではなく `onlyBuiltDependencies` を使います。現在は VSIX signing helper と Jest resolver を許可し、VSIX publisher の optional credential-store binding (`keytar`) を含む未列挙 package の lifecycle script は許可しません。pnpm を v11 以降へ更新する時は、この policy を `pnpm-workspace.yaml` の `allowBuilds` 形式へ移行します。
 
 ## Package map
 
@@ -35,7 +35,7 @@ pnpm run check
 pnpm run mz80 -- --help
 ```
 
-`pnpm run check` は build、typecheck、version/boundary checker、既存 tests、tarball clean-install、VSIX 検査を実行します。生成済み dist の再現性は、分離 worktree または CI で `pnpm run verify:dist` を実行して確認します。
+`pnpm run check` は build、typecheck、version/boundary checker、既存 tests、tarball clean-install、VSIX 検査を実行します。VSIX 検査は展開済み配布物から LSP diagnostics/semantic tokens と DAP launch session を実行します。生成済み dist の再現性は、分離 worktree または CI で `pnpm run verify:dist` を実行して確認します。
 
 ## Documentation
 

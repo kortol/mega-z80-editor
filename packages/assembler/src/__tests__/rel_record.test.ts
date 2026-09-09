@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/__tests__/rel_record.test.ts
+// Relocation record generation coverage.
 import { assembleSource, phaseAnalyze, phaseEmit } from "../testUtils";
 import { buildRelFile } from "@mz80/core";
 

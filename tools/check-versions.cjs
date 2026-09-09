@@ -4,8 +4,26 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const publicPackages = ["core", "assembler", "c-compiler", "cli"];
 const expectedVersion = "0.1.0";
+const expectedPnpm = "pnpm@9.12.0";
+const expectedBuiltDependencies = ["@vscode/vsce-sign", "unrs-resolver"];
 let failed = false;
 const fail = (message) => { failed = true; console.error(`[versions] ${message}`); };
+
+const rootManifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+if (rootManifest.packageManager !== expectedPnpm) fail(`root packageManager must be ${expectedPnpm}`);
+const allowedBuilds = rootManifest.pnpm?.onlyBuiltDependencies;
+if (!Array.isArray(allowedBuilds) || allowedBuilds.length !== expectedBuiltDependencies.length ||
+  expectedBuiltDependencies.some((name) => !allowedBuilds.includes(name))) {
+  fail(`root pnpm.onlyBuiltDependencies must be ${expectedBuiltDependencies.join(", ")}`);
+}
+const workspaceFile = path.join(root, "pnpm-workspace.yaml");
+const workspaceText = fs.readFileSync(workspaceFile, "utf8");
+if (/^allowBuilds:/m.test(workspaceText)) fail("pnpm 9 build policy must not use pnpm-workspace.yaml allowBuilds");
+for (const workspacePackage of ["packages/*", "editor/*"]) {
+  if (!workspaceText.includes(`- \"${workspacePackage}\"`)) {
+    fail(`pnpm-workspace.yaml must include ${workspacePackage}`);
+  }
+}
 
 function packageJson(name) {
   const file = path.join(root, "packages", name, "package.json");

@@ -15,9 +15,40 @@ const dirs = Object.entries({
   "@mz80/cli": "packages/cli",
   "@mz80/lsp": "editor/lsp",
 });
+const removedLegacyImplementationDirs = [
+  "packages/cli/src/assembler",
+  "packages/cli/src/linker",
+  "packages/cli/src/debugger",
+  "packages/cli/src/scc",
+  "packages/cli/src/rel",
+];
 let failed = false;
 const fail = (file, message) => { failed = true; console.error(`[boundaries] ${path.relative(root, file)}: ${message}`); };
 function walk(dir) { return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]); }
+const publicExports = new Map(dirs.map(([name, rel]) => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, rel, "package.json"), "utf8"));
+  return [name, new Set(Object.keys(manifest.exports ?? { ".": "" }))];
+}));
+function importSpecs(source) {
+  return [...source.matchAll(/(?:from\s*|require\(\s*|import\(\s*)["']([^"']+)["']/g)].map((match) => match[1]);
+}
+function packageSpecifier(spec) {
+  const parts = spec.split("/");
+  return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : spec;
+}
+function isWithin(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+function checkPackageSpecifier(owner, file, spec) {
+  if (spec.includes("/src/") || spec.includes("/dist/")) fail(file, `source/dist deep import: ${spec}`);
+  if (!spec.startsWith("@mz80/")) return;
+  const packageName = packageSpecifier(spec);
+  if (!rules[owner].has(packageName)) fail(file, `forbidden package import: ${spec}`);
+  const suffix = spec.slice(packageName.length);
+  const subpath = suffix ? `.${suffix}` : ".";
+  if (!publicExports.get(packageName)?.has(subpath)) fail(file, `non-public subpath import: ${spec}`);
+}
 for (const [owner, rel] of dirs) {
   const pkgDir = path.join(root, rel);
   const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
@@ -26,23 +57,25 @@ for (const [owner, rel] of dirs) {
   }
   for (const file of walk(path.join(pkgDir, "src")).filter((file) => /\.[cm]?[jt]s$/.test(file))) {
     const source = fs.readFileSync(file, "utf8");
-    for (const match of source.matchAll(/(?:from\s*|require\()["']([^"']+)["']/g)) {
-      const spec = match[1];
-      if (spec.includes("/src/") || spec.includes("/dist/")) fail(file, `source/dist deep import: ${spec}`);
-      if (spec.startsWith("@mz80/") && !rules[owner].has(spec)) fail(file, `forbidden package import: ${spec}`);
-      if (spec.startsWith("@mz80/") && spec.split("/").length > 2) fail(file, `non-public subpath import: ${spec}`);
-      if (/^\.\.?\//.test(spec) && spec.includes("packages/")) fail(file, `cross-package relative import: ${spec}`);
+    for (const spec of importSpecs(source)) {
+      checkPackageSpecifier(owner, file, spec);
+      if (/^\.\.?\//.test(spec) && !isWithin(pkgDir, path.resolve(path.dirname(file), spec))) {
+        fail(file, `cross-package relative import: ${spec}`);
+      }
     }
   }
 }
 const extensionSource = path.join(root, "editor", "vscode-ext", "src");
 for (const file of walk(extensionSource).filter((file) => /\.[cm]?[jt]s$/.test(file))) {
   const source = fs.readFileSync(file, "utf8");
-  for (const match of source.matchAll(/(?:from\s*|require\()["']([^"']+)["']/g)) {
-    const spec = match[1];
+  for (const spec of importSpecs(source)) {
     if (spec.startsWith("@mz80/")) fail(file, `VS Code extension must not import a toolchain package directly: ${spec}`);
     if (spec.includes("/src/") || spec.includes("/dist/")) fail(file, `VS Code extension source/dist deep import: ${spec}`);
   }
+}
+for (const relative of removedLegacyImplementationDirs) {
+  const legacyDir = path.join(root, relative);
+  if (fs.existsSync(legacyDir)) fail(legacyDir, "legacy implementation must live in its owning package");
 }
 if (failed) process.exit(1);
 console.log("[boundaries] package dependency direction and public import boundary are valid");

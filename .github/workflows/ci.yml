@@ -1,0 +1,29 @@
+name: Workspace verification
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Enable the pinned pnpm release
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check packages, tarballs, VSIX, and existing tests
+        run: pnpm run check
+      - name: Verify managed generated output from the clean checkout
+        run: pnpm run verify:dist

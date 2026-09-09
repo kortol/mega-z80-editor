@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/rel/builder.ts
+// Core REL builder consumes structural data without importing assembler types.
 import fs from "fs";
 /** Structural data supplied by the assembler; core does not import assembler types. */
 type AsmContext = {

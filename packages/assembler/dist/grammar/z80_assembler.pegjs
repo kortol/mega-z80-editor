@@ -603,9 +603,9 @@ ExprOpStart
 
 IndirectIndexed
   = "(" _ base:("IX"i / "IY"i) offset:(_ [+\-] _ Expression)? _ ")" {
-      return makeNode('indexedIndirect', { 
-        base: base.toUpperCase(), 
-        offset: offset ? { sign: offset[1], value: offset[3] } : null 
+      return makeNode('indexedIndirect', {
+        base: base.toUpperCase(),
+        offset: offset ? { sign: offset[1], value: offset[3] } : null
       }, location());
     }
 
@@ -797,12 +797,12 @@ ReservedWord
      "LIST"i / "PAGE"i / "TITLE"i / "EXITM"i /
      "MACRO"i / "ENDM"i / "REPT"i / "REPEAT"i / "ENDR"i / "WHILE"i / "ENDW"i / "IRP"i / "IRPC"i / "LOCALMACRO"i /
      "LD"i / "ADD"i / "ADC"i / "SUB"i / "SBC"i / "INC"i / "DEC"i / "CP"i /
-     "AND"i / "OR"i / "XOR"i / "RLC"i / "RRC"i / "RL"i / "RR"i / 
+     "AND"i / "OR"i / "XOR"i / "RLC"i / "RRC"i / "RL"i / "RR"i /
      "SLA"i / "SRA"i / "SLL"i / "SRL"i / "RLCA"i / "RRCA"i / "RLA"i / "RRA"i /
-     "BIT"i / "SET"i / "RES"i / "JP"i / "JR"i / "DJNZ"i / 
+     "BIT"i / "SET"i / "RES"i / "JP"i / "JR"i / "DJNZ"i /
      "CALL"i / "RET"i / "RETI"i / "RETN"i / "RST"i /
-     "PUSH"i / "POP"i / "IN"i / "OUT"i / "NOP"i / "HALT"i / 
-     "DI"i / "EI"i / "NEG"i / "CPL"i / "CCF"i / "SCF"i / "DAA"i / 
+     "PUSH"i / "POP"i / "IN"i / "OUT"i / "NOP"i / "HALT"i /
+     "DI"i / "EI"i / "NEG"i / "CPL"i / "CCF"i / "SCF"i / "DAA"i /
      "LDI"i / "LDIR"i / "LDD"i / "LDDR"i /
      "CPI"i / "CPIR"i / "CPD"i / "CPDR"i /
      "INI"i / "INIR"i / "IND"i / "INDR"i /

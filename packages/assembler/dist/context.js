@@ -17,7 +17,7 @@ exports.resolveCounterToken = resolveCounterToken;
 exports.traceLoopStack = traceLoopStack;
 exports.getLocalValue = getLocalValue;
 exports.attachLoopContext = attachLoopContext;
-// packages/cli/src/assembler/context.ts
+// Assembler context.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const core_1 = require("@mz80/core");
 const encoder_1 = require("./encoder");

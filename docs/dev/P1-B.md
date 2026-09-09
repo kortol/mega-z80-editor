@@ -1,7 +1,7 @@
 # 🧩 P1-B フェーズ仕様書
 
 **フェーズ名:** Z80 命令網羅・アセンブラ出力安定化（P1-B）
-**対象モジュール:** `packages/cli/src/assembler/encoder/*`
+**対象モジュール:** `packages/assembler/src/encoder/*`
 **目的:**
 Z80 の主要命令セットを網羅的に実装し、`.asm → .bin` 出力を安定化させる。
 また、命令種別ごとのエンコード処理を整理・分割し、テストによって仕様を固定化する。
@@ -115,21 +115,19 @@ Z80 の主要命令セットを網羅的に実装し、`.asm → .bin` 出力を
 ## 🗂️ 参考ディレクトリ構成
 
 ```
-packages/cli/
+packages/assembler/
  ├── src/
- │   ├── assembler/
- │   │   ├── encoder/
- │   │   │   ├── ld.ts
- │   │   │   ├── io.ts
- │   │   │   ├── utils.ts
- │   │   │   ├── alu.ts (予定)
- │   │   │   ├── control.ts (予定)
- │   │   │   ├── ed.ts (予定)
- │   │   │   └── index.ts
- │   │   ├── tokenizer.ts
- │   │   ├── parser.ts
- │   │   └── rel.ts
- │   └── ...
+ │   ├── encoder/
+ │   │   ├── ld.ts
+ │   │   ├── io.ts
+ │   │   ├── utils.ts
+ │   │   ├── alu.ts (予定)
+ │   │   ├── control.ts (予定)
+ │   │   ├── ed.ts (予定)
+ │   │   └── index.ts
+ │   ├── tokenizer.ts
+ │   ├── parser.ts
+ │   └── rel.ts
  └── tests/
      └── z80test/  ← z80test ASM/BIN ペア配置予定
 ```

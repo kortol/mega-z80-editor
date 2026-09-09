@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/testUtils.ts
+// Assembler test utilities.
 import fs from "fs";
 import path from "path";
 import { assemble, runEmit } from "./assemble";

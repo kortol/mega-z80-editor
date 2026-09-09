@@ -7,7 +7,10 @@
   "engines": { "node": ">=18" },
   "files": ["dist/**/*", "README.md"],
   "publishConfig": { "access": "public" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "require": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "require": "./dist/index.js" },
+    "./grammar/z80_mnemonics.json": "./dist/grammar/z80_mnemonics.json"
+  },
   "types": "dist/index.d.ts",
   "main": "dist/index.js",
   "scripts": { "build": "pnpm run build:parser && pnpm run build:dist", "build:parser": "pnpm exec peggy -o src/parser/gen/z80_assembler.js src/grammar/z80_assembler.pegjs", "build:dist": "pnpm exec tsc -p tsconfig.build.json && node tools/copy-parser.js", "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json", "test": "jest --config jest.config.cjs --runInBand", "prepack": "pnpm run build:dist" },

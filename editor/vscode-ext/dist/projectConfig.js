@@ -32,9 +32,6 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PROJECT_CONFIG_FILE = void 0;
 exports.getProjectConfigPath = getProjectConfigPath;
@@ -45,7 +42,7 @@ exports.resolveTargetName = resolveTargetName;
 exports.resolveTarget = resolveTarget;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const yaml_1 = __importDefault(require("yaml"));
+const packagedRuntime_1 = require("./packagedRuntime");
 exports.PROJECT_CONFIG_FILE = "mz80.yaml";
 function getProjectConfigPath(workspaceRoot) {
     return path.join(workspaceRoot, exports.PROJECT_CONFIG_FILE);
@@ -55,14 +52,14 @@ function loadProjectFile(workspaceRoot) {
     if (!fs.existsSync(configPath))
         return undefined;
     const content = fs.readFileSync(configPath, "utf8");
-    const parsed = yaml_1.default.parse(content);
+    const parsed = packagedRuntime_1.packagedYaml.parse(content);
     if (!parsed || typeof parsed !== "object")
         return undefined;
     return parsed;
 }
 function saveProjectFile(workspaceRoot, project) {
     const configPath = getProjectConfigPath(workspaceRoot);
-    const text = yaml_1.default.stringify(project, {
+    const text = packagedRuntime_1.packagedYaml.stringify(project, {
         defaultKeyType: "PLAIN",
         lineWidth: 0,
     });

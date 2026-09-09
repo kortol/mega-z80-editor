@@ -4,6 +4,12 @@
   "version": "0.0.0",
   "license": "MIT",
   "packageManager": "pnpm@9.12.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@vscode/vsce-sign",
+      "unrs-resolver"
+    ]
+  },
   "scripts": {
     "build": "pnpm --filter @mz80/core run build && pnpm --filter @mz80/assembler run build && pnpm --filter @mz80/c-compiler run build && pnpm --filter @mz80/cli run build && pnpm --filter @mz80/lsp run build && pnpm --filter z80-assembler-language run build",
     "typecheck": "pnpm --filter @mz80/core run typecheck && pnpm --filter @mz80/assembler run typecheck && pnpm --filter @mz80/c-compiler run typecheck && pnpm --filter @mz80/cli run typecheck && pnpm --filter @mz80/lsp run typecheck && pnpm --filter z80-assembler-language run typecheck",

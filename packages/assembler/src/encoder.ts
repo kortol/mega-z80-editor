@@ -1,4 +1,4 @@
-// packages\cli\src\assembler\encoder.ts
+// Assembler instruction encoder.
 import { AsmContext, SectionState } from "./context";
 import { NodeInstr } from "./node";
 import { instrTable } from "./encoder/instrTable";

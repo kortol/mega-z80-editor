@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/context.ts
+// Assembler context.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createLogger, Logger } from "@mz80/core";
 import { getZ80OpcodeTable } from "./encoder";

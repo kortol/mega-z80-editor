@@ -6,7 +6,7 @@ exports.defineLocalMacro = defineLocalMacro;
 exports.findMacro = findMacro;
 exports.getDefByName = getDefByName;
 exports.expandMacros = expandMacros;
-// packages/cli/src/assembler/macro.ts
+// Assembler macro expansion.
 const context_1 = require("./context");
 const macroParser_1 = require("./macroParser");
 const errors_1 = require("./errors");

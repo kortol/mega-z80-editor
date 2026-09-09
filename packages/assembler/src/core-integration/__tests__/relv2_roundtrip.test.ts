@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/rel/__tests__/relv2_roundtrip.test.ts
+// REL v2 round-trip integration coverage.
 import fs from "fs";
 import path from "path";
 import { createContext } from "../../context";

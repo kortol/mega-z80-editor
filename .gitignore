@@ -30,7 +30,11 @@ tools/*
 !tools/check-packages.cjs
 !tools/check-versions.cjs
 !tools/check-vsix.cjs
+!tools/run-vsix-extension-host.cjs
+!tools/smoke-vsix-runtime.cjs
+!tools/smoke-dap.cjs
 !tools/verify-dist.cjs
+!tools/vsix-extension-host-test.cjs
 tools/emulator/*
 tools/sjasmplus/*
 tools/sjasmplus-bin/*

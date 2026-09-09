@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import yaml from "yaml";
+import { packagedYaml } from "./packagedRuntime";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;
@@ -83,14 +83,14 @@ export function loadProjectFile(workspaceRoot: string): Mz80ProjectFile | undefi
   const configPath = getProjectConfigPath(workspaceRoot);
   if (!fs.existsSync(configPath)) return undefined;
   const content = fs.readFileSync(configPath, "utf8");
-  const parsed = yaml.parse(content);
+  const parsed = packagedYaml.parse(content);
   if (!parsed || typeof parsed !== "object") return undefined;
   return parsed as Mz80ProjectFile;
 }
 
 export function saveProjectFile(workspaceRoot: string, project: Mz80ProjectFile): void {
   const configPath = getProjectConfigPath(workspaceRoot);
-  const text = yaml.stringify(project, {
+  const text = packagedYaml.stringify(project, {
     defaultKeyType: "PLAIN",
     lineWidth: 0,
   });

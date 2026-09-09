@@ -1,4 +1,4 @@
-// packages\cli\src\assembler\encoder\utils.ts
+// Assembler encoding utilities.
 /**
  * utils.ts - Z80 assembler encoding utilities
  *

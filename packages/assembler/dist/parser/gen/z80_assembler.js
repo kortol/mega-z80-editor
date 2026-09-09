@@ -927,9 +927,9 @@ function peg$parse(input, options) {
     return makeNode('indirect', { operand }, location());
   }
   function peg$f109(base, offset) {
-    return makeNode('indexedIndirect', { 
-      base: base.toUpperCase(), 
-      offset: offset ? { sign: offset[1], value: offset[3] } : null 
+    return makeNode('indexedIndirect', {
+      base: base.toUpperCase(),
+      offset: offset ? { sign: offset[1], value: offset[3] } : null
     }, location());
   }
   function peg$f110() {    return makeNode('register', { name: 'C' }, location());  }

@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/expr/eval.ts
+// Assembler expression evaluation.
 import { EvalResult, Expr } from "./types";
 import { AssemblerErrorCode, makeError } from "../errors";
 import { AsmContext, SymbolEntry } from "../context";

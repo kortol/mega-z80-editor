@@ -1,4 +1,4 @@
-// packages/cli/src/assembler/macro.ts
+// Assembler macro expansion.
 import { AsmContext, canon, SourcePos } from "./context";
 import { parse } from "./macroParser";
 import type { Node, NodeMacroDef, NodeMacroInvoke } from "./node";
