@@ -43,6 +43,8 @@ pnpm run mz80 -- --help
 - [Architecture and package boundaries](docs/architecture.md)
 - [Assembler/linker specifications](docs/spec/README.md)
 - [SCC C compiler documentation](packages/c-compiler/docs/README.md)
+- [Multi-platform C runtime guide](packages/c-compiler/docs/scc-runtime-guide.md)
 - [VS Code extension](editor/vscode-ext/README.md)
+- [Workspace verification scripts](scripts/README.md)
 
 `docs/dev/` は履歴資料です。現行の契約には README、`docs/spec/`、各 package の docs を優先してください。

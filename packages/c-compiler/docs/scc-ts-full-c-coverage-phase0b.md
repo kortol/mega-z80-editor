@@ -1,5 +1,8 @@
 # TsSccCompiler Full C Coverage Phase 0B
 
+> **Historical coverage snapshot.** この文書の source path、file path、進捗判断は
+> 調査基準 commit 時点の記録であり、現行仕様ではない。
+
 調査日: 2026-07-23
 調査基準 commit: `13d816ba62b4718c69f620f254aba1950f04cd91`
 

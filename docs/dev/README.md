@@ -12,33 +12,33 @@
 
 ### P0 Baseline
 
-- [p0-summary.md](C:/Workspace/work/mega-z80-editor/docs/dev/p0-summary.md)
+- [p0-summary.md](p0-summary.md)
   - CLI / LSP / DAP / VSCode extension の最小基盤を整えた段階のまとめ
 
 ### P1 Assembler / Linker Foundation
 
-- [P1.md](C:/Workspace/work/mega-z80-editor/docs/dev/P1.md)
+- [P1.md](P1.md)
   - P1 全体の背景と初期目標
-- [P1-B.md](C:/Workspace/work/mega-z80-editor/docs/dev/P1-B.md)
+- [P1-B.md](P1-B.md)
   - P1 の個別設計メモ
-- [P1-C.md](C:/Workspace/work/mega-z80-editor/docs/dev/P1-C.md)
+- [P1-C.md](P1-C.md)
   - P1 の個別設計メモ
-- [P1-D.md](C:/Workspace/work/mega-z80-editor/docs/dev/P1-D.md)
+- [P1-D.md](P1-D.md)
   - P1 の個別設計メモ
-- [P1-E.md](C:/Workspace/work/mega-z80-editor/docs/dev/P1-E.md)
+- [P1-E.md](P1-E.md)
   - P1 の個別設計メモ
 
 ### P2 Front-End / Include / Parser Evolution
 
-- [P2-C.md](C:/Workspace/work/mega-z80-editor/docs/dev/P2-C.md)
+- [P2-C.md](P2-C.md)
   - フェーズ管理、emit 統合、セクション拡張
-- [P2-D.md](C:/Workspace/work/mega-z80-editor/docs/dev/P2-D.md)
+- [P2-D.md](P2-D.md)
   - INCLUDE まわりの設計メモ
-- [P2-D_IncludeSpec_Final_Integrated.md](C:/Workspace/work/mega-z80-editor/docs/dev/P2-D_IncludeSpec_Final_Integrated.md)
+- [P2-D_IncludeSpec_Final_Integrated.md](P2-D_IncludeSpec_Final_Integrated.md)
   - INCLUDE 仕様の統合版
-- [P2-L.md](C:/Workspace/work/mega-z80-editor/docs/dev/P2-L.md)
+- [P2-L.md](P2-L.md)
   - PEG 単一路線化と legacy parser 除去
-- [P2-M.md](C:/Workspace/work/mega-z80-editor/docs/dev/P2-M.md)
+- [P2-M.md](P2-M.md)
   - sjasm/m80 互換疑似命令拡張
 
 ## Suggested Historical Order

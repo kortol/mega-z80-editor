@@ -7,7 +7,7 @@ const extensionPackage = path.join(root, "editor", "vscode-ext");
 const { runTests } = require(require.resolve("@vscode/test-electron", { paths: [extensionPackage] }));
 const extensionDevelopmentPath = path.resolve(process.argv[2] ?? "");
 if (!fs.existsSync(path.join(extensionDevelopmentPath, "package.json"))) {
-  throw new Error("usage: node tools/run-vsix-extension-host.cjs <extracted-extension-directory>");
+  throw new Error("usage: node scripts/run-vsix-extension-host.cjs <extracted-extension-directory>");
 }
 
 function installedVsCode() {

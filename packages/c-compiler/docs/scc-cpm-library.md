@@ -1,4 +1,8 @@
-# SCC CP/M Library
+# SCC legacy CP/M library
+
+> この文書は external Z80SCC と Small-C library を併用する legacy CP/M build のための資料である。
+> 新規の TypeScript source-path build では、まず
+> [scc-runtime-guide.md](scc-runtime-guide.md) の構造化 runtime 設定を使用する。
 
 `@mz80/cli` では、Z80SCC の Small-C library を `mz80` の archive library として扱えます。
 
@@ -10,7 +14,7 @@
 4. `mz80 as` で `.rel`
 5. `mz80 ar` で `.lib`
 
-## Runtime
+## Legacy runtime aliases
 
 CP/M 向け bundled runtime は 2 種類あります。
 
@@ -20,6 +24,8 @@ CP/M 向け bundled runtime は 2 種類あります。
   - `fgetc`, `fputc`, `exit` と SCC helper だけを持つ library 併用向け runtime
 
 Small-C の `LIB/*.C` を併用する場合は `cpmlibc` を使います。
+これらは `cc.runtime.platform: cpm` の互換 alias であり、MSX BIOS / raw runtime
+には対応しません。
 
 ## Building `libcpm-stdio.lib`
 

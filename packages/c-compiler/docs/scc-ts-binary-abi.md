@@ -1,6 +1,6 @@
 # TsSccCompiler Binary ABI and Stack Frame
 
-更新日: 2026-08-22
+更新日: 2026-09-10
 
 ## Status and Scope
 

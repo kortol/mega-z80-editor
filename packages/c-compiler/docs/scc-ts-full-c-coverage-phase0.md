@@ -1,5 +1,8 @@
 # TsSccCompiler Full C Coverage Phase 0
 
+> **Historical coverage snapshot.** ここにある source path、file path、進捗判断は
+> 2026-07-23 時点の記録であり、現行仕様ではない。
+
 2026-07-23 時点の `TsSccCompiler` source path に対する現状調査メモ。
 
 ## Goal

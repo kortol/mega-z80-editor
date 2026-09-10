@@ -1,5 +1,8 @@
 # SCC TS Migration
 
+> **Historical migration note.** この文書の adapter 構成、fixture、source path は記録時点の
+> 移行計画を示す。現在の対応範囲は C Subset matrix と runtime guide を正本とする。
+
 Current C Subset の feature inventory と実装確認 matrix は [scc-ts-c-subset.md](./scc-ts-c-subset.md) を正本とする。この文書の coverage map は migration 設計上の補助資料である。
 
 `@mz80/cli` では、legacy `dcpp` / `sccz80` をそのまま使う経路と、将来の TypeScript compiler 置換経路を切り分けるために adapter と fixture を先に固定しています。

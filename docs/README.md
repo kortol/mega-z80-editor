@@ -9,6 +9,7 @@
 - [../packages/c-compiler/docs/](../packages/c-compiler/docs/README.md): SCC TypeScript C compiler、ABI、C subset
 - [examples-repo.md](examples-repo.md): sibling examples repository の扱い
 - [../editor/README.md](../editor/README.md): LSP と VS Code extension
+- [../scripts/README.md](../scripts/README.md): root verification scripts と command map
 
 ## Historical documentation
 

@@ -1,6 +1,6 @@
 # TsSccCompiler C Subset Feature Inventory
 
-更新日: 2026-08-26
+更新日: 2026-09-10
 
 ## Purpose
 
@@ -72,7 +72,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | S02 | `if`/`else`, `switch`/`case`, `while`, `do`, `for` | S | S | S | S | S | case labels are integer literals; control nesting is capped |
 | S03 | `break` / `continue` | S | S | S | S | S | valid loop/switch contexts only |
 | S04 | `goto` / label | N | N | N | N | N | intentionally not implemented |
-| P01 | source preprocessing | N | - | - | N | N | `#include` / macro expansion / conditional directives are outside the current C Subset; source must be pre-expanded |
+| P01 | bundled-header preprocessing | P | - | - | P | P | quoted/angle bundled `#include`、object-like `#define`、include guard、`#ifdef`/`#ifndef`/`#if defined`/`#else`/`#endif` は TS source path で対応する。function-like macro、arbitrary system header、`#undef`、一般 `#if` expression は明示診断であり、full preprocessor は対象外。 |
 | A01 | `.scc.asm`, translation, assembly, link, CP/M execution | S | - | S | S | S | source-path adapter evidence only |
 
 ## Expression Syntax and Operand Matrix

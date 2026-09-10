@@ -107,7 +107,7 @@ db " test",0
   it("matches sjasmplus end_in_if_dup_macro_include fixture bytes", () => {
     const fixtureDir = path.resolve(
       __dirname,
-      "../../../../tools/sjasmplus/tests/macros",
+      "../__fixtures__/sjasmplus-macros",
     );
     const inputFile = path.join(fixtureDir, "end_in_if_dup_macro_include.asm");
     const expected = Array.from(
@@ -129,7 +129,7 @@ db " test",0
   it("matches sjasmplus Issue45_arg_substitution fixture bytes", () => {
     const fixtureDir = path.resolve(
       __dirname,
-      "../../../../tools/sjasmplus/tests/macros",
+      "../__fixtures__/sjasmplus-macros",
     );
     const inputFile = path.join(fixtureDir, "Issue45_arg_substitution.asm");
     const expected = Array.from(
@@ -151,7 +151,7 @@ db " test",0
   it("matches sjasmplus Issue45B_arg_substitution fixture bytes", () => {
     const fixtureDir = path.resolve(
       __dirname,
-      "../../../../tools/sjasmplus/tests/macros",
+      "../__fixtures__/sjasmplus-macros",
     );
     const inputFile = path.join(fixtureDir, "Issue45B_arg_substitution.asm");
     const expected = Array.from(

@@ -95,7 +95,7 @@ async function smokeDap(cliEntry, cwd = process.cwd()) {
 
 if (require.main === module) {
   const cliEntry = process.argv[2];
-  if (!cliEntry) throw new Error("usage: node tools/smoke-dap.cjs <cli-entry>");
+  if (!cliEntry) throw new Error("usage: node scripts/smoke-dap.cjs <cli-entry>");
   smokeDap(cliEntry).then(() => {
     console.log("[dap] initialize, launch, and disconnect are valid");
   }).catch((error) => {

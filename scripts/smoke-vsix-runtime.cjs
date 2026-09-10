@@ -6,7 +6,7 @@ const { smokeDap } = require("./smoke-dap.cjs");
 
 const extensionRoot = path.resolve(process.argv[2] ?? "");
 if (!fs.existsSync(path.join(extensionRoot, "package.json"))) {
-  throw new Error("usage: node tools/smoke-vsix-runtime.cjs <extracted-extension-directory>");
+  throw new Error("usage: node scripts/smoke-vsix-runtime.cjs <extracted-extension-directory>");
 }
 
 function delay(ms) {

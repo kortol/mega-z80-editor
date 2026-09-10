@@ -6,7 +6,7 @@ SCC TypeScript C compiler、bundled C runtime、C-to-assembler translation を�
 
 - SCC frontend と semantic/lowering pipeline
 - `TsSccCompiler` / compiler adapter
-- bundled CP/M runtime assets
+- bundled CP/M、MSX BIOS、raw runtime assets と bundled headers
 - C subset、ABI、array design の一次 documentation
 
 この package は `@mz80/assembler` と `@mz80/core` の公開 API にだけ依存します。CLI compatibility や DAP は `@mz80/cli` の責務です。
@@ -35,4 +35,14 @@ pnpm --filter @mz80/c-compiler run build
 pnpm --filter @mz80/c-compiler run test
 ```
 
-詳細は [docs/README.md](docs/README.md) を参照してください。
+## Runtime
+
+`cc.runtime` または `mz80 cc` の `--runtime-platform`、
+`--runtime-profile`、`--runtime-exit` で bundled runtime を選択できる。
+対象 platform は `cpm`、`msx-bios`、`raw`、profile は `lite` と `full` である。
+既存の `cpmcrt` / `cpmlibc` runtime name は互換 alias として残る。
+
+設定、bundled header、raw hook、MSX exit mode の詳細は
+[docs/scc-runtime-guide.md](docs/scc-runtime-guide.md) を参照してください。
+
+その他の仕様は [docs/README.md](docs/README.md) を参照してください。
