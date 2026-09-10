@@ -2236,7 +2236,7 @@ describe("TsSccCompilerAdapter", () => {
     const sccAsm = fs.readFileSync(built.sccAsmFile, "utf8");
     expect(sccAsm).toContain("\tcall\toutstr");
     expect(sccAsm).toContain("\t.area\t_DATA");
-    expect(sccAsm).toContain(".ascii\t\" HELLO, CP/M$\"");
+    expect(sccAsm).toContain(".asciz\t\" HELLO, CP/M$\"");
   });
 
   test("source mode supports multi-call expression statements for cpm-hello-like source", () => {
@@ -2257,7 +2257,7 @@ describe("TsSccCompilerAdapter", () => {
     expect(sccAsm).toContain("\tcall\tfputc");
     expect(sccAsm).toContain("\tcall\toutstr");
     expect((sccAsm.match(/\tpush\thl/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(sccAsm).toContain(".ascii\t\" HELLO, CP/M$\"");
+    expect(sccAsm).toContain(".asciz\t\" HELLO, CP/M$\"");
   });
 
   test("source mode rejects duplicate function names in the Phase C subset", () => {

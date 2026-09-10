@@ -26,6 +26,7 @@ export function link(
     orgBss?: string | number;
     orgCustom?: string | number;
     fullpath?: "off" | "rel" | "on" | boolean | string;
+    requireSymbols?: string[];
   }
 ) {
   const verbose = !!opts.verbose; 
@@ -44,6 +45,15 @@ export function link(
   const result = hasV2
     ? linkModulesV2(mods, { orgText, orgData, orgBss, orgCustom })
     : linkModules(mods);
+  const providedSymbolNames = new Set(
+    mods.flatMap((module) => module.symbols
+      .filter((symbol) => symbol.storage !== "EXT")
+      .map((symbol) => symbol.name.toUpperCase())),
+  );
+  const missingRequiredSymbols = (opts.requireSymbols ?? []).filter((symbol) => !providedSymbolNames.has(symbol.toUpperCase()));
+  if (missingRequiredSymbols.length > 0) {
+    throw new Error(`Link requires symbol(s) that were not provided: ${missingRequiredSymbols.join(", ")}`);
+  }
   if (verbose) {
     console.log(`[PASS1] Collected ${result.symbols.size} symbols`);
     console.log(`[PASS2] Linked ${result.segments.length} segment(s)`);

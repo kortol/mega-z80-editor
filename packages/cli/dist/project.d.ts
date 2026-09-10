@@ -1,5 +1,5 @@
 import { Logger } from "@mz80/core";
-import { SccRuntimeName, ToolMode } from "@mz80/c-compiler";
+import { RuntimeSelection, ToolMode } from "@mz80/c-compiler";
 export type Mz80AsOptions = {
     relVersion?: number | string;
     sym?: boolean;
@@ -27,7 +27,7 @@ export type Mz80CleanOptions = {
     files?: string[];
 };
 export type Mz80CcOptions = {
-    runtime?: SccRuntimeName;
+    runtime?: RuntimeSelection;
     libraries?: string[];
     includeDirs?: string[];
     cppArgs?: string[];
@@ -40,7 +40,7 @@ export type Mz80CcOptions = {
     tracePipeline?: boolean;
 };
 export type BuildProjectOverrides = {
-    runtime?: SccRuntimeName;
+    runtime?: RuntimeSelection;
     libraries?: string[];
     cc?: Mz80CcOptions;
 };
@@ -51,7 +51,7 @@ export type Mz80ProjectTargetModule = string | {
 export type Mz80ProjectTarget = {
     output: string;
     modules: Mz80ProjectTargetModule[];
-    runtime?: SccRuntimeName;
+    runtime?: RuntimeSelection;
     runtimeObject?: string;
     libraries?: string[];
     cc?: Mz80CcOptions;
@@ -78,7 +78,7 @@ export type ResolvedProjectTarget = {
     output: string;
     modules: ResolvedProjectModule[];
     runtime?: {
-        name: SccRuntimeName;
+        name: RuntimeSelection;
         source: string;
         asm: string;
         object: string;

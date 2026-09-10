@@ -2341,4 +2341,9 @@ describe("tsFrontendParser", () => {
     expect(program.functions[0]?.body.statements[0]).toMatchObject({ kind: "expr", expr: { kind: "vaStart", list: "ap", lastFixed: "first" } });
     expect(program.functions[0]?.body.statements[1]).toMatchObject({ kind: "return", expr: { kind: "vaArg", list: "ap" } });
   });
+
+  test("rejects external variadic declarations outside bundled runtime providers", () => {
+    expect(() => parseProgram("extern int host_printf(char *format, ...);", "external-variadic.c"))
+      .toThrow("does not support external variadic declarations");
+  });
 });

@@ -7,6 +7,7 @@ import { getSccFixture, readSccFixture } from "./fixtures";
 import { lowerSourceProgram as lowerBoundProgram } from "./tsFrontendLowering";
 import { parseProgram } from "./tsFrontendParser";
 import { analyzeProgram } from "./tsFrontendSemantic";
+import { preprocessTsCSource } from "./tsPreprocessor";
 import { emitProgram as emitLoweredProgram } from "./tsProgram";
 import { translateSccAsm } from "./translateAsm";
 
@@ -249,12 +250,13 @@ function compileFromSource(
   const relFile = opts.outputRelFile ? path.resolve(opts.outputRelFile) : path.join(stageDir, `${stem}.rel`);
 
   const sourceText = fs.readFileSync(resolvedInput, "utf8");
-  const parsed = parseProgram(sourceText, resolvedInput);
-  const bound = analyzeProgram(parsed, sourceText, resolvedInput);
-  const spec = lowerBoundProgram(bound, `${stem}.i`, sourceText, resolvedInput);
+  const preprocessed = preprocessTsCSource(sourceText, resolvedInput, opts);
+  const parsed = parseProgram(preprocessed.sourceText, resolvedInput);
+  const bound = analyzeProgram(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
+  const spec = lowerBoundProgram(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput);
 
   fs.mkdirSync(stageDir, { recursive: true });
-  fs.writeFileSync(preprocessedFile, sourceText, "utf8");
+  fs.writeFileSync(preprocessedFile, preprocessed.sourceText, "utf8");
   fs.writeFileSync(sccAsmFile, emitLoweredProgram(spec), "utf8");
   fs.writeFileSync(
     asmFile,

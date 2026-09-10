@@ -102,7 +102,16 @@ try {
     }
     const required = ["package/dist/index.js", "package/dist/index.d.ts"];
     if (shortName === "assembler") required.push("package/dist/parser/gen/z80_assembler.js", "package/dist/grammar/z80_assembler.pegjs", "package/dist/grammar/z80_mnemonics.json");
-    if (shortName === "c-compiler") required.push("package/dist/scc/runtime");
+    if (shortName === "c-compiler") required.push(
+      "package/dist/scc/runtime/cpm-lite.scc.asm",
+      "package/dist/scc/runtime/msx-bios-lite.scc.asm",
+      "package/dist/scc/runtime/raw-lite.scc.asm",
+      "package/dist/scc/runtime/full.scc.asm",
+      "package/dist/scc/runtime/include/stdio.h",
+      "package/dist/scc/runtime/include/string.h",
+      "package/dist/scc/runtime/include/ctype.h",
+      "package/dist/scc/runtime/include/mz80.h",
+    );
     for (const entry of required) if (!entries.some((actual) => actual === entry || actual.startsWith(`${entry}/`))) fail(`${shortName}: required runtime asset is absent: ${entry}`);
     if (shortName === "cli") {
       const bin = manifest.bin?.mz80;

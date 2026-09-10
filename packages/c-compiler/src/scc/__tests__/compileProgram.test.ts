@@ -5,6 +5,7 @@ import { assemble } from "@mz80/assembler";
 import { Z80DebugCore, createArchive, createLogger } from "@mz80/core";
 import { compileSccProgram } from "../compileProgram";
 import { ExternalSccCompilerAdapter } from "../compilerAdapter";
+import { getBundledRuntimeIncludeDir } from "../runtime";
 
 describe("compileSccProgram", () => {
   test("builds a COM image from Small-C input, bundled runtime, and archive library", () => {
@@ -92,6 +93,11 @@ describe("compileSccProgram", () => {
     expect(fs.existsSync(built.outputFile)).toBe(true);
     expect(built.runtimeRelFile).toBe(path.join(tempDir, "cpmlibc.rel"));
     expect(invocations.map((entry) => entry.command)).toEqual(["dcpp", "sccz80"]);
+    expect(invocations[0]?.args).toEqual(expect.arrayContaining([
+      `-I${getBundledRuntimeIncludeDir()}`,
+      "-DMZ80_PLATFORM_CPM=1",
+      "-DMZ80_RUNTIME_LITE=1",
+    ]));
 
     const core = new Z80DebugCore(false);
     core.setCpm22Enabled(true);

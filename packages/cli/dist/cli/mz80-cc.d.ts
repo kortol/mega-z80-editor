@@ -1,9 +1,9 @@
 import { Logger } from "@mz80/core";
-import { SccRuntimeName } from "@mz80/c-compiler";
+import { RuntimeSelection } from "@mz80/c-compiler";
 export type Mz80CcCompilerKind = "sccz80" | "ts";
 export type Mz80CcCliOptions = {
     compiler?: Mz80CcCompilerKind;
-    runtime?: SccRuntimeName;
+    runtime?: RuntimeSelection;
     library?: string[];
     include?: string[];
     cppArg?: string[];

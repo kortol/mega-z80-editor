@@ -99,7 +99,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
     if (target.runtime) {
         fs_1.default.mkdirSync(path_1.default.dirname(target.runtime.source), { recursive: true });
         fs_1.default.writeFileSync(target.runtime.source, (0, c_compiler_1.getBundledSccRuntime)(target.runtime.name), "utf8");
-        fs_1.default.writeFileSync(target.runtime.asm, (0, c_compiler_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: target.runtime.name }), "utf8");
+        fs_1.default.writeFileSync(target.runtime.asm, (0, c_compiler_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: (0, c_compiler_1.runtimeId)(target.runtime.name) }), "utf8");
         (0, assembler_1.assemble)(logger, target.runtime.asm, target.runtime.object, {
             ...(target.as ?? {}),
             relVersion: normalizeRelVersion(target.as?.relVersion),
@@ -122,6 +122,8 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
                     verbose: false,
                     sym: !!target.link?.sym,
                     smap: !!target.link?.smap,
+                    defines: target.runtime ? (0, c_compiler_1.getBundledRuntimeDefines)(target.runtime.name) : undefined,
+                    bundledIncludeDirs: target.runtime ? [(0, c_compiler_1.getBundledRuntimeIncludeDir)()] : undefined,
                 }, compilerAdapter);
                 continue;
             }
@@ -178,7 +180,7 @@ function deriveObjectPath(targetOutput, sourcePath) {
 function resolveRuntimePaths(configDir, targetOutput, runtimeName, runtimeObject) {
     const objectPath = path_1.default.resolve(configDir, runtimeObject && runtimeObject.trim().length > 0
         ? runtimeObject
-        : path_1.default.join(path_1.default.dirname(targetOutput), `${runtimeName}.rel`));
+        : path_1.default.join(path_1.default.dirname(targetOutput), `${(0, c_compiler_1.runtimeId)(runtimeName)}.rel`));
     const basePath = objectPath.replace(/\.rel$/i, "");
     return {
         name: runtimeName,

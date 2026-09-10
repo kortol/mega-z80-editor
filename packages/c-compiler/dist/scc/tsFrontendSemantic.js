@@ -22,8 +22,10 @@ function getAggregateLayoutSize(type) {
 }
 const MAX_CONTROL_NESTING = 8;
 let currentAggregateLayouts = new Map();
-function analyzeProgram(program, sourceText, file) {
+let currentRuntimeVariadicNames = new Set();
+function analyzeProgram(program, sourceText, file, options = {}) {
     currentAggregateLayouts = buildAggregateLayouts(program.aggregates, sourceText, file);
+    currentRuntimeVariadicNames = options.runtimeVariadicNames ?? new Set();
     const functionSymbols = new Map();
     for (const fn of program.functions) {
         if (functionSymbols.has(fn.name)) {
@@ -2038,7 +2040,7 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
             }
             return {
                 kind: "call",
-                target: target ?? { kind: "extern", name: expr.target },
+                target: target ?? { kind: "extern", name: expr.target, ...(currentRuntimeVariadicNames.has(expr.target) ? { isVariadic: true } : {}) },
                 args: expr.args.map((arg, index) => analyzeCallArg(arg, target?.params[index], scope, functionSymbols, functionName, sourceText, file)),
                 type: !target || target.returnType.kind === "void"
                     ? toSemanticScalarType("int")

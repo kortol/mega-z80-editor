@@ -1857,7 +1857,7 @@ function lowerExpr(
       return {
         kind: "call",
         target: expr.target.name,
-        ...(expr.target.kind !== "extern" && expr.target.isVariadic ? { isVariadic: true } : {}),
+        ...(expr.target.isVariadic ? { isVariadic: true } : {}),
         args: expr.args.map((arg) => isAggregateCallArg(arg)
           ? {
             kind: "aggregateConsumer",
@@ -2255,7 +2255,7 @@ function internStringLiteral(state: LoweringState, value: string): string {
   state.nextStringId += 1;
   state.data.push({
     label,
-    directive: ".ascii",
+    directive: ".asciz",
     value: encodeAsciiLiteral(value),
   });
   return label;

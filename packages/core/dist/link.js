@@ -58,6 +58,13 @@ function link(inputFiles, outputFile, opts) {
     const result = hasV2
         ? (0, linker_1.linkModulesV2)(mods, { orgText, orgData, orgBss, orgCustom })
         : (0, linker_1.linkModules)(mods);
+    const providedSymbolNames = new Set(mods.flatMap((module) => module.symbols
+        .filter((symbol) => symbol.storage !== "EXT")
+        .map((symbol) => symbol.name.toUpperCase())));
+    const missingRequiredSymbols = (opts.requireSymbols ?? []).filter((symbol) => !providedSymbolNames.has(symbol.toUpperCase()));
+    if (missingRequiredSymbols.length > 0) {
+        throw new Error(`Link requires symbol(s) that were not provided: ${missingRequiredSymbols.join(", ")}`);
+    }
     if (verbose) {
         console.log(`[PASS1] Collected ${result.symbols.size} symbols`);
         console.log(`[PASS2] Linked ${result.segments.length} segment(s)`);

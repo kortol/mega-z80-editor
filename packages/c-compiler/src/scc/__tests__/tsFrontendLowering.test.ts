@@ -30,7 +30,7 @@ describe("tsFrontendLowering", () => {
     const spec = lowerSourceProgram(bound, "hello.i", source, "hello.c");
 
     expect(spec.externs).toContain("outstr");
-    expect(spec.data?.[0]?.directive).toBe(".ascii");
+    expect(spec.data?.[0]?.directive).toBe(".asciz");
     expect(spec.data?.[0]?.value).toBe("\"HELLO$\"");
   });
 

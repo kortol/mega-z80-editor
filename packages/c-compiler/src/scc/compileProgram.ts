@@ -10,7 +10,7 @@ import {
   ExternalSccCompilerAdapterOptions,
 } from "./compilerAdapter";
 import { safeRmDir } from "./externalToolchain";
-import { getBundledSccRuntime, SccRuntimeName } from "./runtime";
+import { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, normalizeBundledRuntime, RuntimeSelection, runtimeId } from "./runtime";
 import { translateSccAsm } from "./translateAsm";
 
 type AssembleFile = typeof assemble;
@@ -28,7 +28,7 @@ export type CompileSccProgramOptions = {
   keepTemps?: boolean;
   verbose?: boolean;
   toolMode?: ExternalSccCompilerAdapterOptions["toolMode"];
-  runtime?: SccRuntimeName;
+  runtime?: RuntimeSelection;
   libraries?: string[];
   com?: boolean;
   orgText?: string | number;
@@ -77,6 +77,7 @@ export function compileSccProgram(
 
   let runtimeRelFile: string | undefined;
   try {
+    const runtimeDefines = opts.runtime ? getBundledRuntimeDefines(opts.runtime) : undefined;
     const compiled = compileSccSourceToRel(logger, {
       inputFile: opts.inputFile,
       includeDirs: opts.includeDirs,
@@ -86,6 +87,8 @@ export function compileSccProgram(
       verbose: opts.verbose,
       sym: opts.sym,
       smap: opts.smap,
+      defines: runtimeDefines,
+      bundledIncludeDirs: opts.runtime ? [getBundledRuntimeIncludeDir()] : [],
     }, compilerAdapter);
 
     const linkInputs: string[] = [];
@@ -107,6 +110,9 @@ export function compileSccProgram(
       orgBss: opts.orgBss,
       orgCustom: opts.orgCustom,
       fullpath: opts.fullpath,
+      requireSymbols: opts.runtime && normalizeBundledRuntime(opts.runtime).platform === "raw"
+        ? ["__mz80_raw_putc", "__mz80_raw_getc", "__mz80_raw_exit"]
+        : undefined,
     });
 
     logger.info(`Built SCC program: ${opts.inputFile} -> ${opts.outputFile}`);
@@ -127,18 +133,19 @@ export function compileSccProgram(
 function buildBundledRuntime(
   logger: Logger,
   tempDir: string,
-  runtimeName: SccRuntimeName,
+  runtimeName: RuntimeSelection,
   verbose: boolean | undefined,
   assembleFile: AssembleFile,
 ): string {
-  const runtimeSourcePath = path.join(tempDir, `${runtimeName}.scc.asm`);
-  const runtimeAsmPath = path.join(tempDir, `${runtimeName}.asm`);
-  const runtimeRelPath = path.join(tempDir, `${runtimeName}.rel`);
+  const runtimeNameId = runtimeId(runtimeName);
+  const runtimeSourcePath = path.join(tempDir, `${runtimeNameId}.scc.asm`);
+  const runtimeAsmPath = path.join(tempDir, `${runtimeNameId}.asm`);
+  const runtimeRelPath = path.join(tempDir, `${runtimeNameId}.rel`);
 
   fs.writeFileSync(runtimeSourcePath, getBundledSccRuntime(runtimeName), "utf8");
   fs.writeFileSync(
     runtimeAsmPath,
-    translateSccAsm(fs.readFileSync(runtimeSourcePath, "utf8"), { moduleName: runtimeName }),
+    translateSccAsm(fs.readFileSync(runtimeSourcePath, "utf8"), { moduleName: runtimeNameId }),
     "utf8",
   );
 

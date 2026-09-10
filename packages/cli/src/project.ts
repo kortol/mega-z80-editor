@@ -3,7 +3,7 @@ import path from "path";
 import yaml from "yaml";
 import { Logger, link } from "@mz80/core";
 import { assemble } from "@mz80/assembler";
-import { compileSccSourceToRel, ExternalSccCompilerAdapter, getBundledSccRuntime, SccRuntimeName, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
+import { compileSccSourceToRel, ExternalSccCompilerAdapter, getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;
@@ -35,7 +35,7 @@ export type Mz80CleanOptions = {
 };
 
 export type Mz80CcOptions = {
-  runtime?: SccRuntimeName;
+  runtime?: RuntimeSelection;
   libraries?: string[];
   includeDirs?: string[];
   cppArgs?: string[];
@@ -49,7 +49,7 @@ export type Mz80CcOptions = {
 };
 
 export type BuildProjectOverrides = {
-  runtime?: SccRuntimeName;
+  runtime?: RuntimeSelection;
   libraries?: string[];
   cc?: Mz80CcOptions;
 };
@@ -62,7 +62,7 @@ export type Mz80ProjectTargetModule = string | {
 export type Mz80ProjectTarget = {
   output: string;
   modules: Mz80ProjectTargetModule[];
-  runtime?: SccRuntimeName;
+  runtime?: RuntimeSelection;
   runtimeObject?: string;
   libraries?: string[];
   cc?: Mz80CcOptions;
@@ -92,7 +92,7 @@ export type ResolvedProjectTarget = {
   output: string;
   modules: ResolvedProjectModule[];
   runtime?: {
-    name: SccRuntimeName;
+    name: RuntimeSelection;
     source: string;
     asm: string;
     object: string;
@@ -219,7 +219,7 @@ export function buildProjectTarget(
     fs.writeFileSync(target.runtime.source, getBundledSccRuntime(target.runtime.name), "utf8");
     fs.writeFileSync(
       target.runtime.asm,
-      translateSccAsm(fs.readFileSync(target.runtime.source, "utf8"), { moduleName: target.runtime.name }),
+      translateSccAsm(fs.readFileSync(target.runtime.source, "utf8"), { moduleName: runtimeId(target.runtime.name) }),
       "utf8",
     );
     assemble(logger, target.runtime.asm, target.runtime.object, {
@@ -244,6 +244,8 @@ export function buildProjectTarget(
           verbose: false,
           sym: !!target.link?.sym,
           smap: !!target.link?.smap,
+          defines: target.runtime ? getBundledRuntimeDefines(target.runtime.name) : undefined,
+          bundledIncludeDirs: target.runtime ? [getBundledRuntimeIncludeDir()] : undefined,
         }, compilerAdapter);
         continue;
       }
@@ -302,14 +304,14 @@ function deriveObjectPath(targetOutput: string, sourcePath: string): string {
 function resolveRuntimePaths(
   configDir: string,
   targetOutput: string,
-  runtimeName: SccRuntimeName,
+  runtimeName: RuntimeSelection,
   runtimeObject?: string,
 ): ResolvedProjectTarget["runtime"] {
   const objectPath = path.resolve(
     configDir,
     runtimeObject && runtimeObject.trim().length > 0
       ? runtimeObject
-      : path.join(path.dirname(targetOutput), `${runtimeName}.rel`),
+      : path.join(path.dirname(targetOutput), `${runtimeId(runtimeName)}.rel`),
   );
   const basePath = objectPath.replace(/\.rel$/i, "");
   return {

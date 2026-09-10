@@ -33,6 +33,8 @@ export type CompilerAdapterCompileOptions = {
   verbose?: boolean;
   sym?: boolean;
   smap?: boolean;
+  defines?: Record<string, string>;
+  bundledIncludeDirs?: string[];
 };
 
 export interface CompilerAdapter {
@@ -71,14 +73,18 @@ export class ExternalSccCompilerAdapter implements CompilerAdapter {
     const stem = sanitizeStageStem(path.basename(resolvedInput, path.extname(resolvedInput)).toLowerCase());
     const stageDir = path.join(stageRoot, stem);
     fs.mkdirSync(stageDir, { recursive: true });
-    const includeDirs = prepareToolchainIncludeDirs(stageRoot, this.toolMode, opts.includeDirs ?? []);
+    const includeDirs = prepareToolchainIncludeDirs(stageRoot, this.toolMode, [
+      ...(opts.includeDirs ?? []),
+      ...(opts.bundledIncludeDirs ?? []),
+    ]);
     const preprocessedFile = path.join(stageDir, `${stem}.i`);
     const preArg = this.toolMode === "wsl" ? path.basename(preprocessedFile) : preprocessedFile;
     const sccAsmFile = path.join(stageDir, `${stem}.scc.asm`);
     const asmFile = path.join(stageDir, `${stem}.asm`);
     const relFile = opts.outputRelFile ? path.resolve(opts.outputRelFile) : path.join(stageDir, `${stem}.rel`);
 
-    const dcppArgs = [...buildCppArgs(includeDirs, opts.cppArgs), resolvedInput, preArg];
+    const runtimeDefines = Object.entries(opts.defines ?? {}).map(([name, value]) => `-D${name}=${value}`);
+    const dcppArgs = [...buildCppArgs(includeDirs, [...runtimeDefines, ...(opts.cppArgs ?? [])]), resolvedInput, preArg];
     const sccArgs = [...(opts.sccArgs ?? []), preArg];
     trace(logger, this.tracePipeline, `SCC stage dir: ${stageDir}`);
     trace(logger, this.tracePipeline, `SCC preprocess: ${formatToolInvocation(this.dcppPath, dcppArgs, this.toolMode)}`);

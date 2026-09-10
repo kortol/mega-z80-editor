@@ -1,11 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.compileCSource = exports.compileCFile = exports.safeRmDir = exports.TsSccCompilerAdapter = exports.ExternalSccCompilerAdapter = exports.SCC_LIBRARY_PRESETS = exports.SCC_RUNTIME_NAMES = exports.translateSccAsmFile = exports.buildSccLibraryArchive = exports.translateSccAsm = exports.writeSccRuntimeFile = exports.writeBundledSccRuntime = exports.getBundledSccRuntime = exports.compileSccSourceToRel = exports.compileSccProgram = void 0;
+exports.compileCSource = exports.compileCFile = exports.safeRmDir = exports.TsSccCompilerAdapter = exports.ExternalSccCompilerAdapter = exports.SCC_LIBRARY_PRESETS = exports.SCC_RUNTIME_NAMES = exports.MSX_RUNTIME_EXIT_MODES = exports.BUNDLED_RUNTIME_PROFILES = exports.BUNDLED_RUNTIME_PLATFORMS = exports.translateSccAsmFile = exports.buildSccLibraryArchive = exports.translateSccAsm = exports.writeSccRuntimeFile = exports.writeBundledSccRuntime = exports.runtimeId = exports.isSccRuntimeName = exports.isBundledRuntimeSpec = exports.getBundledSccRuntime = exports.getBundledRuntimeIncludeDir = exports.getBundledRuntimeDefines = exports.compileSccSourceToRel = exports.compileSccProgram = void 0;
 var compileProgram_1 = require("./scc/compileProgram");
 Object.defineProperty(exports, "compileSccProgram", { enumerable: true, get: function () { return compileProgram_1.compileSccProgram; } });
 Object.defineProperty(exports, "compileSccSourceToRel", { enumerable: true, get: function () { return compileProgram_1.compileSccSourceToRel; } });
 var runtime_1 = require("./scc/runtime");
+Object.defineProperty(exports, "getBundledRuntimeDefines", { enumerable: true, get: function () { return runtime_1.getBundledRuntimeDefines; } });
+Object.defineProperty(exports, "getBundledRuntimeIncludeDir", { enumerable: true, get: function () { return runtime_1.getBundledRuntimeIncludeDir; } });
 Object.defineProperty(exports, "getBundledSccRuntime", { enumerable: true, get: function () { return runtime_1.getBundledSccRuntime; } });
+Object.defineProperty(exports, "isBundledRuntimeSpec", { enumerable: true, get: function () { return runtime_1.isBundledRuntimeSpec; } });
+Object.defineProperty(exports, "isSccRuntimeName", { enumerable: true, get: function () { return runtime_1.isSccRuntimeName; } });
+Object.defineProperty(exports, "runtimeId", { enumerable: true, get: function () { return runtime_1.runtimeId; } });
 Object.defineProperty(exports, "writeBundledSccRuntime", { enumerable: true, get: function () { return runtime_1.writeBundledSccRuntime; } });
 var runtime_cli_1 = require("./runtime-cli");
 Object.defineProperty(exports, "writeSccRuntimeFile", { enumerable: true, get: function () { return runtime_cli_1.writeSccRuntimeFile; } });
@@ -16,6 +21,9 @@ Object.defineProperty(exports, "buildSccLibraryArchive", { enumerable: true, get
 var translate_cli_1 = require("./translate-cli");
 Object.defineProperty(exports, "translateSccAsmFile", { enumerable: true, get: function () { return translate_cli_1.translateSccAsmFile; } });
 var runtime_2 = require("./scc/runtime");
+Object.defineProperty(exports, "BUNDLED_RUNTIME_PLATFORMS", { enumerable: true, get: function () { return runtime_2.BUNDLED_RUNTIME_PLATFORMS; } });
+Object.defineProperty(exports, "BUNDLED_RUNTIME_PROFILES", { enumerable: true, get: function () { return runtime_2.BUNDLED_RUNTIME_PROFILES; } });
+Object.defineProperty(exports, "MSX_RUNTIME_EXIT_MODES", { enumerable: true, get: function () { return runtime_2.MSX_RUNTIME_EXIT_MODES; } });
 Object.defineProperty(exports, "SCC_RUNTIME_NAMES", { enumerable: true, get: function () { return runtime_2.SCC_RUNTIME_NAMES; } });
 var libraryPresets_1 = require("./scc/libraryPresets");
 Object.defineProperty(exports, "SCC_LIBRARY_PRESETS", { enumerable: true, get: function () { return libraryPresets_1.SCC_LIBRARY_PRESETS; } });

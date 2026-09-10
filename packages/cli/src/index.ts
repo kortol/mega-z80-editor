@@ -27,6 +27,23 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   const as = cfg.as;
   const link = cfg.link;
+  const validateRuntime = (where: string, runtime: unknown) => {
+    if (runtime === undefined) return;
+    if (typeof runtime === "string") {
+      if (!SCC_RUNTIME_NAMES.includes(runtime as any)) errors.push(`${where} must be a legacy runtime name or structured runtime object (got ${runtime})`);
+      return;
+    }
+    if (!runtime || typeof runtime !== "object") { errors.push(`${where} must be a runtime name or object`); return; }
+    const spec = runtime as { platform?: unknown; profile?: unknown; exit?: unknown };
+    if (!(BUNDLED_RUNTIME_PLATFORMS as readonly unknown[]).includes(spec.platform)) errors.push(`${where}.platform must be cpm | msx-bios | raw`);
+    if (!(BUNDLED_RUNTIME_PROFILES as readonly unknown[]).includes(spec.profile)) errors.push(`${where}.profile must be lite | full`);
+    if (spec.exit !== undefined && (!(MSX_RUNTIME_EXIT_MODES as readonly unknown[]).includes(spec.exit) || spec.platform !== "msx-bios")) errors.push(`${where}.exit is valid only for msx-bios: halt | return`);
+  };
+  validateRuntime("cc.runtime", cfg.cc?.runtime);
+  for (const [name, target] of Object.entries(cfg.targets ?? {})) {
+    validateRuntime(`targets.${name}.runtime`, target.runtime);
+    validateRuntime(`targets.${name}.cc.runtime`, target.cc?.runtime);
+  }
 
   if (as) {
     if (as.relVersion !== undefined) {
@@ -83,7 +100,7 @@ import { createArchive, link } from "@mz80/core";
 import { dbgBinary } from "./cli/mz80-dbg";
 import { dbgRemote } from "./cli/mz80-dbg-remote";
 import { dap } from "./cli/mz80-dap";
-import { buildSccLibraryArchive, translateSccAsmFile, writeSccRuntimeFile, SCC_LIBRARY_PRESETS, SCC_RUNTIME_NAMES } from "@mz80/c-compiler";
+import { BUNDLED_RUNTIME_PLATFORMS, BUNDLED_RUNTIME_PROFILES, BundledRuntimeSpec, buildSccLibraryArchive, MSX_RUNTIME_EXIT_MODES, RuntimeSelection, translateSccAsmFile, writeSccRuntimeFile, SCC_LIBRARY_PRESETS, SCC_RUNTIME_NAMES } from "@mz80/c-compiler";
 import { Console } from "./console";
 
 const program = new Command();
@@ -109,6 +126,21 @@ function normalizeArgvForFullpath(argv: string[]): string[] {
 function collect(value: string, previous: string[]): string[] {
   previous.push(value);
   return previous;
+}
+
+function resolveRuntimeOptions(opts: { runtime?: string; runtimePlatform?: string; runtimeProfile?: string; runtimeExit?: string }): RuntimeSelection | undefined {
+  if (opts.runtimePlatform || opts.runtimeProfile || opts.runtimeExit) {
+    if (opts.runtime) throw new Error("--runtime cannot be combined with --runtime-platform/profile/exit.");
+    if (!opts.runtimePlatform || !opts.runtimeProfile) throw new Error("--runtime-platform and --runtime-profile must be specified together.");
+    if (!(BUNDLED_RUNTIME_PLATFORMS as readonly string[]).includes(opts.runtimePlatform)) throw new Error(`Unknown runtime platform: ${opts.runtimePlatform}`);
+    if (!(BUNDLED_RUNTIME_PROFILES as readonly string[]).includes(opts.runtimeProfile)) throw new Error(`Unknown runtime profile: ${opts.runtimeProfile}`);
+    if (opts.runtimeExit && (!(MSX_RUNTIME_EXIT_MODES as readonly string[]).includes(opts.runtimeExit) || opts.runtimePlatform !== "msx-bios")) {
+      throw new Error(`Runtime exit mode is valid only for msx-bios: ${opts.runtimeExit}`);
+    }
+    return { platform: opts.runtimePlatform as BundledRuntimeSpec["platform"], profile: opts.runtimeProfile as BundledRuntimeSpec["profile"], ...(opts.runtimeExit ? { exit: opts.runtimeExit as BundledRuntimeSpec["exit"] } : {}) };
+  }
+  if (opts.runtime && !SCC_RUNTIME_NAMES.includes(opts.runtime as any)) throw new Error(`Unknown SCC runtime: ${opts.runtime}`);
+  return opts.runtime as RuntimeSelection | undefined;
 }
 
 program
@@ -169,6 +201,9 @@ program
   .description("Compile Small-C source into mz80 output")
   .option("--compiler <kind>", "Compiler backend: sccz80 | ts", "sccz80")
   .option("--runtime <name>", `Bundled runtime to link (${SCC_RUNTIME_NAMES.join(", ")})`)
+  .option("--runtime-platform <platform>", "Runtime platform: cpm | msx-bios | raw")
+  .option("--runtime-profile <profile>", "Runtime profile: lite | full")
+  .option("--runtime-exit <mode>", "MSX exit mode: halt | return")
   .option("--library <path>", "Add a .lib/.a archive to the link", collect, [])
   .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])
   .option("--cpp-arg <arg>", "Pass a raw argument to dcpp", collect, [])
@@ -197,18 +232,15 @@ program
         ? "verbose"
         : "normal";
     const logger = createLogger(logLevel);
-    if (opts.runtime && !SCC_RUNTIME_NAMES.includes(opts.runtime as any)) {
-      logger.error(`Unknown SCC runtime: ${opts.runtime}`);
-      process.exit(1);
-    }
     if (opts.compiler !== "sccz80" && opts.compiler !== "ts") {
       logger.error(`Unknown SCC compiler: ${opts.compiler}`);
       process.exit(1);
     }
     try {
+      const runtime = resolveRuntimeOptions(opts);
       compileSccProgramFromCli(logger, input, output, {
         compiler: opts.compiler,
-        runtime: opts.runtime,
+        runtime,
         library: opts.library,
         include: opts.include,
         cppArg: opts.cppArg,
@@ -301,6 +333,9 @@ program
   .description("Build target from mz80.yaml project configuration")
   .option("--list", "list available targets and exit")
   .option("--runtime <name>", `Override bundled runtime (${SCC_RUNTIME_NAMES.join(", ")})`)
+  .option("--runtime-platform <platform>", "Override runtime platform: cpm | msx-bios | raw")
+  .option("--runtime-profile <profile>", "Override runtime profile: lite | full")
+  .option("--runtime-exit <mode>", "Override MSX exit mode: halt | return")
   .option("--library <path>", "Override link archive input", collect, [])
   .option("-I, --include <dir>", "Override include directory for dcpp", collect, [])
   .option("--cpp-arg <arg>", "Override raw dcpp argument", collect, [])
@@ -336,7 +371,7 @@ program
 
     try {
       const built = buildProjectTarget(configPath, cfg, target, logger, {
-        runtime: opts.runtime,
+        runtime: resolveRuntimeOptions(opts),
         libraries: opts.library?.length ? opts.library : undefined,
         cc: {
           includeDirs: opts.include?.length ? opts.include : undefined,

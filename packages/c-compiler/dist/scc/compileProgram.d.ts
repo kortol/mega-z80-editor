@@ -1,7 +1,7 @@
 import { assemble } from "@mz80/assembler";
 import { link, Logger } from "@mz80/core";
 import { CompilerAdapter, ExternalSccCompilerAdapterOptions } from "./compilerAdapter";
-import { SccRuntimeName } from "./runtime";
+import { RuntimeSelection } from "./runtime";
 type AssembleFile = typeof assemble;
 type LinkFiles = typeof link;
 export type CompileSccProgramOptions = {
@@ -16,7 +16,7 @@ export type CompileSccProgramOptions = {
     keepTemps?: boolean;
     verbose?: boolean;
     toolMode?: ExternalSccCompilerAdapterOptions["toolMode"];
-    runtime?: SccRuntimeName;
+    runtime?: RuntimeSelection;
     libraries?: string[];
     com?: boolean;
     orgText?: string | number;

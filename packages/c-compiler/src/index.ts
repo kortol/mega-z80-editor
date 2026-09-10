@@ -1,12 +1,12 @@
 export { compileSccProgram, compileSccSourceToRel } from "./scc/compileProgram";
 export type { CompileSccProgramOptions, CompileSccSourceResult } from "./scc/compileProgram";
-export { getBundledSccRuntime, writeBundledSccRuntime } from "./scc/runtime";
+export { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, isBundledRuntimeSpec, isSccRuntimeName, runtimeId, writeBundledSccRuntime } from "./scc/runtime";
 export { writeSccRuntimeFile } from "./runtime-cli";
-export type { SccRuntimeName } from "./scc/runtime";
+export type { BundledRuntimePlatform, BundledRuntimeProfile, BundledRuntimeSpec, MsxRuntimeExitMode, RuntimeSelection, SccRuntimeName } from "./scc/runtime";
 export { translateSccAsm } from "./scc/translateAsm";
 export { buildSccLibraryArchive } from "./library-cli";
 export { translateSccAsmFile } from "./translate-cli";
-export { SCC_RUNTIME_NAMES } from "./scc/runtime";
+export { BUNDLED_RUNTIME_PLATFORMS, BUNDLED_RUNTIME_PROFILES, MSX_RUNTIME_EXIT_MODES, SCC_RUNTIME_NAMES } from "./scc/runtime";
 export { SCC_LIBRARY_PRESETS } from "./scc/libraryPresets";
 export { ExternalSccCompilerAdapter } from "./scc/compilerAdapter";
 export { TsSccCompilerAdapter } from "./scc/tsCompilerAdapter";

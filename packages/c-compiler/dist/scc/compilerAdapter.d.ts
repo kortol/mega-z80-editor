@@ -20,6 +20,8 @@ export type CompilerAdapterCompileOptions = {
     verbose?: boolean;
     sym?: boolean;
     smap?: boolean;
+    defines?: Record<string, string>;
+    bundledIncludeDirs?: string[];
 };
 export interface CompilerAdapter {
     compileToRel(logger: Logger, opts: CompilerAdapterCompileOptions): CompileSccSourceResult;

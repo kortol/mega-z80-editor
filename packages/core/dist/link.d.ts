@@ -12,4 +12,5 @@ export declare function link(inputFiles: string[], outputFile: string, opts: {
     orgBss?: string | number;
     orgCustom?: string | number;
     fullpath?: "off" | "rel" | "on" | boolean | string;
+    requireSymbols?: string[];
 }): void;

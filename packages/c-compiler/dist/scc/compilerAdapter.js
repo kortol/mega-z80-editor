@@ -31,13 +31,17 @@ class ExternalSccCompilerAdapter {
         const stem = sanitizeStageStem(node_path_1.default.basename(resolvedInput, node_path_1.default.extname(resolvedInput)).toLowerCase());
         const stageDir = node_path_1.default.join(stageRoot, stem);
         node_fs_1.default.mkdirSync(stageDir, { recursive: true });
-        const includeDirs = (0, externalToolchain_1.prepareToolchainIncludeDirs)(stageRoot, this.toolMode, opts.includeDirs ?? []);
+        const includeDirs = (0, externalToolchain_1.prepareToolchainIncludeDirs)(stageRoot, this.toolMode, [
+            ...(opts.includeDirs ?? []),
+            ...(opts.bundledIncludeDirs ?? []),
+        ]);
         const preprocessedFile = node_path_1.default.join(stageDir, `${stem}.i`);
         const preArg = this.toolMode === "wsl" ? node_path_1.default.basename(preprocessedFile) : preprocessedFile;
         const sccAsmFile = node_path_1.default.join(stageDir, `${stem}.scc.asm`);
         const asmFile = node_path_1.default.join(stageDir, `${stem}.asm`);
         const relFile = opts.outputRelFile ? node_path_1.default.resolve(opts.outputRelFile) : node_path_1.default.join(stageDir, `${stem}.rel`);
-        const dcppArgs = [...(0, externalToolchain_1.buildCppArgs)(includeDirs, opts.cppArgs), resolvedInput, preArg];
+        const runtimeDefines = Object.entries(opts.defines ?? {}).map(([name, value]) => `-D${name}=${value}`);
+        const dcppArgs = [...(0, externalToolchain_1.buildCppArgs)(includeDirs, [...runtimeDefines, ...(opts.cppArgs ?? [])]), resolvedInput, preArg];
         const sccArgs = [...(opts.sccArgs ?? []), preArg];
         trace(logger, this.tracePipeline, `SCC stage dir: ${stageDir}`);
         trace(logger, this.tracePipeline, `SCC preprocess: ${formatToolInvocation(this.dcppPath, dcppArgs, this.toolMode)}`);

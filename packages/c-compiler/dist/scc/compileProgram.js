@@ -32,6 +32,7 @@ function compileSccProgram(logger, opts, deps = {}) {
     node_fs_1.default.mkdirSync(tempDir, { recursive: true });
     let runtimeRelFile;
     try {
+        const runtimeDefines = opts.runtime ? (0, runtime_1.getBundledRuntimeDefines)(opts.runtime) : undefined;
         const compiled = (0, compilerAdapter_1.compileSccSourceToRel)(logger, {
             inputFile: opts.inputFile,
             includeDirs: opts.includeDirs,
@@ -41,6 +42,8 @@ function compileSccProgram(logger, opts, deps = {}) {
             verbose: opts.verbose,
             sym: opts.sym,
             smap: opts.smap,
+            defines: runtimeDefines,
+            bundledIncludeDirs: opts.runtime ? [(0, runtime_1.getBundledRuntimeIncludeDir)()] : [],
         }, compilerAdapter);
         const linkInputs = [];
         if (opts.runtime) {
@@ -60,6 +63,9 @@ function compileSccProgram(logger, opts, deps = {}) {
             orgBss: opts.orgBss,
             orgCustom: opts.orgCustom,
             fullpath: opts.fullpath,
+            requireSymbols: opts.runtime && (0, runtime_1.normalizeBundledRuntime)(opts.runtime).platform === "raw"
+                ? ["__mz80_raw_putc", "__mz80_raw_getc", "__mz80_raw_exit"]
+                : undefined,
         });
         logger.info(`Built SCC program: ${opts.inputFile} -> ${opts.outputFile}`);
         return {
@@ -77,11 +83,12 @@ function compileSccProgram(logger, opts, deps = {}) {
     }
 }
 function buildBundledRuntime(logger, tempDir, runtimeName, verbose, assembleFile) {
-    const runtimeSourcePath = node_path_1.default.join(tempDir, `${runtimeName}.scc.asm`);
-    const runtimeAsmPath = node_path_1.default.join(tempDir, `${runtimeName}.asm`);
-    const runtimeRelPath = node_path_1.default.join(tempDir, `${runtimeName}.rel`);
+    const runtimeNameId = (0, runtime_1.runtimeId)(runtimeName);
+    const runtimeSourcePath = node_path_1.default.join(tempDir, `${runtimeNameId}.scc.asm`);
+    const runtimeAsmPath = node_path_1.default.join(tempDir, `${runtimeNameId}.asm`);
+    const runtimeRelPath = node_path_1.default.join(tempDir, `${runtimeNameId}.rel`);
     node_fs_1.default.writeFileSync(runtimeSourcePath, (0, runtime_1.getBundledSccRuntime)(runtimeName), "utf8");
-    node_fs_1.default.writeFileSync(runtimeAsmPath, (0, translateAsm_1.translateSccAsm)(node_fs_1.default.readFileSync(runtimeSourcePath, "utf8"), { moduleName: runtimeName }), "utf8");
+    node_fs_1.default.writeFileSync(runtimeAsmPath, (0, translateAsm_1.translateSccAsm)(node_fs_1.default.readFileSync(runtimeSourcePath, "utf8"), { moduleName: runtimeNameId }), "utf8");
     const runtimeCtx = assembleFile(logger, runtimeAsmPath, runtimeRelPath, {
         relVersion: 2,
         verbose,

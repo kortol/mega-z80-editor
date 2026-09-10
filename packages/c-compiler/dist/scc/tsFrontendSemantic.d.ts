@@ -304,6 +304,7 @@ export type BoundExpr = {
     target: BoundFunctionSymbol | {
         kind: "extern";
         name: string;
+        isVariadic?: boolean;
     };
     args: BoundCallArg[];
     type: SemanticScalarType | SemanticPointerType;
@@ -433,5 +434,7 @@ export declare function getAggregateLayoutFields(type: Pick<SemanticAggregateTyp
     size: number;
 }>;
 export declare function getAggregateLayoutSize(type: Pick<SemanticAggregateType, "aggregateKind" | "name">): number;
-export declare function analyzeProgram(program: SourceProgram, sourceText: string, file?: string): BoundProgram;
+export declare function analyzeProgram(program: SourceProgram, sourceText: string, file?: string, options?: {
+    runtimeVariadicNames?: ReadonlySet<string>;
+}): BoundProgram;
 export {};

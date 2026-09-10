@@ -195,7 +195,7 @@ export type BoundExpr =
   | { kind: "globalArrayElement"; symbol: BoundGlobalSymbol; index: BoundExpr; type: SemanticScalarType }
   | { kind: "deref"; pointer: BoundExpr; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
   | { kind: "derefAssign"; pointer: BoundExpr; expr: BoundExpr; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
-  | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string }; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
+  | { kind: "call"; target: BoundFunctionSymbol | { kind: "extern"; name: string; isVariadic?: boolean }; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
   | { kind: "indirectCall"; target: BoundExpr; signature: SemanticFunctionPointerType; args: BoundCallArg[]; type: SemanticScalarType | SemanticPointerType }
   | { kind: "vaStart"; list: BoundLocalSymbol; type: SemanticScalarType }
   | { kind: "vaArg"; list: BoundLocalSymbol; width: ValueWidth; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
@@ -260,9 +260,11 @@ export function getAggregateLayoutSize(type: Pick<SemanticAggregateType, "aggreg
 
 const MAX_CONTROL_NESTING = 8;
 let currentAggregateLayouts = new Map<string, AggregateLayout>();
+let currentRuntimeVariadicNames: ReadonlySet<string> = new Set();
 
-export function analyzeProgram(program: SourceProgram, sourceText: string, file?: string): BoundProgram {
+export function analyzeProgram(program: SourceProgram, sourceText: string, file?: string, options: { runtimeVariadicNames?: ReadonlySet<string> } = {}): BoundProgram {
   currentAggregateLayouts = buildAggregateLayouts(program.aggregates, sourceText, file);
+  currentRuntimeVariadicNames = options.runtimeVariadicNames ?? new Set();
   const functionSymbols = new Map<string, BoundFunctionSymbol>();
   for (const fn of program.functions) {
     if (functionSymbols.has(fn.name)) {
@@ -2751,7 +2753,7 @@ function analyzeExpr(
       }
       return {
         kind: "call",
-        target: target ?? { kind: "extern", name: expr.target },
+        target: target ?? { kind: "extern", name: expr.target, ...(currentRuntimeVariadicNames.has(expr.target) ? { isVariadic: true } : {}) },
         args: expr.args.map((arg, index) => analyzeCallArg(arg, target?.params[index], scope, functionSymbols, functionName, sourceText, file)),
         type: !target || target.returnType.kind === "void"
           ? toSemanticScalarType("int")

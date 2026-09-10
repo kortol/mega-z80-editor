@@ -8,6 +8,7 @@
 - [scc-ts-binary-abi.md](scc-ts-binary-abi.md): generated code、aggregate、pointer-to-array、variadic ABI
 - [scc-ts-array-element-design.md](scc-ts-array-element-design.md): fixed-size multidimensional array design
 - [scc-cpm-library.md](scc-cpm-library.md): CP/M runtime と library build
+- [scc-runtime-guide.md](scc-runtime-guide.md): multi-platform runtime configuration と ABI
 
 ## Historical and planning notes
 

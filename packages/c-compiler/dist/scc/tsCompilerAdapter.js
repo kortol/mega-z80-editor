@@ -11,6 +11,7 @@ const fixtures_1 = require("./fixtures");
 const tsFrontendLowering_1 = require("./tsFrontendLowering");
 const tsFrontendParser_1 = require("./tsFrontendParser");
 const tsFrontendSemantic_1 = require("./tsFrontendSemantic");
+const tsPreprocessor_1 = require("./tsPreprocessor");
 const tsProgram_1 = require("./tsProgram");
 const translateAsm_1 = require("./translateAsm");
 class TsSccCompilerAdapter {
@@ -74,11 +75,12 @@ function compileFromSource(logger, opts) {
     const asmFile = node_path_1.default.join(stageDir, `${stem}.asm`);
     const relFile = opts.outputRelFile ? node_path_1.default.resolve(opts.outputRelFile) : node_path_1.default.join(stageDir, `${stem}.rel`);
     const sourceText = node_fs_1.default.readFileSync(resolvedInput, "utf8");
-    const parsed = (0, tsFrontendParser_1.parseProgram)(sourceText, resolvedInput);
-    const bound = (0, tsFrontendSemantic_1.analyzeProgram)(parsed, sourceText, resolvedInput);
-    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, sourceText, resolvedInput);
+    const preprocessed = (0, tsPreprocessor_1.preprocessTsCSource)(sourceText, resolvedInput, opts);
+    const parsed = (0, tsFrontendParser_1.parseProgram)(preprocessed.sourceText, resolvedInput);
+    const bound = (0, tsFrontendSemantic_1.analyzeProgram)(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
+    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput);
     node_fs_1.default.mkdirSync(stageDir, { recursive: true });
-    node_fs_1.default.writeFileSync(preprocessedFile, sourceText, "utf8");
+    node_fs_1.default.writeFileSync(preprocessedFile, preprocessed.sourceText, "utf8");
     node_fs_1.default.writeFileSync(sccAsmFile, (0, tsProgram_1.emitProgram)(spec), "utf8");
     node_fs_1.default.writeFileSync(asmFile, (0, translateAsm_1.translateSccAsm)(node_fs_1.default.readFileSync(sccAsmFile, "utf8"), { moduleName: node_path_1.default.basename(preprocessedFile) }), "utf8");
     node_fs_1.default.mkdirSync(node_path_1.default.dirname(relFile), { recursive: true });
