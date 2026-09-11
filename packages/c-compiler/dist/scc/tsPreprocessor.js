@@ -11,6 +11,7 @@ function preprocessTsCSource(input, file, opts = {}) {
     const macros = new Map(Object.entries(opts.defines ?? {}));
     const bundledDirs = new Set((opts.bundledIncludeDirs ?? []).map((entry) => node_path_1.default.resolve(entry)));
     const runtimeVariadicNames = new Set();
+    let assertMacroEnabled = false;
     const stack = [];
     const process = (source, sourceFile) => {
         const resolved = node_path_1.default.resolve(sourceFile);
@@ -23,7 +24,7 @@ function preprocessTsCSource(input, file, opts = {}) {
         for (const line of source.split(/\r?\n/)) {
             const directive = /^\s*#\s*([A-Za-z]+)(.*)$/.exec(line);
             if (!directive) {
-                output.push(active() ? expandMacros(line, macros) : "");
+                output.push(active() ? expandMacros(line, macros, assertMacroEnabled) : "");
                 continue;
             }
             const [, command, restRaw] = directive;
@@ -69,6 +70,16 @@ function preprocessTsCSource(input, file, opts = {}) {
                 continue;
             }
             if (command === "define") {
+                const functionMacro = /^([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*)\s*\)\s+(.+)$/.exec(rest);
+                if (functionMacro) {
+                    const [, name, parameter, replacement] = functionMacro;
+                    if (name === "assert" && parameter === "expression" && replacement === "__mz80_assert(expression)") {
+                        assertMacroEnabled = true;
+                        output.push("");
+                        continue;
+                    }
+                    throw new Error(`TsSccCompilerAdapter preprocessor supports no function-like #define other than bundled assert in ${resolved}.`);
+                }
                 const match = /^([A-Za-z_]\w*)(?:\s+(.*))?$/.exec(rest);
                 if (!match || rest.startsWith(`${match?.[1]}(`))
                     throw new Error(`TsSccCompilerAdapter preprocessor supports object-like #define only in ${resolved}.`);
@@ -84,6 +95,8 @@ function preprocessTsCSource(input, file, opts = {}) {
                     throw new Error(`TsSccCompilerAdapter preprocessor invalid #undef in ${resolved}.`);
                 if (opts.defines?.[rest] !== undefined)
                     throw new Error(`TsSccCompilerAdapter preprocessor cannot undef configured define ${rest}.`);
+                if (rest === "assert")
+                    assertMacroEnabled = false;
                 macros.delete(rest);
                 output.push("");
                 continue;
@@ -111,9 +124,39 @@ function evaluateIf(expression, macros) {
         return expression === "1";
     throw new Error(`TsSccCompilerAdapter preprocessor only supports #if defined(NAME), #if NAME, and #if 0/1; got '${expression}'.`);
 }
-function expandMacros(line, macros) {
+function expandMacros(line, macros, assertMacroEnabled) {
     let result = line;
     for (const [name, value] of macros)
         result = result.replace(new RegExp(`\\b${name}\\b`, "g"), value);
-    return result;
+    return assertMacroEnabled ? expandAssertMacro(result) : result;
+}
+/** Expand the one documented bundled function-like macro while still rejecting
+ * arbitrary function-like macros. Balanced scanning lets assert(a && (b || c))
+ * work without pretending this preprocessor is a general macro engine. */
+function expandAssertMacro(line) {
+    let output = "";
+    let cursor = 0;
+    while (cursor < line.length) {
+        const match = /\bassert\s*\(/g;
+        match.lastIndex = cursor;
+        const found = match.exec(line);
+        if (!found)
+            return output + line.slice(cursor);
+        const open = line.indexOf("(", found.index);
+        let depth = 1;
+        let end = open + 1;
+        while (end < line.length && depth > 0) {
+            if (line[end] === "(")
+                depth += 1;
+            else if (line[end] === ")")
+                depth -= 1;
+            end += 1;
+        }
+        if (depth !== 0)
+            return output + line.slice(cursor);
+        output += line.slice(cursor, found.index);
+        output += `__mz80_assert(${line.slice(open + 1, end - 1)})`;
+        cursor = end;
+    }
+    return output;
 }

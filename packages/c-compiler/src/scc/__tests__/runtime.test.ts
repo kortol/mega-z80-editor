@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createLogger } from "@mz80/core";
+import { createLogger, loadArchiveFile } from "@mz80/core";
 import { assemble } from "@mz80/assembler";
 import { writeSccRuntimeFile } from "../../runtime-cli";
 import { getBundledRuntimeDefines, getBundledSccRuntime, normalizeBundledRuntime, runtimeId } from "../runtime";
+import { getBundledRuntimeArtifacts } from "../runtimeArtifacts";
 import { translateSccAsm } from "../translateAsm";
 
 describe("bundled SCC runtimes", () => {
@@ -60,6 +61,25 @@ describe("bundled SCC runtimes", () => {
   test("MSX runtime substitutes the configured exit ABI", () => {
     expect(getBundledSccRuntime({ platform: "msx-bios", profile: "lite", exit: "return" })).toContain("exit:\n\tret");
     expect(getBundledSccRuntime({ platform: "msx-bios", profile: "lite" })).toContain(".halt_loop:");
+  });
+
+  test("structured profiles resolve prebuilt CRT and archive artifacts", () => {
+    const cpmFull = getBundledRuntimeArtifacts({ platform: "cpm", profile: "full" });
+    expect(path.basename(cpmFull.crtRelPath)).toBe("cpm-lite-crt.rel");
+    expect(cpmFull.libraryPaths.map((entry) => path.basename(entry))).toEqual(["libmz80c-full.lib"]);
+    for (const artifact of [cpmFull.crtRelPath, ...cpmFull.libraryPaths]) {
+      expect(fs.existsSync(artifact)).toBe(true);
+    }
+    expect(loadArchiveFile(cpmFull.libraryPaths[0]).members.map((member) => member.name)).toEqual([
+      "mz80c-stdlib.rel",
+      "mz80c-string.rel",
+      "mz80c-ctype.rel",
+      "mz80c-stdio.rel",
+    ]);
+
+    const rawLite = getBundledRuntimeArtifacts({ platform: "raw", profile: "lite" });
+    expect(path.basename(rawLite.crtRelPath)).toBe("raw-lite-crt.rel");
+    expect(rawLite.requiredSymbols).toEqual(["__mz80_raw_putc", "__mz80_raw_getc", "__mz80_raw_exit"]);
   });
 
   test.each([

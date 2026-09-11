@@ -13,6 +13,7 @@ const core_1 = require("@mz80/core");
 const compilerAdapter_1 = require("./compilerAdapter");
 const externalToolchain_1 = require("./externalToolchain");
 const runtime_1 = require("./runtime");
+const runtimeArtifacts_1 = require("./runtimeArtifacts");
 const translateAsm_1 = require("./translateAsm");
 var compilerAdapter_2 = require("./compilerAdapter");
 Object.defineProperty(exports, "compileSccSourceToRel", { enumerable: true, get: function () { return compilerAdapter_2.compileSccSourceToRel; } });
@@ -46,9 +47,18 @@ function compileSccProgram(logger, opts, deps = {}) {
             bundledIncludeDirs: opts.runtime ? [(0, runtime_1.getBundledRuntimeIncludeDir)()] : [],
         }, compilerAdapter);
         const linkInputs = [];
+        let requiredSymbols;
         if (opts.runtime) {
-            runtimeRelFile = buildBundledRuntime(logger, tempDir, opts.runtime, opts.verbose, assembleFile);
-            linkInputs.push(runtimeRelFile);
+            if (typeof opts.runtime === "string") {
+                runtimeRelFile = buildBundledRuntime(logger, tempDir, opts.runtime, opts.verbose, assembleFile);
+                linkInputs.push(runtimeRelFile);
+            }
+            else {
+                const artifacts = (0, runtimeArtifacts_1.getBundledRuntimeArtifacts)(opts.runtime);
+                runtimeRelFile = artifacts.crtRelPath;
+                linkInputs.push(artifacts.crtRelPath, ...artifacts.libraryPaths);
+                requiredSymbols = artifacts.requiredSymbols;
+            }
         }
         linkInputs.push(compiled.relFile, ...(opts.libraries ?? []).map((entry) => node_path_1.default.resolve(entry)));
         linkFiles(linkInputs, node_path_1.default.resolve(opts.outputFile), {
@@ -63,9 +73,7 @@ function compileSccProgram(logger, opts, deps = {}) {
             orgBss: opts.orgBss,
             orgCustom: opts.orgCustom,
             fullpath: opts.fullpath,
-            requireSymbols: opts.runtime && (0, runtime_1.normalizeBundledRuntime)(opts.runtime).platform === "raw"
-                ? ["__mz80_raw_putc", "__mz80_raw_getc", "__mz80_raw_exit"]
-                : undefined,
+            requireSymbols: requiredSymbols,
         });
         logger.info(`Built SCC program: ${opts.inputFile} -> ${opts.outputFile}`);
         return {

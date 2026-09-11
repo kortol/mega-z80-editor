@@ -1,8 +1,10 @@
 export { compileSccProgram, compileSccSourceToRel } from "./scc/compileProgram";
 export type { CompileSccProgramOptions, CompileSccSourceResult } from "./scc/compileProgram";
 export { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, isBundledRuntimeSpec, isSccRuntimeName, runtimeId, writeBundledSccRuntime } from "./scc/runtime";
+export { getBundledRuntimeArtifacts } from "./scc/runtimeArtifacts";
 export { writeSccRuntimeFile } from "./runtime-cli";
 export type { BundledRuntimePlatform, BundledRuntimeProfile, BundledRuntimeSpec, MsxRuntimeExitMode, RuntimeSelection, SccRuntimeName } from "./scc/runtime";
+export type { BundledRuntimeArtifacts } from "./scc/runtimeArtifacts";
 export { translateSccAsm } from "./scc/translateAsm";
 export { buildSccLibraryArchive } from "./library-cli";
 export { translateSccAsmFile } from "./translate-cli";

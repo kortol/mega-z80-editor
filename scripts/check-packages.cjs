@@ -107,10 +107,19 @@ try {
       "package/dist/scc/runtime/msx-bios-lite.scc.asm",
       "package/dist/scc/runtime/raw-lite.scc.asm",
       "package/dist/scc/runtime/full.scc.asm",
+      "package/dist/scc/runtime/artifacts/cpm-lite-crt.rel",
+      "package/dist/scc/runtime/artifacts/msx-bios-lite-halt-crt.rel",
+      "package/dist/scc/runtime/artifacts/msx-bios-lite-return-crt.rel",
+      "package/dist/scc/runtime/artifacts/raw-lite-crt.rel",
+      "package/dist/scc/runtime/artifacts/libmz80c-full.lib",
       "package/dist/scc/runtime/include/stdio.h",
       "package/dist/scc/runtime/include/string.h",
       "package/dist/scc/runtime/include/ctype.h",
       "package/dist/scc/runtime/include/mz80.h",
+      "package/dist/scc/runtime/include/stddef.h",
+      "package/dist/scc/runtime/include/stdlib.h",
+      "package/dist/scc/runtime/include/assert.h",
+      "package/dist/scc/runtime/include/stdarg.h",
     );
     for (const entry of required) if (!entries.some((actual) => actual === entry || actual.startsWith(`${entry}/`))) fail(`${shortName}: required runtime asset is absent: ${entry}`);
     if (shortName === "cli") {
@@ -213,7 +222,7 @@ try {
   ].join("\n"), "utf8");
   run(cliBin, ["build", "--quiet"], fixture);
   if (!fs.existsSync(path.join(fixture, "build", "project.bin"))) fail("clean install CLI project build did not produce binary");
-  run(process.execPath, [path.join(root, "tools", "smoke-dap.cjs"), cli], installRoot);
+  run(process.execPath, [path.join(root, "scripts", "smoke-dap.cjs"), cli], installRoot);
   console.log("[pack] tarball metadata, entrypoints, assets, public APIs, CLI, project build, and DAP clean-install paths are valid");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

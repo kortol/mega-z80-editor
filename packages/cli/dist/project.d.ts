@@ -79,9 +79,11 @@ export type ResolvedProjectTarget = {
     modules: ResolvedProjectModule[];
     runtime?: {
         name: RuntimeSelection;
-        source: string;
-        asm: string;
         object: string;
+        source?: string;
+        asm?: string;
+        libraries: string[];
+        requiredSymbols?: string[];
     };
     libraries: string[];
     cc?: Mz80CcOptions;

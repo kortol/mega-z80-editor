@@ -65,6 +65,36 @@ describe("raw bundled runtime", () => {
     expect(core.getOutput()).toBe("RAW\n");
   });
 
+  test("links full archive members through user-provided hooks", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-raw-full-runtime-"));
+    const sourcePath = path.join(tempDir, "raw-full.c");
+    const outputPath = path.join(tempDir, "raw-full.com");
+    fs.writeFileSync(sourcePath, [
+      "#include <stdio.h>",
+      "#include <string.h>",
+      "#include <ctype.h>",
+      "int main(){ char text[6]; char tokens[4]; char *hit; char *token; strcpy(text, \"raw\"); memmove(text+1, text, 3); hit=strpbrk(text, \"a\"); strcpy(tokens, \"x,y\"); token=strtok(tokens, \",\"); printf(\"%s %d %c %c %s\\n\", text, strlen(text), toupper(98), hit[0], token); return 0; }",
+      "",
+    ].join("\n"), "utf8");
+    compileSccProgram(createLogger("quiet"), {
+      inputFile: sourcePath,
+      outputFile: outputPath,
+      runtime: { platform: "raw", profile: "full" },
+      libraries: [assembleRawHooks(tempDir)],
+      com: true,
+      orgText: "100H",
+      tempDir,
+    }, { compilerAdapter: new TsSccCompilerAdapter() });
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outputPath), 0x0100);
+    core.setEntry(0x0100);
+    expect(core.run(6000).reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("rraw 4 B a x\n");
+  });
+
   test("rejects a raw build when any mandatory hook is absent", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-raw-runtime-missing-"));
     const sourcePath = path.join(tempDir, "raw.c");

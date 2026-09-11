@@ -10,7 +10,8 @@ import {
   ExternalSccCompilerAdapterOptions,
 } from "./compilerAdapter";
 import { safeRmDir } from "./externalToolchain";
-import { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, normalizeBundledRuntime, RuntimeSelection, runtimeId } from "./runtime";
+import { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId } from "./runtime";
+import { getBundledRuntimeArtifacts } from "./runtimeArtifacts";
 import { translateSccAsm } from "./translateAsm";
 
 type AssembleFile = typeof assemble;
@@ -92,9 +93,17 @@ export function compileSccProgram(
     }, compilerAdapter);
 
     const linkInputs: string[] = [];
+    let requiredSymbols: string[] | undefined;
     if (opts.runtime) {
-      runtimeRelFile = buildBundledRuntime(logger, tempDir, opts.runtime, opts.verbose, assembleFile);
-      linkInputs.push(runtimeRelFile);
+      if (typeof opts.runtime === "string") {
+        runtimeRelFile = buildBundledRuntime(logger, tempDir, opts.runtime, opts.verbose, assembleFile);
+        linkInputs.push(runtimeRelFile);
+      } else {
+        const artifacts = getBundledRuntimeArtifacts(opts.runtime);
+        runtimeRelFile = artifacts.crtRelPath;
+        linkInputs.push(artifacts.crtRelPath, ...artifacts.libraryPaths);
+        requiredSymbols = artifacts.requiredSymbols;
+      }
     }
     linkInputs.push(compiled.relFile, ...(opts.libraries ?? []).map((entry) => path.resolve(entry)));
 
@@ -110,9 +119,7 @@ export function compileSccProgram(
       orgBss: opts.orgBss,
       orgCustom: opts.orgCustom,
       fullpath: opts.fullpath,
-      requireSymbols: opts.runtime && normalizeBundledRuntime(opts.runtime).platform === "raw"
-        ? ["__mz80_raw_putc", "__mz80_raw_getc", "__mz80_raw_exit"]
-        : undefined,
+      requireSymbols: requiredSymbols,
     });
 
     logger.info(`Built SCC program: ${opts.inputFile} -> ${opts.outputFile}`);

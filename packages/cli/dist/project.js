@@ -96,7 +96,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
         toolMode: target.cc?.toolMode ?? "host",
         tracePipeline: target.cc?.tracePipeline,
     });
-    if (target.runtime) {
+    if (target.runtime?.source && target.runtime.asm) {
         fs_1.default.mkdirSync(path_1.default.dirname(target.runtime.source), { recursive: true });
         fs_1.default.writeFileSync(target.runtime.source, (0, c_compiler_1.getBundledSccRuntime)(target.runtime.name), "utf8");
         fs_1.default.writeFileSync(target.runtime.asm, (0, c_compiler_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: (0, c_compiler_1.runtimeId)(target.runtime.name) }), "utf8");
@@ -138,9 +138,13 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
         fs_1.default.mkdirSync(path_1.default.dirname(target.output), { recursive: true });
         (0, core_1.link)([
             ...(target.runtime ? [target.runtime.object] : []),
+            ...(target.runtime?.libraries ?? []),
             ...target.modules.map((mod) => mod.object),
             ...target.libraries,
-        ], target.output, target.link ?? {});
+        ], target.output, {
+            ...(target.link ?? {}),
+            requireSymbols: target.runtime?.requiredSymbols,
+        });
         return target;
     }
     finally {
@@ -178,6 +182,15 @@ function deriveObjectPath(targetOutput, sourcePath) {
     return path_1.default.join(outDir, base);
 }
 function resolveRuntimePaths(configDir, targetOutput, runtimeName, runtimeObject) {
+    if (typeof runtimeName !== "string") {
+        const artifacts = (0, c_compiler_1.getBundledRuntimeArtifacts)(runtimeName);
+        return {
+            name: runtimeName,
+            object: path_1.default.resolve(configDir, runtimeObject && runtimeObject.trim().length > 0 ? runtimeObject : artifacts.crtRelPath),
+            libraries: artifacts.libraryPaths,
+            requiredSymbols: artifacts.requiredSymbols,
+        };
+    }
     const objectPath = path_1.default.resolve(configDir, runtimeObject && runtimeObject.trim().length > 0
         ? runtimeObject
         : path_1.default.join(path_1.default.dirname(targetOutput), `${(0, c_compiler_1.runtimeId)(runtimeName)}.rel`));
@@ -187,6 +200,7 @@ function resolveRuntimePaths(configDir, targetOutput, runtimeName, runtimeObject
         source: `${basePath}.scc.asm`,
         asm: `${basePath}.asm`,
         object: objectPath,
+        libraries: [],
     };
 }
 function mergeAsOptions(base, override) {

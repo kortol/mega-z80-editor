@@ -39,8 +39,14 @@ pnpm --filter @mz80/c-compiler run test
 
 `cc.runtime` または `mz80 cc` の `--runtime-platform`、
 `--runtime-profile`、`--runtime-exit` で bundled runtime を選択できる。
-対象 platform は `cpm`、`msx-bios`、`raw`、profile は `lite` と `full` である。
+対象 platform は `cpm`、`msx-bios`、`raw`、profile は `lite` と `full` である。構造化 runtime は
+package 同梱の prebuilt CRT REL と、full profile 用 `MZ80AR1` archive を link する。
 既存の `cpmcrt` / `cpmlibc` runtime name は互換 alias として残る。
+
+`lite` は startup、終了、文字 I/O を提供する。`full` はこれに `<string.h>`、ASCII `<ctype.h>`、
+限定 `<stdio.h>` format、`<stdlib.h>` subset を加える。bundled headers は `<assert.h>`、`<ctype.h>`、
+`<stddef.h>`、`<stdarg.h>`、`<stdio.h>`、`<stdlib.h>`、`<string.h>`、`<mz80.h>` である。
+`<stdarg.h>` は TS SCC の internal variadic ABI 専用で、external Z80SCC variadic ABI とは互換でない。
 
 設定、bundled header、raw hook、MSX exit mode の詳細は
 [docs/scc-runtime-guide.md](docs/scc-runtime-guide.md) を参照してください。

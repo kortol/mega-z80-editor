@@ -3,7 +3,7 @@ import path from "path";
 import yaml from "yaml";
 import { Logger, link } from "@mz80/core";
 import { assemble } from "@mz80/assembler";
-import { compileSccSourceToRel, ExternalSccCompilerAdapter, getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
+import { compileSccSourceToRel, ExternalSccCompilerAdapter, getBundledRuntimeArtifacts, getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;
@@ -93,9 +93,11 @@ export type ResolvedProjectTarget = {
   modules: ResolvedProjectModule[];
   runtime?: {
     name: RuntimeSelection;
-    source: string;
-    asm: string;
     object: string;
+    source?: string;
+    asm?: string;
+    libraries: string[];
+    requiredSymbols?: string[];
   };
   libraries: string[];
   cc?: Mz80CcOptions;
@@ -214,7 +216,7 @@ export function buildProjectTarget(
     toolMode: target.cc?.toolMode ?? "host",
     tracePipeline: target.cc?.tracePipeline,
   });
-  if (target.runtime) {
+  if (target.runtime?.source && target.runtime.asm) {
     fs.mkdirSync(path.dirname(target.runtime.source), { recursive: true });
     fs.writeFileSync(target.runtime.source, getBundledSccRuntime(target.runtime.name), "utf8");
     fs.writeFileSync(
@@ -261,9 +263,13 @@ export function buildProjectTarget(
     fs.mkdirSync(path.dirname(target.output), { recursive: true });
     link([
       ...(target.runtime ? [target.runtime.object] : []),
+      ...(target.runtime?.libraries ?? []),
       ...target.modules.map((mod) => mod.object),
       ...target.libraries,
-    ], target.output, target.link ?? {});
+    ], target.output, {
+      ...(target.link ?? {}),
+      requireSymbols: target.runtime?.requiredSymbols,
+    });
     return target;
   } finally {
     if (!target.cc?.keepTemps && !target.cc?.tempDir) {
@@ -307,6 +313,18 @@ function resolveRuntimePaths(
   runtimeName: RuntimeSelection,
   runtimeObject?: string,
 ): ResolvedProjectTarget["runtime"] {
+  if (typeof runtimeName !== "string") {
+    const artifacts = getBundledRuntimeArtifacts(runtimeName);
+    return {
+      name: runtimeName,
+      object: path.resolve(
+        configDir,
+        runtimeObject && runtimeObject.trim().length > 0 ? runtimeObject : artifacts.crtRelPath,
+      ),
+      libraries: artifacts.libraryPaths,
+      requiredSymbols: artifacts.requiredSymbols,
+    };
+  }
   const objectPath = path.resolve(
     configDir,
     runtimeObject && runtimeObject.trim().length > 0
@@ -319,6 +337,7 @@ function resolveRuntimePaths(
     source: `${basePath}.scc.asm`,
     asm: `${basePath}.asm`,
     object: objectPath,
+    libraries: [],
   };
 }
 

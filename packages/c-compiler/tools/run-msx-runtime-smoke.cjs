@@ -16,21 +16,30 @@ if (!fs.existsSync(openMsx)) {
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-msx-runtime-"));
 const toTclPath = (filePath) => filePath.replace(/\\/g, "/").replace(/[{}]/g, "\\$&");
-function runVariant(exit) {
-  const variantDir = path.join(tempDir, exit);
+function runVariant(profile, exit) {
+  const variantDir = path.join(tempDir, `${profile}-${exit}`);
   fs.mkdirSync(variantDir);
   const sourcePath = path.join(variantDir, "runtime-smoke.c");
   const binaryPath = path.join(variantDir, "runtime-smoke.bin");
   const romPath = path.join(variantDir, "runtime-smoke.rom");
   const scriptPath = path.join(variantDir, "runtime-smoke.tcl");
   const screenPath = path.join(variantDir, "screen.txt");
-  const expected = `MZ80 MSX BIOS runtime ${exit}`;
+  const expected = `MZ80 MSX BIOS ${profile} ${exit}`;
 
-  fs.writeFileSync(sourcePath, `#include <stdio.h>\nint main(){ puts("${expected}"); return 0; }\n`, "utf8");
+  const source = profile === "full"
+    ? [
+      "#include <stdio.h>",
+      "#include <string.h>",
+      "#include <ctype.h>",
+      `int main(){ char text[8]; strcpy(text, "msx"); printf("${expected} %d %c\\n", strlen(text), toupper(97)); return 0; }`,
+      "",
+    ].join("\n")
+    : `#include <stdio.h>\nint main(){ puts("${expected}"); return 0; }\n`;
+  fs.writeFileSync(sourcePath, source, "utf8");
   compileSccProgram(createLogger("quiet"), {
     inputFile: sourcePath,
     outputFile: binaryPath,
-    runtime: { platform: "msx-bios", profile: "lite", exit },
+    runtime: { platform: "msx-bios", profile, exit },
     orgText: "4010H",
     tempDir: variantDir,
   }, { compilerAdapter: new TsSccCompilerAdapter() });
@@ -57,14 +66,16 @@ function runVariant(exit) {
   ], { encoding: "utf8", timeout: 15_000, windowsHide: true });
   if (run.error) throw run.error;
   if (run.status !== 0) {
-    throw new Error(`openMSX (${exit}) exited with ${run.status}: ${run.stderr || run.stdout}`);
+    throw new Error(`openMSX (${profile}/${exit}) exited with ${run.status}: ${run.stderr || run.stdout}`);
   }
   const screen = fs.existsSync(screenPath) ? fs.readFileSync(screenPath, "utf8") : "";
   if (!screen.includes(expected)) {
-    throw new Error(`MSX BIOS runtime (${exit}) output was not found in openMSX screen output:\n${screen}`);
+    throw new Error(`MSX BIOS runtime (${profile}/${exit}) output was not found in openMSX screen output:\n${screen}`);
   }
-  console.log(`[msx-runtime-smoke] passed (${exit}): ${expected}`);
+  console.log(`[msx-runtime-smoke] passed (${profile}/${exit}): ${expected}`);
 }
 
-runVariant("halt");
-runVariant("return");
+for (const profile of ["lite", "full"]) {
+  runVariant(profile, "halt");
+  runVariant(profile, "return");
+}

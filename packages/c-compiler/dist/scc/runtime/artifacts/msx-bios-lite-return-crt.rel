@@ -1,0 +1,60 @@
+MZ8R
+H MSX-BIOS-LITE-RETURN-CRT
+$SECTION 0 .text kind=TEXT size=75 align=1
+$TEXT section=.text
+T 0000 CD 00 00
+T 0003 21 00 00
+T 0006 CD 3B 00
+T 0009 CD 9F 00
+T 000C 6F
+T 000D 26 00
+T 000F C9
+T 0010 21 02 00
+T 0013 39
+T 0014 CD 40 00
+T 0017 7D
+T 0018 CD A2 00
+T 001B 6F
+T 001C 26 00
+T 001E C9
+T 001F 21 02 00
+T 0022 39
+T 0023 CD 40 00
+T 0026 7E
+T 0027 B7
+T 0028 28 08
+T 002A E5
+T 002B CD A2 00
+T 002E E1
+T 002F 23
+T 0030 18 F4
+T 0032 3E 0A
+T 0034 CD A2 00
+T 0037 21 00 00
+T 003A C9
+T 003B C9
+T 003C 6E
+T 003D 26 00
+T 003F C9
+T 0040 7E
+T 0041 23
+T 0042 66
+T 0043 6F
+T 0044 C9
+T 0045 C3 3C 00
+T 0048 C3 40 00
+S GETCHAR 0009 .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=17
+S PUTCHAR 0010 .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=22
+S PUTS 001F .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=31
+S EXIT 003B .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=49
+S __SCC_DOT_GCHAR 003C .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=51
+S __SCC_DOT_GINT 0040 .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=55
+S MZ80_RUNTIME_GCHAR 0045 .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=62
+S MZ80_RUNTIME_GINT 0048 .text REL module=MSX-BIOS-LITE-RETURN-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Cmsx-bios-lite-return-crt.asm defLine=64
+X MAIN
+R 0001 MAIN .text
+R 0007 EXIT .text
+R 0015 __SCC_DOT_GINT .text
+R 0024 __SCC_DOT_GINT .text
+R 0046 __SCC_DOT_GCHAR .text
+R 0049 __SCC_DOT_GINT .text

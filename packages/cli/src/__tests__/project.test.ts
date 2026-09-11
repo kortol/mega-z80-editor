@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createArchive, createLogger, Z80DebugCore } from "@mz80/core";
-import { buildProjectTarget } from "../project";
+import { buildProjectTarget, loadProjectConfig } from "../project";
 import { assemble } from "@mz80/assembler";
 
 describe("buildProjectTarget", () => {
@@ -100,6 +100,86 @@ describe("buildProjectTarget", () => {
 
     expect(result.reason).toBe("BDOS 0: terminate");
     expect(core.getOutput()).toBe("PROJECT OK");
+  });
+
+  test("links a structured full runtime from its prebuilt CRT and archive", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-project-runtime-artifact-"));
+    const buildDir = path.join(tempDir, "build");
+    const mainAsmPath = path.join(tempDir, "main.asm");
+    const configPath = path.join(tempDir, "mz80.yaml");
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.writeFileSync(mainAsmPath, [
+      "SECTION TEXT",
+      "PUBLIC MAIN",
+      "EXTERN PUTS",
+      "MAIN:",
+      "\tLD HL,MSG",
+      "\tPUSH HL",
+      "\tCALL PUTS",
+      "\tPOP HL",
+      "\tRET",
+      "SECTION DATA",
+      "MSG:",
+      "\tDB 'A','R','C','H','I','V','E',0",
+      "END",
+      "",
+    ].join("\n"), "utf8");
+    fs.writeFileSync(configPath, [
+      "project:",
+      "  defaultTarget: demo",
+      "targets:",
+      "  demo:",
+      "    output: build/demo.com",
+      "    runtime:",
+      "      platform: cpm",
+      "      profile: full",
+      "    link:",
+      "      com: true",
+      "      orgText: 100H",
+      "    modules:",
+      "      - main.asm",
+      "",
+    ].join("\n"), "utf8");
+
+    const built = buildProjectTarget(configPath, loadProjectConfig(configPath), undefined, createLogger("quiet"));
+    expect(built.runtime?.source).toBeUndefined();
+    expect(built.runtime?.libraries).toHaveLength(1);
+    expect(fs.existsSync(built.output)).toBe(true);
+
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(built.output), 0x0100);
+    core.setEntry(0x0100);
+    expect(core.run(3000).reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("ARCHIVE\n");
+  });
+
+  test("rejects a raw structured project when its application does not provide hooks", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-project-raw-hooks-"));
+    const configPath = path.join(tempDir, "mz80.yaml");
+    fs.writeFileSync(path.join(tempDir, "main.asm"), [
+      "SECTION TEXT",
+      "PUBLIC MAIN",
+      "MAIN:",
+      "\tRET",
+      "END",
+      "",
+    ].join("\n"), "utf8");
+    fs.writeFileSync(configPath, [
+      "targets:",
+      "  demo:",
+      "    output: build/demo.bin",
+      "    runtime:",
+      "      platform: raw",
+      "      profile: lite",
+      "    modules:",
+      "      - main.asm",
+      "",
+    ].join("\n"), "utf8");
+
+    expect(() => buildProjectTarget(configPath, loadProjectConfig(configPath), "demo", createLogger("quiet")))
+      .toThrow("Link requires symbol(s) that were not provided");
   });
 
   test("compiles Small-C modules declared in project config before linking", () => {

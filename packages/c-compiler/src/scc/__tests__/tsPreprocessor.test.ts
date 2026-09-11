@@ -22,4 +22,18 @@ describe("TypeScript SCC preprocessor", () => {
       defines: getBundledRuntimeDefines({ platform: "cpm", profile: "lite" }),
     })).toThrow("cannot override configured define");
   });
+
+  test("expands only the bundled assert function-like macro with balanced arguments", () => {
+    const file = path.join(__dirname, "fixture.c");
+    const result = preprocessTsCSource("#include <assert.h>\nassert(a && (b || c));", file, {
+      defines: getBundledRuntimeDefines({ platform: "cpm", profile: "full" }),
+      bundledIncludeDirs: [getBundledRuntimeIncludeDir()],
+    });
+    expect(result.sourceText).toContain("__mz80_assert(a && (b || c));");
+  });
+
+  test("rejects arbitrary function-like macros", () => {
+    const file = path.join(__dirname, "fixture.c");
+    expect(() => preprocessTsCSource("#define twice(x) ((x)+(x))", file)).toThrow("no function-like #define other than bundled assert");
+  });
 });
