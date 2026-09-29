@@ -97,12 +97,15 @@ export type SourceGlobalDecl = {
     isExtern?: boolean;
     initializer?: SourceInitializer;
 };
-export type SourceInitializer = {
+export type SourceInitializer = ({
     kind: "expr";
     expr: SourceExpr;
 } | {
     kind: "list";
     items: SourceInitializer[];
+    activeUnionField?: number;
+}) & {
+    designators?: Array<string | number>;
 };
 export type SourceBlock = {
     kind: "block";
@@ -122,6 +125,18 @@ export type LogicalOp = "&&" | "||";
 export type BitwiseOp = "&" | "^" | "|";
 export type BinaryOp = LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp;
 export type SourceStmt = ({
+    kind: "goto";
+    name: string;
+} | {
+    kind: "label";
+    name: string;
+    statement: SourceStmt;
+} | {
+    kind: "block";
+    block: SourceBlock;
+} | {
+    kind: "empty";
+} | {
     kind: "return";
     expr: SourceExpr;
 } | {
@@ -257,6 +272,10 @@ export type SourceForInit = SourceSimpleStmt | {
     initStatements?: SourceSimpleStmt[];
 };
 export type SourceExpr = {
+    kind: "compoundAddress";
+    name: string;
+    initializers: SourceSimpleStmt[];
+} | {
     kind: "const";
     value: number;
 } | {

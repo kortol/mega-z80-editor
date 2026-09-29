@@ -36,6 +36,12 @@ type ParseContext = {
   typedefs: Map<string, SourceType>;
   enumTypes: Set<string>;
   enumConstants: Map<string, number>;
+  literals?: Map<string, Extract<SourceExpr, { kind: "compoundAddress" }>>;
+  literalLocals?: Map<string, SourceLocalDecl[]>;
+  literalGlobals?: SourceGlobalDecl[];
+  literalInitializers?: Map<string, { type: SourceType; text: string; fn: string }>;
+  declaredTypes?: Map<string, SourceType>;
+  initializerFunction?: string;
 };
 
 const BINARY_PRECEDENCE: ReadonlyArray<{
@@ -60,6 +66,7 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
     typedefs: new Map([["va_list", { kind: "pointer", pointee: "char" }]]),
     enumTypes: new Set(),
     enumConstants: new Map(),
+    literals: new Map(), literalLocals: new Map(), literalGlobals: [],
   };
   const topLevelStatements = splitTopLevelSemicolonStatements(normalized);
   // Match only the unparenthesized form here.  Balanced function-pointer
@@ -221,6 +228,7 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
     functionPointerReturnPattern.lastIndex = bodyEnd + 1;
   }
   const functions = functionEntries.sort((left, right) => left.offset - right.offset).map((entry) => entry.function);
+  for (const fn of functions) fn.body.declarations.push(...(context.literalLocals?.get(fn.name) ?? []));
   if (functions.length === 0) {
     throwDiagnostic(
       sourceText,
@@ -231,7 +239,7 @@ export function parseProgram(sourceText: string, file?: string): SourceProgram {
   return {
     kind: "program",
     aggregates,
-    globals,
+    globals: [...globals, ...(context.literalGlobals ?? [])],
     functions,
   };
 }
@@ -406,6 +414,7 @@ function parseGlobalDecls(context: ParseContext, statements: string[]): SourceGl
     if (!declaration) {
       continue;
     }
+    (context.declaredTypes ??= new Map()).set(`__global__:${declaration.name}`, declaration.type);
     globals.push({
       kind: "globalDecl",
       name: declaration.name,
@@ -413,7 +422,7 @@ function parseGlobalDecls(context: ParseContext, statements: string[]): SourceGl
       ...(/^static\b/.test(trimmed) ? { isStatic: true } : {}),
       ...(/^extern\b/.test(trimmed) ? { isExtern: true } : {}),
       initializer: declaration.initializer
-        ? parseInitializer(context, declaration.initializer, "__global__", 0)
+        ? parseTypedInitializer(context, declaration.type, declaration.initializer, "__global__", 0)
         : undefined,
     });
   }
@@ -448,7 +457,7 @@ function parseBodyAsBlock(
   functionName: string,
   startOffset: number,
 ): SourceBlock {
-  const trimmed = bodyText.trim();
+  const trimmed = extractCompoundLiterals(context, bodyText, functionName).trim();
   if (trimmed.length === 0) {
     throwDiagnostic(context.normalized, `TsSccCompilerAdapter Phase C subset found no executable statements in ${functionName}().`, {
       file: context.file,
@@ -508,6 +517,17 @@ function parseStatement(
   functionName: string,
   offset: number,
 ): { kind: "stmt"; statement: SourceStmt } | { kind: "decl"; declaration: SourceLocalDecl; extraStatements?: SourceStmt[] } {
+  const label = /^([A-Za-z_]\w*)\s*:\s*([\s\S]*)$/.exec(statementText);
+  if (label) {
+    const child = label[2] ? parseStatement(context, label[2], functionName, offset + statementText.indexOf(label[2])) : { kind: "stmt" as const, statement: { kind: "empty" as const } };
+    if (child.kind !== "stmt") throw new Error(`A label must precede a statement in ${functionName}().`);
+    return { kind: "stmt", statement: { kind: "label", name: label[1], statement: child.statement } };
+  }
+  const jump = /^goto\s+([A-Za-z_]\w*)$/.exec(statementText);
+  if (jump) return { kind: "stmt", statement: { kind: "goto", name: jump[1] } };
+  if (statementText.startsWith("{")) {
+    return { kind: "stmt", statement: { kind: "block", block: parseStatementSequence(context, statementText.slice(1, -1), functionName, offset + 1) } };
+  }
   if (/^if\b/.test(statementText)) {
     return { kind: "stmt", statement: parseIfStmt(context, statementText, functionName, offset) };
   }
@@ -532,6 +552,7 @@ function parseStatement(
   const isStaticLocal = /^\s*static\b/.test(statementText);
   const declaration = parseDeclaration(context, statementText);
   if (declaration) {
+    (context.declaredTypes ??= new Map()).set(`${functionName}:${declaration.name}`, declaration.type);
     if (declaration.type.kind === "array") {
       const usesCharStringInitializer = declaration.type.elementType === "char"
         && !declaration.type.elementValueType
@@ -561,7 +582,7 @@ function parseStatement(
         });
       }
       const initializer = declaration.initializer
-        ? parseInitializer(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
+        ? parseTypedInitializer(context, declaration.type, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
         : undefined;
       return {
         kind: "decl",
@@ -574,12 +595,12 @@ function parseStatement(
         },
         extraStatements: initializer
           && !isStaticLocal
-          ? buildArrayInitializerStatements(context, declaration.name, declaration.type, initializer, functionName, offset, statementText)
+          ? buildTypedInitializerStatements(context, { kind: "ref", name: declaration.name }, declaration.type, initializer, functionName, offset)
           : [],
       };
     }
     const initializer = declaration.initializer
-      ? parseInitializer(context, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
+      ? parseTypedInitializer(context, declaration.type, declaration.initializer, functionName, offset + statementText.indexOf(declaration.initializer))
       : undefined;
     return {
       kind: "decl",
@@ -591,8 +612,8 @@ function parseStatement(
         initializer,
       },
       extraStatements: initializer
-        && !isStaticLocal
-        ? buildInitializerStatements(context, declaration.name, declarationToSourceType(declaration), initializer, functionName, offset, statementText)
+        && !isStaticLocal && declaration.type.kind === "aggregate"
+        ? buildTypedInitializerStatements(context, { kind: "ref", name: declaration.name }, declaration.type, initializer, functionName, offset)
         : undefined,
     };
   }
@@ -847,7 +868,19 @@ function parseBranch(
 }
 
 export function parseExpression(context: ParseContext, exprText: string, functionName: string, offset: number): SourceExpr {
+  exprText = extractCompoundLiterals(context, exprText, functionName);
   const trimmed = exprText.trim();
+  const literal = context.literals?.get(trimmed);
+  if (literal) {
+    const pending = context.literalInitializers?.get(trimmed);
+    if (pending) {
+      context.literalInitializers!.delete(trimmed);
+      const initializer = parseTypedInitializer(context, pending.type, pending.text, pending.fn, offset);
+      if (pending.fn === "__global__") context.literalGlobals!.push({ kind: "globalDecl", name: literal.name, type: pending.type, isStatic: true, initializer });
+      else literal.initializers = buildTypedInitializerStatements(context, { kind: "ref", name: literal.name }, pending.type, initializer, pending.fn, offset).map((stmt) => ({ ...stmt, isInitialization: true }));
+    }
+    return literal;
+  }
   const trimmedOffset = offset + exprText.indexOf(trimmed);
   const comma = findTopLevelComma(trimmed);
   if (comma) {
@@ -1825,7 +1858,11 @@ function parseParams(context: ParseContext, paramsText: string, functionName: st
     }
     entries.pop();
   }
-  return entries.map(({ text, offset: paramOffset }) => parseParam(context, text, functionName, paramOffset || offset));
+  return entries.map(({ text, offset: paramOffset }) => {
+    const param = parseParam(context, text, functionName, paramOffset || offset);
+    (context.declaredTypes ??= new Map()).set(`${functionName}:${param.name}`, param.type);
+    return param;
+  });
 }
 
 function isVariadicParamsText(paramsText: string): boolean {
@@ -2135,7 +2172,7 @@ function splitTopLevelStatements(
         while (nextIndex < bodyText.length && /\s/.test(bodyText[nextIndex])) {
           nextIndex += 1;
         }
-        const currentText = bodyText.slice(start, index + 1).trimStart();
+        const currentText = bodyText.slice(start, index + 1).trimStart().replace(/^(?:[A-Za-z_]\w*\s*:\s*)+/, "");
         if (/^do\b/.test(currentText) && bodyText.startsWith("while", nextIndex)) {
           continue;
         }
@@ -2155,7 +2192,7 @@ function splitTopLevelStatements(
       while (nextIndex < bodyText.length && /\s/.test(bodyText[nextIndex])) {
         nextIndex += 1;
       }
-      const currentText = bodyText.slice(start, index).trimStart();
+      const currentText = bodyText.slice(start, index).trimStart().replace(/^(?:[A-Za-z_]\w*\s*:\s*)+/, "");
       if (/^do\b/.test(currentText) && bodyText.startsWith("while", nextIndex)) {
         continue;
       }
@@ -4040,9 +4077,13 @@ function parseForInitializer(
           type: declaration.type,
           isStatic: true,
           initializer: declaration.initializer
-            ? parseInitializer(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
+            ? parseTypedInitializer(context, declaration.type, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
             : undefined,
         };
+      }
+      if (declaration.initializer?.trim().startsWith("{")) {
+        const initializer = parseTypedInitializer(context, declaration.type, declaration.initializer, functionName, offset);
+        return { kind: "localDecl", name: declaration.name, type: declaration.type, initStatements: buildTypedInitializerStatements(context, { kind: "ref", name: declaration.name }, declaration.type, initializer, functionName, offset) };
       }
       const { declaration: sizedDeclaration, initStatements } = buildCharArrayDeclaration(
         { ...declaration, type: declaration.type },
@@ -4065,17 +4106,16 @@ function parseForInitializer(
       type: declarationToSourceType(declaration),
       ...(isStaticLocal ? { isStatic: true } : {}),
       initializer: declaration.initializer
-        ? parseInitializer(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
+        ? parseTypedInitializer(context, declaration.type, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer))
         : undefined,
-      initStatements: declaration.initializer && !isStaticLocal
-        ? buildInitializerStatements(
+      initStatements: declaration.initializer && !isStaticLocal && declaration.type.kind === "aggregate"
+        ? buildTypedInitializerStatements(
           context,
-          declaration.name,
+          { kind: "ref", name: declaration.name },
           declarationToSourceType(declaration),
-          parseInitializer(context, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer)),
+          parseTypedInitializer(context, declaration.type, declaration.initializer, functionName, offset + initText.indexOf(declaration.initializer)),
           functionName,
           offset,
-          initText,
         )
         : undefined,
     };
@@ -4090,6 +4130,19 @@ function parseInitializer(
   offset: number,
 ): SourceInitializer {
   const trimmed = initializerText.trim();
+  if (trimmed.startsWith(".") || trimmed.startsWith("[")) {
+    const designators: Array<string | number> = [];
+    let rest = trimmed;
+    while (rest.startsWith(".") || rest.startsWith("[")) {
+      const field = /^\.\s*([A-Za-z_]\w*)\s*/.exec(rest);
+      const index = /^\[\s*(\d+)\s*\]\s*/.exec(rest);
+      if (!field && !index) throw new Error("Initializer designator requires a member name or nonnegative integer index.");
+      designators.push(field ? field[1] : Number(index![1]));
+      rest = rest.slice((field ?? index)![0].length);
+    }
+    if (!rest.startsWith("=")) throw new Error("Initializer designator requires '='.");
+    return { ...parseInitializer(context, rest.slice(1), functionName, offset), designators };
+  }
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     return {
       kind: "list",
@@ -4101,6 +4154,207 @@ function parseInitializer(
     kind: "expr",
     expr: parseExpression(context, trimmed, functionName, offset + initializerText.indexOf(trimmed)),
   };
+}
+
+function extractCompoundLiterals(context: ParseContext, text: string, fn: string): string {
+  let output = "";
+  let copied = 0;
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    if (quote) { if (text[i] === "\\") i++; else if (text[i] === quote) quote = ""; continue; }
+    if (text[i] === '"' || text[i] === "'") { quote = text[i]; continue; }
+    if (text[i] !== "(") continue;
+    const close = findMatchingParenInText(text, i);
+    let open = close + 1;
+    while (/\s/.test(text[open] ?? "")) open++;
+    if (text[open] !== "{") continue;
+    const typeText = text.slice(i + 1, close).trim();
+    const array = /^(.+?)\s*((?:\[\s*\d+\s*\]\s*)+)$/.exec(typeText);
+    const type = array ? parseTypeDeclarator(context, `${array[1]} __literal ${array[2]}`)?.type : parseTypeText(context, typeText);
+    if (!type || type.kind === "void") continue;
+    let level = 1;
+    let end = open + 1;
+    let innerQuote = "";
+    for (; end < text.length && level; end++) {
+      const char = text[end];
+      if (innerQuote) { if (char === "\\") end++; else if (char === innerQuote) innerQuote = ""; continue; }
+      if (char === '"' || char === "'") innerQuote = char;
+      else if (char === "{") level++; else if (char === "}") level--;
+    }
+    if (level) throw new Error("Unterminated compound literal.");
+    context.literals ??= new Map(); context.literalLocals ??= new Map(); context.literalGlobals ??= [];
+    const name = `__scc_literal_${context.literals.size}`;
+    (context.declaredTypes ??= new Map()).set(`${fn}:${name}`, type);
+    const key = `${name}_address`;
+    // Reserve identity before recursively parsing nested literals.
+    context.literals.set(key, { kind: "compoundAddress", name, initializers: [] });
+    (context.literalInitializers ??= new Map()).set(key, { type, text: text.slice(open, end), fn });
+    if (fn !== "__global__") {
+      const locals = context.literalLocals.get(fn) ?? [];
+      locals.push({ kind: "localDecl", name, type }); context.literalLocals.set(fn, locals);
+    }
+    output += text.slice(copied, i) + (type.kind === "array" ? `(${key})` : `(*(${key}))`);
+    copied = end; i = end - 1;
+  }
+  return output + text.slice(copied);
+}
+
+function initializerChildren(context: ParseContext, type: SourceType): Array<{ name: string | number; type: SourceType }> {
+  if (type.kind === "aggregate") {
+    const def = lookupAggregateDef(context, type);
+    if (!def) throw new Error(`Unknown initializer type '${type.name}'.`);
+    return def.fields;
+  }
+  if (type.kind === "array") {
+    if (type.length === undefined) throw new Error("Initializer requires a fixed array bound.");
+    const child: SourceType = type.dimensions?.length
+      ? { ...type, length: type.dimensions[0], dimensions: type.dimensions.slice(1) }
+      : type.elementValueType ?? { kind: "scalar", name: type.elementType };
+    return Array.from({ length: type.length }, (_, name) => ({ name, type: child }));
+  }
+  return [];
+}
+
+function parseTypedInitializer(context: ParseContext, type: SourceType, text: string, fn: string, offset: number): SourceInitializer {
+  const initializer = parseInitializer(context, text, fn, offset);
+  context.initializerFunction = fn;
+  return normalizeInitializer(context, type, initializer);
+}
+
+function initializerExpressionType(context: ParseContext, expr: SourceExpr): SourceType | undefined {
+  if (expr.kind === "ref") return context.declaredTypes?.get(`${context.initializerFunction}:${expr.name}`) ?? context.declaredTypes?.get(`__global__:${expr.name}`);
+  if (expr.kind === "deref") {
+    if (expr.expr.kind === "compoundAddress") return context.declaredTypes?.get(`${context.initializerFunction}:${expr.expr.name}`);
+    const pointer = initializerExpressionType(context, expr.expr);
+    if (pointer?.kind === "pointer") return typeof pointer.pointee === "string" ? { kind: "scalar", name: pointer.pointee } : pointer.pointee.kind === "arrayPointer" ? undefined : pointer.pointee;
+  }
+  if (expr.kind === "memberAccess" || expr.kind === "memberExprAccess") {
+    const base = initializerExpressionType(context, expr.kind === "memberAccess" ? { kind: "ref", name: expr.name } : expr.target);
+    return base?.kind === "aggregate" ? lookupAggregateDef(context, base)?.fields.find((field) => field.name === expr.field)?.type : undefined;
+  }
+  if (expr.kind === "comma") return initializerExpressionType(context, expr.right);
+  if (expr.kind === "conditional") return initializerExpressionType(context, expr.thenExpr);
+  if (expr.kind === "call") {
+    const signature = new RegExp(`\\b(struct|union)\\s+([A-Za-z_]\\w*)\\s+${expr.target}\\s*\\(`).exec(context.normalized);
+    if (signature) return { kind: "aggregate", aggregateKind: signature[1] as AggregateKind, name: signature[2] };
+  }
+  return undefined;
+}
+
+/** Turn brace elision and designators into a fully shaped, zero-filled tree. */
+function normalizeInitializer(context: ParseContext, type: SourceType, init: SourceInitializer): SourceInitializer {
+  if (init.kind === "expr") return init;
+  const children = initializerChildren(context, type);
+  if (!children.length) {
+    if (init.items.length > 1) throw new Error("Too many scalar initializer elements.");
+    return init.items.length ? normalizeInitializer(context, type, init.items[0]) : { kind: "expr", expr: { kind: "const", value: 0 } };
+  }
+  const empty = (): SourceInitializer => ({ kind: "list", items: [] });
+  const result: Extract<SourceInitializer, { kind: "list" }> = { kind: "list", items: children.map(() => empty()) };
+  const union = type.kind === "aggregate" && type.aggregateKind === "union";
+  if (union) result.activeUnionField = 0;
+  let next = 0;
+  let continuation: Array<string | number> | undefined;
+  const pathType = (path: Array<string | number>): SourceType => path.reduce<SourceType>((owner, name) => {
+    const child = initializerChildren(context, owner).find((entry) => entry.name === name);
+    if (!child) throw new Error(`Unknown or out-of-bounds initializer designator '${name}'.`);
+    return child.type;
+  }, type);
+  const advance = (path: Array<string | number>): Array<string | number> | undefined => {
+    for (let length = path.length; length > 0; length--) {
+      const prefix = path.slice(0, length - 1);
+      const owner = pathType(prefix);
+      const members = initializerChildren(context, owner);
+      const index = members.findIndex((child) => child.name === path[length - 1]);
+      if (!(owner.kind === "aggregate" && owner.aggregateKind === "union") && index + 1 < members.length) return [...prefix, members[index + 1].name];
+    }
+    return undefined;
+  };
+  const assignPath = (ownerType: SourceType, owner: Extract<SourceInitializer, { kind: "list" }>, designators: Array<string | number>, value: SourceInitializer): void => {
+    const members = initializerChildren(context, ownerType);
+    const index = members.findIndex((child) => child.name === designators[0]);
+    if (index < 0) throw new Error(`Unknown or out-of-bounds initializer designator '${designators[0]}'.`);
+    while (owner.items.length < members.length) owner.items.push(empty());
+    if (ownerType.kind === "aggregate" && ownerType.aggregateKind === "union") {
+      if (owner.activeUnionField !== index) owner.items = members.map(() => empty());
+      owner.activeUnionField = index;
+    }
+    if (designators.length === 1) owner.items[index] = normalizeInitializer(context, members[index].type, value);
+    else {
+      let nested = owner.items[index];
+      if (nested.kind !== "list") nested = empty();
+      assignPath(members[index].type, nested as Extract<SourceInitializer, { kind: "list" }>, designators.slice(1), value);
+      owner.items[index] = nested;
+    }
+  };
+  const consume = (childType: SourceType, start: number): { value: SourceInitializer; end: number } => {
+    const item = init.items[start];
+    if (!item || item.designators) return { value: empty(), end: start };
+    const nested = initializerChildren(context, childType);
+    if (item.kind === "list" || !nested.length || (childType.kind === "aggregate" && item.kind === "expr" && initializerExpressionType(context, item.expr)?.kind === "aggregate") || (childType.kind === "array" && item.kind === "expr" && item.expr.kind === "string")) {
+      return { value: normalizeInitializer(context, childType, item), end: start + 1 };
+    }
+    let end = start;
+    const values: SourceInitializer[] = [];
+    for (const child of childType.kind === "aggregate" && childType.aggregateKind === "union" ? nested.slice(0, 1) : nested) {
+      const consumed = consume(child.type, end);
+      values.push(consumed.value); end = consumed.end;
+    }
+    return { value: { kind: "list", items: values, ...(childType.kind === "aggregate" && childType.aggregateKind === "union" ? { activeUnionField: 0 } : {}) }, end };
+  };
+  for (let cursor = 0; cursor < init.items.length;) {
+    const item = init.items[cursor];
+    if (item.designators?.length) {
+      const { designators, ...value } = item;
+      assignPath(type, result, designators, value);
+      next = children.findIndex((child) => child.name === designators[0]) + 1;
+      continuation = advance(designators);
+      cursor++;
+    } else if (continuation) {
+      const consumed = consume(pathType(continuation), cursor);
+      assignPath(type, result, continuation, consumed.value);
+      continuation = advance(continuation);
+      next = continuation ? children.findIndex((child) => child.name === continuation![0]) : children.length;
+      cursor = consumed.end;
+    } else {
+      if (next >= children.length || (union && next > 0)) throw new Error("Too many initializer elements; initializer does not fit.");
+      const consumed = consume(children[next].type, cursor);
+      result.items[next++] = consumed.value;
+      cursor = consumed.end;
+    }
+  }
+  return result;
+}
+
+function buildTypedInitializerStatements(context: ParseContext, target: SourceExpr, type: SourceType, init: SourceInitializer, fn: string, offset: number): SourceSimpleStmt[] {
+  if (init.kind === "expr" && type.kind === "array" && init.expr.kind === "string") {
+    const bytes = Array.from(init.expr.value, (ch) => ch.charCodeAt(0));
+    if (type.elementType !== "char" || type.elementValueType || type.dimensions?.length || bytes.length > (type.length ?? 0)) throw new Error("String initializer does not fit char array.");
+    init = { kind: "list", items: bytes.map((value) => ({ kind: "expr", expr: { kind: "const", value } })) };
+  }
+  if (init.kind === "expr" || (type.kind !== "array" && type.kind !== "aggregate")) {
+    const expr = initializerItemToExpr(context, init, fn, offset);
+    if (target.kind === "ref") return [{ kind: "assign", name: target.name, expr }];
+    if (target.kind === "memberAccess") return [{ kind: "memberAssign", name: target.name, field: target.field, expr }];
+    if (target.kind === "memberExprAccess") return [{ kind: "memberExprAssign", target: target.target, field: target.field, expr }];
+    if (target.kind === "arrayIndex") return [{ kind: "arrayAssign", name: target.name, index: target.index, expr }];
+    if (target.kind === "arrayPointerElement" && (target.pointer.kind === "memberAccess" || target.pointer.kind === "memberExprAccess")) {
+      const member = target.pointer;
+      return [makeAggregateFieldArrayAssignStmt(member.kind === "memberAccess" ? { kind: "ref", name: member.name } : member.target, member.field, target.index, expr)];
+    }
+    return [{ kind: "expr", expr: { kind: "derefAssign", target, expr } }];
+  }
+  const children = initializerChildren(context, type);
+  const output: SourceSimpleStmt[] = [];
+  for (let index = 0; index < children.length; index++) {
+    if (type.kind === "aggregate" && type.aggregateKind === "union" && index !== (init.activeUnionField ?? 0)) continue;
+    const child = children[index];
+    const childTarget: SourceExpr = typeof child.name === "number"
+      ? target.kind === "ref" ? { kind: "arrayIndex", name: target.name, index: { kind: "const", value: child.name } } : { kind: "arrayPointerElement", pointer: target, index: { kind: "const", value: child.name } }
+      : makeAggregateFieldAccessExpr(target, child.name);
+    output.push(...buildTypedInitializerStatements(context, childTarget, child.type, init.items[index] ?? { kind: "list", items: [] }, fn, offset));
+  }
+  return output;
 }
 
 function buildCharArrayDeclaration(

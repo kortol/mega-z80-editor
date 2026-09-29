@@ -330,9 +330,16 @@ function flattenGlobalAggregateInitializer(outputLabel, name, type, initializer,
     const fields = (0, tsFrontendSemantic_1.getAggregateLayoutFields)(type);
     let emittedLabel = false;
     for (const [index, field] of fields.entries()) {
+        if (type.aggregateKind === "union" && index !== (initializer.activeUnionField ?? 0))
+            continue;
         const entries = flattenGlobalInitializerValue(emittedLabel ? undefined : (outputLabel ?? (emitFallbackLabel ? name : undefined)), `${name}.${field.name}`, field.type, initializer.items[index], globalsByName, emitFallbackLabel);
         values.push(...entries);
         emittedLabel = emittedLabel || entries.length > 0;
+        if (type.aggregateKind === "union") {
+            const padding = (0, tsFrontendSemantic_1.getAggregateLayoutSize)(type) - field.size;
+            if (padding > 0)
+                values.push({ directive: ".db", value: Array(padding).fill("0").join(",") });
+        }
     }
     return values;
 }
@@ -378,6 +385,10 @@ function lowerGlobalWordInitializer(initializer, globalsByName) {
         return "0";
     }
     if (initializer.kind === "expr") {
+        if (initializer.expr.kind === "compoundAddress")
+            return `${initializer.expr.name}+0`;
+        if (initializer.expr.kind === "addressOfExpr" && initializer.expr.expr.kind === "deref" && initializer.expr.expr.expr.kind === "compoundAddress")
+            return `${initializer.expr.expr.expr.name}+0`;
         if (initializer.expr.kind === "const") {
             return `${initializer.expr.value}`;
         }
@@ -479,6 +490,10 @@ function lowerBlock(block, externs, definedFunctions, sourceText, state, functio
 }
 function lowerStmt(stmt, externs, definedFunctions, sourceText, state, functionState, file) {
     switch (stmt.kind) {
+        case "goto": return { kind: "userGoto", name: stmt.name };
+        case "empty": return { kind: "sequence", body: [] };
+        case "label": return { kind: "sequence", body: [{ kind: "userLabel", name: stmt.name }, lowerStmt(stmt.statement, externs, definedFunctions, sourceText, state, functionState, file)] };
+        case "block": return { kind: "sequence", body: lowerBlock(stmt.block, externs, definedFunctions, sourceText, state, functionState, file) };
         case "return":
             if (functionState.returnType.kind === "aggregate") {
                 if (!isAggregateCallArg(stmt.expr)) {
@@ -1155,6 +1170,11 @@ function lowerParamArrayAssign(stmt, externs, definedFunctions, sourceText, stat
 }
 function lowerExpr(expr, externs, definedFunctions, sourceText, state, functionState, file) {
     switch (expr.kind) {
+        case "compoundAddress": return {
+            kind: "initializedAddress",
+            initializers: expr.initializers.map((stmt) => lowerStmt(stmt, externs, definedFunctions, sourceText, state, functionState, file)),
+            address: lowerExpr(expr.address, externs, definedFunctions, sourceText, state, functionState, file),
+        };
         case "const":
             return { kind: "const", value: expr.value };
         case "string":

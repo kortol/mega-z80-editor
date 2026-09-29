@@ -7,5 +7,5 @@ export type TsPreprocessResult = {
     sourceText: string;
     runtimeVariadicNames: ReadonlySet<string>;
 };
-/** Small, intentionally non-general preprocessor for bundled C runtime headers. */
+/** Token-aware preprocessing for user and bundled headers in the fixed C Subset. */
 export declare function preprocessTsCSource(input: string, file: string, opts?: TsPreprocessOptions): TsPreprocessResult;

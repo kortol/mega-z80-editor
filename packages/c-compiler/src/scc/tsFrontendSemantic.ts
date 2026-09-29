@@ -152,6 +152,10 @@ type BoundAggregateAssignmentTarget =
 export type BoundCallArg = BoundExpr | BoundAggregateValueExpr;
 
 export type BoundStmt =
+  | { kind: "goto"; name: string }
+  | { kind: "label"; name: string; statement: BoundStmt }
+  | { kind: "block"; block: BoundBlock }
+  | { kind: "empty" }
   | { kind: "return"; expr: BoundExpr | BoundAggregateValueExpr }
   | { kind: "returnVoid" }
   | { kind: "expr"; expr: BoundExpr }
@@ -178,6 +182,7 @@ export type BoundForInit =
   | { kind: "staticDecl" };
 
 export type BoundExpr =
+  | { kind: "compoundAddress"; initializers: BoundStmt[]; address: BoundExpr; type: SemanticPointerType }
   | { kind: "const"; value: number; type: SemanticScalarType }
   | { kind: "string"; value: string; type: SemanticScalarType }
   | { kind: "ref"; symbol: BoundParamSymbol | BoundLocalSymbol; type: SemanticScalarType | SemanticPointerType | SemanticFunctionPointerType }
@@ -308,6 +313,7 @@ function analyzeFunction(
   sourceText: string,
   file?: string,
 ): BoundFunction {
+  validateFunctionLabels(fn, sourceText, file);
   const functionScope: Scope = { entries: new Map(), ...(fn.isVariadic ? { isVariadicFunction: true, fixedParamCount: fn.params.length } : {}) };
   for (const global of globals) {
     functionScope.entries.set(global.name, global);
@@ -441,6 +447,13 @@ function analyzeStmt(
   controlNesting = 0,
 ): BoundStmt {
   switch (stmt.kind) {
+    case "goto":
+    case "empty":
+      return stmt;
+    case "label":
+      return { kind: "label", name: stmt.name, statement: analyzeStmt(stmt.statement, scope, allLocals, localList, globals, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting) };
+    case "block":
+      return { kind: "block", block: analyzeBlock(stmt.block, scope, allLocals, localList, globals, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting) };
     case "return":
       {
         const fnSymbol = functionSymbols.get(functionName);
@@ -487,7 +500,7 @@ function analyzeStmt(
           // Scalar dereference assignments continue through the normal expression path.
         }
       }
-      return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
+      return { kind: "expr", expr: analyzeDiscardedExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
     }
     case "if":
       assertControlNesting(controlNesting + 1, functionName, sourceText, file);
@@ -655,6 +668,27 @@ function analyzeStmt(
   }
 }
 
+function validateFunctionLabels(fn: SourceFunction, sourceText: string, file?: string): void {
+  const labels = new Set<string>();
+  const jumps: string[] = [];
+  const fail = (message: string): never => { throwDiagnostic(sourceText, `${message} in ${fn.name}().`, { file, offset: 0 }); };
+  const block = (body: SourceBlock): void => { body.statements.forEach(visit); };
+  const visit = (stmt: SourceStmt): void => {
+    switch (stmt.kind) {
+      case "goto": jumps.push(stmt.name); break;
+      case "label":
+        if (labels.has(stmt.name)) fail(`Duplicate label '${stmt.name}'`);
+        labels.add(stmt.name); visit(stmt.statement); break;
+      case "block": block(stmt.block); break;
+      case "if": block(stmt.thenBlock); if (stmt.elseBlock) block(stmt.elseBlock); break;
+      case "while": case "doWhile": case "for": block(stmt.body); break;
+      case "switch": stmt.cases.forEach((entry) => block(entry.body)); if (stmt.defaultCase) block(stmt.defaultCase); break;
+    }
+  };
+  block(fn.body);
+  for (const name of jumps) if (!labels.has(name)) fail(`Undefined label '${name}'`);
+}
+
 function analyzeSimpleStmt(
   stmt: SourceSimpleStmt,
   scope: Scope,
@@ -670,12 +704,16 @@ function analyzeSimpleStmt(
     return analyzeIndexedAssignSimpleStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
   }
   if (stmt.kind === "memberAssign") {
+    const aggregateAssign = analyzeDirectAggregateFieldAssignStmt(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+    if (aggregateAssign) return aggregateAssign;
     return {
       kind: "expr",
       expr: analyzeAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
     };
   }
   if (stmt.kind === "memberExprAssign") {
+    const aggregateAssign = analyzeAggregateFieldAssignStmtTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+    if (aggregateAssign) return aggregateAssign;
     return {
       kind: "expr",
       expr: analyzeAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
@@ -785,6 +823,11 @@ function analyzeAggregateProducerExpr(
   file?: string,
 ): BoundAggregateValueExpr {
   switch (expr.kind) {
+    case "deref":
+    case "memberAccess":
+    case "memberExprAccess":
+    case "pointerMemberAccess":
+    case "pointerMemberExprAccess":
     case "arrayIndex":
     case "arrayPointerElement": {
       const target = getAggregateBasePointerFromExpr(expr, scope, functionSymbols, functionName, sourceText, file);
@@ -881,7 +924,7 @@ function analyzeAggregateProducerExpr(
       const right = analyzeAggregateProducerExpr(expr.right, scope, functionSymbols, targetType, functionName, sourceText, file);
       return {
         kind: "comma",
-        left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+        left: analyzeDiscardedExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
         right,
         type: right.type,
       };
@@ -2242,6 +2285,15 @@ function analyzeForInitializer(
   };
 }
 
+function analyzeDiscardedExpr(expr: SourceExpr, scope: Scope, functions: Map<string, BoundFunctionSymbol>, fn: string, source: string, file?: string): BoundExpr {
+  try {
+    const value = analyzeAggregateProducerExpr(expr, scope, functions, undefined, fn, source, file);
+    return { kind: "aggregateProducerFieldAddress", source: value, offset: 0, type: toSemanticPointerType({ kind: "aggregate", aggregateKind: value.type.aggregateKind, name: value.type.name }) };
+  } catch {
+    return analyzeExpr(expr, scope, functions, fn, source, file);
+  }
+}
+
 function analyzeExpr(
   expr: SourceExpr,
   scope: Scope,
@@ -2251,6 +2303,13 @@ function analyzeExpr(
   file?: string,
 ): BoundExpr {
   switch (expr.kind) {
+    case "compoundAddress": {
+      const symbol = lookupVisible(scope, expr.name);
+      if (!symbol || (symbol.kind !== "local" && symbol.kind !== "global")) throw new Error(`Unknown compound literal '${expr.name}'.`);
+      const type = toSemanticPointerType(symbol.type.kind === "array" ? getArrayDecayPointee(symbol.type) : toPointerPointee(symbol.type));
+      const address: BoundExpr = symbol.kind === "local" ? { kind: "localAddress", symbol, type } : { kind: "globalAddress", symbol, type };
+      return { kind: "compoundAddress", address, type, initializers: expr.initializers.map((stmt) => analyzeStmt(stmt, scope, new Map(), [], [], functionSymbols, functionName, sourceText, file)) };
+    }
     case "const":
       return { kind: "const", value: expr.value, type: toSemanticScalarType("int") };
     case "string":
@@ -2328,6 +2387,7 @@ function analyzeExpr(
       return { kind: "localAddress", symbol, type: toSemanticPointerType(toPointerPointee(symbol.type)) };
     }
     case "addressOfExpr": {
+      if (expr.expr.kind === "deref") return analyzeExpr(expr.expr.expr, scope, functionSymbols, functionName, sourceText, file);
       if (expr.expr.kind === "arrayPointerElement") {
         return getAggregateBasePointerFromExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file).pointer;
       }
@@ -3090,7 +3150,7 @@ function analyzeExpr(
       };
     }
     case "comma": {
-      const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
+      const left = analyzeDiscardedExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
       const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
       if (right.type.kind === "functionPointer") {
         throwDiagnostic(sourceText, `TsSccCompilerAdapter Phase C subset does not support comma expressions yielding function pointers in ${functionName}().`, {
@@ -3568,6 +3628,8 @@ function getArrayElementStorageBytes(type: SemanticArrayType | Extract<SourceTyp
 
 function getBoundExprStorageBytes(expr: BoundExpr): number {
   switch (expr.kind) {
+    case "compoundAddress":
+      return expr.type.width;
     case "const":
     case "string":
     case "vaStart":
@@ -3624,6 +3686,11 @@ function getSourceExprStorageBytes(
   sourceText: string,
   file?: string,
 ): number {
+  if (expr.kind === "compoundAddress" || (expr.kind === "deref" && expr.expr.kind === "compoundAddress")) {
+    const name = expr.kind === "compoundAddress" ? expr.name : (expr.expr as Extract<SourceExpr, { kind: "compoundAddress" }>).name;
+    const symbol = lookupVisible(scope, name);
+    if (symbol && (symbol.kind === "local" || symbol.kind === "global")) return getTypeStorageBytes(symbol.type);
+  }
   if (expr.kind === "ref") {
     const symbol = lookupVisible(scope, expr.name);
     if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {

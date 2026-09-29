@@ -48,6 +48,9 @@ function lowerFunctionIR(fn) {
 }
 function lowerStmtIR(stmt, layout, state, loop) {
     switch (stmt.kind) {
+        case "userGoto": return [{ kind: "jump", target: `.${state.labelPrefix}_user_${stmt.name}` }];
+        case "userLabel": return [{ kind: "label", name: `.${state.labelPrefix}_user_${stmt.name}` }];
+        case "sequence": return stmt.body.flatMap((child) => lowerStmtIR(child, layout, state, loop));
         case "materializeAggregateProducer":
             return [{
                     kind: "materializeAggregateProducer",
@@ -236,6 +239,12 @@ function allocateNumericLabel(state) {
     return label;
 }
 function lowerExprIR(expr, layout) {
+    if (expr.kind === "initializedAddress")
+        return {
+            kind: "initializedAddress",
+            initializers: expr.initializers.flatMap((stmt) => lowerStmtIR(stmt, layout, { labelPrefix: "literal", nextLabelId: 0 })),
+            address: lowerExprIR(expr.address, layout),
+        };
     switch (expr.kind) {
         case "const":
             return { kind: "const", value: expr.value };
@@ -604,6 +613,8 @@ function emitStatement(statement, ctx) {
     }
 }
 function emitExprToHl(expr, ctx) {
+    if (expr.kind === "initializedAddress")
+        return [...expr.initializers.flatMap((stmt) => emitStatement(stmt, ctx)), ...emitExprToHl(expr.address, ctx)];
     switch (expr.kind) {
         case "const":
             return [`\tld\thl,#${expr.value}`];

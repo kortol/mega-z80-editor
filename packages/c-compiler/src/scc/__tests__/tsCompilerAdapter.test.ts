@@ -8,6 +8,36 @@ import { translateSccAsm } from "../translateAsm";
 import { assemble } from "@mz80/assembler";
 import { readSccFixture } from "../fixtures";
 
+describe("C Subset goto runtime", () => {
+  test.each([
+    ["nested aggregate copies", "struct I {int x;}; struct O {struct I a;int b;}; struct I make(){struct I i={66};return i;} int main(){struct I i={65}; struct O a={i,67};struct O b={make(),68};outchar(a.a.x);outchar(b.a.x);outchar(((struct O){i,69}).b);return 0;}", "ABE"],
+    ["compound nested argument stack", "struct S {int x;}; int add(int a,int b){return a+b;} struct S make(){return (struct S){65};} int main(){outchar(add(1,(int){65}));outchar(make().x);return 0;}", "BA"],
+    ["labelled do and switch escape", "int main(){int n=2;loop: do {n--;}while(n); switch(n){case 0: goto done;default:outchar(88);} done: outchar(65); return 0;}", "A"],
+    ["designator continuation", "struct S { int a[3]; int b; }; struct S g={.a[1]=65,66,67}; int main(){struct S s={.a[1]=65,66,67}; outchar(s.a[1]); outchar(s.a[2]); outchar(s.b); outchar(g.b);return 0;}", "ABCC"],
+    ["static designated initialization", "struct S { int a; int b; }; int read(){static struct S s={.b=65};return s.b++;} int main(){outchar(read());outchar(read());return 0;}", "AB"],
+    ["discarded aggregate values", "struct S { int x; }; int count; struct S make(){struct S s={65};count++;return s;} int main(){struct S s={66};struct S *p=&s; make(); *p; outchar((make(),s.x));outchar(count+65);return 0;}", "BC"],
+    ["compound unevaluated and short circuit", "int main(){int n=65;int x=sizeof((int){n++});int y=sizeof((char[3]){n++});int z=0 && (int){n++};outchar(n);outchar(x+y+61);return 0;}", "AB"],
+    ["macro source runtime", "#define BASE 64\n#define ADD(x,y) ((x)+(y))\n#define ALIAS ADD\n#if defined(BASE) && BASE == 64\n#define NEXT 1\n#elif 1/0\n#define NEXT 9\n#endif\nint main(){outchar(ALIAS(\nBASE, NEXT));return 0;}", "A"],
+    ["aggregate compound literal", "struct S { int x; }; int read(struct S s){return s.x;} int main(){ outchar(read((struct S){.x=65})); outchar(((struct S){66}).x); return 0; }", "AB"],
+    ["scalar array compound literals", "int main(){ int *p=&(int){65}; char *q=(char[3]){66,67,0}; outchar(*p); outchar(q[0]); outchar(q[1]); return 0; }", "ABC"],
+    ["global compound literal address", "struct S { int x; }; struct S *p=&(struct S){65}; int *q=(int[2]){66,67}; int main(){outchar(p->x); outchar(q[0]); outchar(q[1]); return 0;}", "ABC"],
+    ["compound literal loop lifetime", "struct S { int x; }; int main(){ int n=65; struct S *p; struct S *q; again: p=&(struct S){n}; if(n==65){q=p;n++;goto again;} outchar(p==q ? p->x : 88); return 0; }", "B"],
+    ["local designators", "struct S { char a; int b[2]; }; int main(){ struct S s={.b[1]=66,.a=65}; outchar(s.a); outchar(s.b[1]); outchar(s.b[0]+67); return 0; }", "ABC"],
+    ["global designators", "struct S { char a; int b[2]; }; struct S s={.b[1]=66,.a=65}; int main(){ outchar(s.a); outchar(s.b[1]); outchar(s.b[0]+67); return 0; }", "ABC"],
+    ["union designator", "union U { char a; int b; }; union U u={.b=321}; int main(){ union U v={.b=322}; outchar(u.b-256); outchar(v.b-256); return 0; }", "AB"],
+    ["deep mixed braces", "int g[2][2][2]={65,66,{67,68},69}; int main(){ int a[2][2][2]={65,66,{67,68},69}; outchar(a[0][0][0]); outchar(a[0][0][1]); outchar(a[0][1][0]); outchar(g[1][0][0]); return 0; }", "ABCE"],
+  ])("executes %s", (_name, source, expected) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-init-"));
+    const rel = compileSourceRel(dir, "init.c", source);
+    expect(linkAndRunCom(dir, "init", rel, [assembleCompareHelperRuntime(dir)], 20000)).toBe(expected);
+  });
+  test("preserves the frame across forward/backward jumps and nested loop exits", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-goto-"));
+    const rel = compileSourceRel(dir, "goto.c", "int count(){ int n=2; goto start; again: n--; start: alias: if(n){ goto again; } while(1){ int x=7; goto done; } done: return n+65; } int main(){ done: outchar(count()); outchar(count()); return 0; }");
+    expect(linkAndRunCom(dir, "goto", rel, [], 10000)).toBe("AA");
+  });
+});
+
 function assembleCompareHelperRuntime(tempDir: string): string {
   const helperAsmPath = path.join(tempDir, "compare-helper.asm");
   const helperRelPath = path.join(tempDir, "gt-helper.rel");

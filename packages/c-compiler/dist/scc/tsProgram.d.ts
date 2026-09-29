@@ -98,6 +98,10 @@ export type CallArgSpec = {
     }>;
 };
 export type ExprSpec = {
+    kind: "initializedAddress";
+    initializers: StatementSpec[];
+    address: ExprSpec;
+} | {
     kind: "const";
     value: number;
 } | {
@@ -376,6 +380,10 @@ export type CallArgIR = {
     }>;
 };
 export type ExprIR = {
+    kind: "initializedAddress";
+    initializers: StmtIRHigh[];
+    address: ExprIR;
+} | {
     kind: "const";
     value: number;
 } | {
@@ -541,6 +549,15 @@ export type FunctionIR = {
     body: StmtIRHigh[];
 };
 export type StmtIRHigh = {
+    kind: "userGoto";
+    name: string;
+} | {
+    kind: "userLabel";
+    name: string;
+} | {
+    kind: "sequence";
+    body: StmtIRHigh[];
+} | {
     kind: "materializeAggregateProducer";
     destination: AggregateDestinationIR;
     source: AggregateProducerIR;

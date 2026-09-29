@@ -60,6 +60,7 @@ function analyzeGlobalDecl(globalDecl, sourceText, file) {
     };
 }
 function analyzeFunction(fn, globals, functionSymbols, sourceText, file) {
+    validateFunctionLabels(fn, sourceText, file);
     const functionScope = { entries: new Map(), ...(fn.isVariadic ? { isVariadicFunction: true, fixedParamCount: fn.params.length } : {}) };
     for (const global of globals) {
         functionScope.entries.set(global.name, global);
@@ -162,6 +163,13 @@ function isStaticStorageInitializer(initializer) {
 }
 function analyzeStmt(stmt, scope, allLocals, localList, globals, functionSymbols, functionName, sourceText, file, loopDepth = 0, breakDepth = 0, controlNesting = 0) {
     switch (stmt.kind) {
+        case "goto":
+        case "empty":
+            return stmt;
+        case "label":
+            return { kind: "label", name: stmt.name, statement: analyzeStmt(stmt.statement, scope, allLocals, localList, globals, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting) };
+        case "block":
+            return { kind: "block", block: analyzeBlock(stmt.block, scope, allLocals, localList, globals, functionSymbols, functionName, sourceText, file, loopDepth, breakDepth, controlNesting) };
         case "return":
             {
                 const fnSymbol = functionSymbols.get(functionName);
@@ -209,7 +217,7 @@ function analyzeStmt(stmt, scope, allLocals, localList, globals, functionSymbols
                     // Scalar dereference assignments continue through the normal expression path.
                 }
             }
-            return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
+            return { kind: "expr", expr: analyzeDiscardedExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
         }
         case "if":
             assertControlNesting(controlNesting + 1, functionName, sourceText, file);
@@ -376,6 +384,47 @@ function analyzeStmt(stmt, scope, allLocals, localList, globals, functionSymbols
             return assertNever(stmt);
     }
 }
+function validateFunctionLabels(fn, sourceText, file) {
+    const labels = new Set();
+    const jumps = [];
+    const fail = (message) => { (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `${message} in ${fn.name}().`, { file, offset: 0 }); };
+    const block = (body) => { body.statements.forEach(visit); };
+    const visit = (stmt) => {
+        switch (stmt.kind) {
+            case "goto":
+                jumps.push(stmt.name);
+                break;
+            case "label":
+                if (labels.has(stmt.name))
+                    fail(`Duplicate label '${stmt.name}'`);
+                labels.add(stmt.name);
+                visit(stmt.statement);
+                break;
+            case "block":
+                block(stmt.block);
+                break;
+            case "if":
+                block(stmt.thenBlock);
+                if (stmt.elseBlock)
+                    block(stmt.elseBlock);
+                break;
+            case "while":
+            case "doWhile":
+            case "for":
+                block(stmt.body);
+                break;
+            case "switch":
+                stmt.cases.forEach((entry) => block(entry.body));
+                if (stmt.defaultCase)
+                    block(stmt.defaultCase);
+                break;
+        }
+    };
+    block(fn.body);
+    for (const name of jumps)
+        if (!labels.has(name))
+            fail(`Undefined label '${name}'`);
+}
 function analyzeSimpleStmt(stmt, scope, functionSymbols, functionName, sourceText, file) {
     if (stmt.kind === "expr") {
         return { kind: "expr", expr: analyzeExpr(stmt.expr, scope, functionSymbols, functionName, sourceText, file) };
@@ -384,12 +433,18 @@ function analyzeSimpleStmt(stmt, scope, functionSymbols, functionName, sourceTex
         return analyzeIndexedAssignSimpleStmt(stmt.name, stmt.index, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
     }
     if (stmt.kind === "memberAssign") {
+        const aggregateAssign = analyzeDirectAggregateFieldAssignStmt(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+        if (aggregateAssign)
+            return aggregateAssign;
         return {
             kind: "expr",
             expr: analyzeAggregateFieldAssignExpr(stmt.name, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
         };
     }
     if (stmt.kind === "memberExprAssign") {
+        const aggregateAssign = analyzeAggregateFieldAssignStmtTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file);
+        if (aggregateAssign)
+            return aggregateAssign;
         return {
             kind: "expr",
             expr: analyzeAggregateFieldAssignExprTarget(stmt.target, stmt.field, stmt.expr, scope, functionSymbols, functionName, sourceText, file),
@@ -471,6 +526,11 @@ function analyzeAggregateAssignSimpleStmt(target, expr, scope, functionSymbols, 
 }
 function analyzeAggregateProducerExpr(expr, scope, functionSymbols, targetType, functionName, sourceText, file) {
     switch (expr.kind) {
+        case "deref":
+        case "memberAccess":
+        case "memberExprAccess":
+        case "pointerMemberAccess":
+        case "pointerMemberExprAccess":
         case "arrayIndex":
         case "arrayPointerElement": {
             const target = getAggregateBasePointerFromExpr(expr, scope, functionSymbols, functionName, sourceText, file);
@@ -544,7 +604,7 @@ function analyzeAggregateProducerExpr(expr, scope, functionSymbols, targetType, 
                 const right = analyzeAggregateProducerExpr(expr.right, scope, functionSymbols, targetType, functionName, sourceText, file);
                 return {
                     kind: "comma",
-                    left: analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
+                    left: analyzeDiscardedExpr(expr.left, scope, functionSymbols, functionName, sourceText, file),
                     right,
                     type: right.type,
                 };
@@ -1550,8 +1610,25 @@ function analyzeForInitializer(init, scope, allLocals, localList, globals, funct
         initStatements: init.initStatements?.map((stmt) => analyzeSimpleStmt(stmt, scope, functionSymbols, functionName, sourceText, file)),
     };
 }
+function analyzeDiscardedExpr(expr, scope, functions, fn, source, file) {
+    try {
+        const value = analyzeAggregateProducerExpr(expr, scope, functions, undefined, fn, source, file);
+        return { kind: "aggregateProducerFieldAddress", source: value, offset: 0, type: toSemanticPointerType({ kind: "aggregate", aggregateKind: value.type.aggregateKind, name: value.type.name }) };
+    }
+    catch {
+        return analyzeExpr(expr, scope, functions, fn, source, file);
+    }
+}
 function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, file) {
     switch (expr.kind) {
+        case "compoundAddress": {
+            const symbol = lookupVisible(scope, expr.name);
+            if (!symbol || (symbol.kind !== "local" && symbol.kind !== "global"))
+                throw new Error(`Unknown compound literal '${expr.name}'.`);
+            const type = toSemanticPointerType(symbol.type.kind === "array" ? getArrayDecayPointee(symbol.type) : toPointerPointee(symbol.type));
+            const address = symbol.kind === "local" ? { kind: "localAddress", symbol, type } : { kind: "globalAddress", symbol, type };
+            return { kind: "compoundAddress", address, type, initializers: expr.initializers.map((stmt) => analyzeStmt(stmt, scope, new Map(), [], [], functionSymbols, functionName, sourceText, file)) };
+        }
         case "const":
             return { kind: "const", value: expr.value, type: toSemanticScalarType("int") };
         case "string":
@@ -1629,6 +1706,8 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
             return { kind: "localAddress", symbol, type: toSemanticPointerType(toPointerPointee(symbol.type)) };
         }
         case "addressOfExpr": {
+            if (expr.expr.kind === "deref")
+                return analyzeExpr(expr.expr.expr, scope, functionSymbols, functionName, sourceText, file);
             if (expr.expr.kind === "arrayPointerElement") {
                 return getAggregateBasePointerFromExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file).pointer;
             }
@@ -2373,7 +2452,7 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
             };
         }
         case "comma": {
-            const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
+            const left = analyzeDiscardedExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
             const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
             if (right.type.kind === "functionPointer") {
                 (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `TsSccCompilerAdapter Phase C subset does not support comma expressions yielding function pointers in ${functionName}().`, {
@@ -2796,6 +2875,8 @@ function getArrayElementStorageBytes(type) {
 }
 function getBoundExprStorageBytes(expr) {
     switch (expr.kind) {
+        case "compoundAddress":
+            return expr.type.width;
         case "const":
         case "string":
         case "vaStart":
@@ -2844,6 +2925,12 @@ function getBoundExprStorageBytes(expr) {
     }
 }
 function getSourceExprStorageBytes(expr, scope, functionSymbols, functionName, sourceText, file) {
+    if (expr.kind === "compoundAddress" || (expr.kind === "deref" && expr.expr.kind === "compoundAddress")) {
+        const name = expr.kind === "compoundAddress" ? expr.name : expr.expr.name;
+        const symbol = lookupVisible(scope, name);
+        if (symbol && (symbol.kind === "local" || symbol.kind === "global"))
+            return getTypeStorageBytes(symbol.type);
+    }
     if (expr.kind === "ref") {
         const symbol = lookupVisible(scope, expr.name);
         if (!symbol || (symbol.kind !== "local" && symbol.kind !== "param")) {

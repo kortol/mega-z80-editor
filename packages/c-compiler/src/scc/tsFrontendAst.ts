@@ -125,7 +125,7 @@ export type SourceGlobalDecl = {
   initializer?: SourceInitializer;
 };
 
-export type SourceInitializer =
+export type SourceInitializer = (
   | {
     kind: "expr";
     expr: SourceExpr;
@@ -133,7 +133,8 @@ export type SourceInitializer =
   | {
     kind: "list";
     items: SourceInitializer[];
-  };
+    activeUnionField?: number;
+  }) & { designators?: Array<string | number> };
 
 export type SourceBlock = {
   kind: "block";
@@ -156,6 +157,10 @@ export type BitwiseOp = "&" | "^" | "|";
 export type BinaryOp = LogicalOp | BitwiseOp | CompareOp | ShiftOp | AdditiveOp | MultiplicativeOp;
 
 export type SourceStmt = (
+  | { kind: "goto"; name: string }
+  | { kind: "label"; name: string; statement: SourceStmt }
+  | { kind: "block"; block: SourceBlock }
+  | { kind: "empty" }
   | {
     kind: "return";
     expr: SourceExpr;
@@ -319,6 +324,7 @@ export type SourceForInit =
   };
 
 export type SourceExpr =
+  | { kind: "compoundAddress"; name: string; initializers: SourceSimpleStmt[] }
   | { kind: "const"; value: number }
   | { kind: "string"; value: string }
   | { kind: "ref"; name: string }

@@ -6,32 +6,51 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.preprocessTsCSource = preprocessTsCSource;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
-/** Small, intentionally non-general preprocessor for bundled C runtime headers. */
+const tsMacro_1 = require("./tsMacro");
+/** Token-aware preprocessing for user and bundled headers in the fixed C Subset. */
 function preprocessTsCSource(input, file, opts = {}) {
-    const macros = new Map(Object.entries(opts.defines ?? {}));
+    const macros = new Map(Object.entries(opts.defines ?? {}).map(([name, body]) => [name, { body }]));
     const bundledDirs = new Set((opts.bundledIncludeDirs ?? []).map((entry) => node_path_1.default.resolve(entry)));
     const runtimeVariadicNames = new Set();
-    let assertMacroEnabled = false;
     const stack = [];
     const process = (source, sourceFile) => {
         const resolved = node_path_1.default.resolve(sourceFile);
-        if (stack.includes(resolved))
-            throw new Error(`TsSccCompilerAdapter preprocessor include cycle: ${[...stack, resolved].join(" -> ")}`);
+        // A guarded recursive include is valid; the guard suppresses its body.
+        if (stack.length >= 64)
+            throw new Error(`TsSccCompilerAdapter preprocessor include cycle/depth limit: ${[...stack, resolved].join(" -> ")}`);
         stack.push(resolved);
         const output = [];
+        let pending = [];
+        const flush = () => { if (pending.length)
+            output.push((0, tsMacro_1.expand)(pending.join("\n"), macros)); pending = []; };
         const conditions = [];
         const active = () => conditions.every((entry) => entry.parent && entry.value);
-        for (const line of source.split(/\r?\n/)) {
-            const directive = /^\s*#\s*([A-Za-z]+)(.*)$/.exec(line);
-            if (!directive) {
-                output.push(active() ? expandMacros(line, macros, assertMacroEnabled) : "");
+        for (const line of (0, tsMacro_1.stripComments)(source.replace(/\\\r?\n/g, "")).split(/\r?\n/)) {
+            if (/^\s*#\s*$/.test(line)) {
+                pending.push("");
                 continue;
             }
+            const directive = /^\s*#\s*([A-Za-z]+)(.*)$/.exec(line);
+            if (!directive) {
+                pending.push(active() ? line : "");
+                continue;
+            }
+            flush();
             const [, command, restRaw] = directive;
             const rest = restRaw.trim();
             if (command === "ifdef" || command === "ifndef" || command === "if") {
-                const value = command === "ifdef" ? macros.has(rest) : command === "ifndef" ? !macros.has(rest) : evaluateIf(rest, macros);
-                conditions.push({ parent: active(), value, sawElse: false });
+                const parent = active();
+                const value = parent && (command === "ifdef" ? macros.has(rest) : command === "ifndef" ? !macros.has(rest) : (0, tsMacro_1.evaluateCondition)(rest, macros));
+                conditions.push({ parent, value, taken: value, sawElse: false });
+                output.push("");
+                continue;
+            }
+            if (command === "elif") {
+                const current = conditions.at(-1);
+                if (!current || current.sawElse)
+                    throw new Error(`TsSccCompilerAdapter preprocessor invalid #elif in ${resolved}.`);
+                current.value = current.parent && !current.taken && (0, tsMacro_1.evaluateCondition)(rest, macros);
+                current.taken ||= current.value;
                 output.push("");
                 continue;
             }
@@ -39,7 +58,8 @@ function preprocessTsCSource(input, file, opts = {}) {
                 const current = conditions.at(-1);
                 if (!current || current.sawElse || rest)
                     throw new Error(`TsSccCompilerAdapter preprocessor invalid #else in ${resolved}.`);
-                current.value = !current.value;
+                current.value = current.parent && !current.taken;
+                current.taken = true;
                 current.sawElse = true;
                 output.push("");
                 continue;
@@ -55,7 +75,8 @@ function preprocessTsCSource(input, file, opts = {}) {
                 continue;
             }
             if (command === "include") {
-                const include = /^(?:"([^"]+)"|<([^>]+)>)$/.exec(rest);
+                const expanded = rest.startsWith('"') || rest.startsWith("<") ? rest : (0, tsMacro_1.expand)(rest, macros);
+                const include = /^(?:"([^"]+)"|<([^>]+)>)$/.exec(expanded);
                 if (!include)
                     throw new Error(`TsSccCompilerAdapter preprocessor only supports quoted or angle #include in ${resolved}.`);
                 const name = include[1] ?? include[2];
@@ -70,23 +91,25 @@ function preprocessTsCSource(input, file, opts = {}) {
                 continue;
             }
             if (command === "define") {
-                const functionMacro = /^([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*)\s*\)\s+(.+)$/.exec(rest);
+                const functionMacro = /^([A-Za-z_]\w*)\(([^)]*)\)\s*(.*)$/.exec(rest);
                 if (functionMacro) {
                     const [, name, parameter, replacement] = functionMacro;
-                    if (name === "assert" && parameter === "expression" && replacement === "__mz80_assert(expression)") {
-                        assertMacroEnabled = true;
-                        output.push("");
-                        continue;
-                    }
-                    throw new Error(`TsSccCompilerAdapter preprocessor supports no function-like #define other than bundled assert in ${resolved}.`);
+                    const params = parameter.trim() ? parameter.split(",").map((item) => item.trim()) : [];
+                    if (new Set(params).size !== params.length || params.some((item) => !/^[A-Za-z_]\w*$/.test(item)))
+                        throw new Error(`Invalid macro parameters for '${name}'.`);
+                    if (opts.defines?.[name] !== undefined)
+                        throw new Error(`TsSccCompilerAdapter preprocessor cannot override configured define ${name}.`);
+                    macros.set(name, { params, body: replacement });
+                    output.push("");
+                    continue;
                 }
                 const match = /^([A-Za-z_]\w*)(?:\s+(.*))?$/.exec(rest);
                 if (!match || rest.startsWith(`${match?.[1]}(`))
                     throw new Error(`TsSccCompilerAdapter preprocessor supports object-like #define only in ${resolved}.`);
-                const [, name, value = "1"] = match;
+                const [, name, value = ""] = match;
                 if (opts.defines?.[name] !== undefined && opts.defines[name] !== value)
                     throw new Error(`TsSccCompilerAdapter preprocessor cannot override configured define ${name}.`);
-                macros.set(name, value);
+                macros.set(name, { body: value });
                 output.push("");
                 continue;
             }
@@ -95,14 +118,13 @@ function preprocessTsCSource(input, file, opts = {}) {
                     throw new Error(`TsSccCompilerAdapter preprocessor invalid #undef in ${resolved}.`);
                 if (opts.defines?.[rest] !== undefined)
                     throw new Error(`TsSccCompilerAdapter preprocessor cannot undef configured define ${rest}.`);
-                if (rest === "assert")
-                    assertMacroEnabled = false;
                 macros.delete(rest);
                 output.push("");
                 continue;
             }
             throw new Error(`TsSccCompilerAdapter preprocessor does not support #${command} in ${resolved}.`);
         }
+        flush();
         stack.pop();
         if (conditions.length)
             throw new Error(`TsSccCompilerAdapter preprocessor missing #endif in ${resolved}.`);
@@ -113,50 +135,4 @@ function preprocessTsCSource(input, file, opts = {}) {
 function resolveInclude(name, angle, from, dirs) {
     const candidates = [...(angle ? [] : [node_path_1.default.join(node_path_1.default.dirname(from), name)]), ...dirs.map((dir) => node_path_1.default.join(node_path_1.default.resolve(dir), name))];
     return candidates.find((entry) => node_fs_1.default.existsSync(entry) && node_fs_1.default.statSync(entry).isFile());
-}
-function evaluateIf(expression, macros) {
-    const match = /^defined\s*(?:\(\s*([A-Za-z_]\w*)\s*\)|\s+([A-Za-z_]\w*))$/.exec(expression);
-    if (match)
-        return macros.has(match[1] ?? match[2]);
-    if (/^[A-Za-z_]\w*$/.test(expression))
-        return macros.has(expression) && macros.get(expression) !== "0";
-    if (/^(?:0|1)$/.test(expression))
-        return expression === "1";
-    throw new Error(`TsSccCompilerAdapter preprocessor only supports #if defined(NAME), #if NAME, and #if 0/1; got '${expression}'.`);
-}
-function expandMacros(line, macros, assertMacroEnabled) {
-    let result = line;
-    for (const [name, value] of macros)
-        result = result.replace(new RegExp(`\\b${name}\\b`, "g"), value);
-    return assertMacroEnabled ? expandAssertMacro(result) : result;
-}
-/** Expand the one documented bundled function-like macro while still rejecting
- * arbitrary function-like macros. Balanced scanning lets assert(a && (b || c))
- * work without pretending this preprocessor is a general macro engine. */
-function expandAssertMacro(line) {
-    let output = "";
-    let cursor = 0;
-    while (cursor < line.length) {
-        const match = /\bassert\s*\(/g;
-        match.lastIndex = cursor;
-        const found = match.exec(line);
-        if (!found)
-            return output + line.slice(cursor);
-        const open = line.indexOf("(", found.index);
-        let depth = 1;
-        let end = open + 1;
-        while (end < line.length && depth > 0) {
-            if (line[end] === "(")
-                depth += 1;
-            else if (line[end] === ")")
-                depth -= 1;
-            end += 1;
-        }
-        if (depth !== 0)
-            return output + line.slice(cursor);
-        output += line.slice(cursor, found.index);
-        output += `__mz80_assert(${line.slice(open + 1, end - 1)})`;
-        cursor = end;
-    }
-    return output;
 }

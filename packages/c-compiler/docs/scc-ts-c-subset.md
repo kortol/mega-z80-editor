@@ -1,6 +1,6 @@
 # TsSccCompiler C Subset Feature Inventory
 
-更新日: 2026-09-10
+更新日: 2026-09-29
 
 ## Purpose
 
@@ -56,7 +56,8 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | D05 | complex declarators, function-pointer, and internal variadic surface | S | S | S | S | S | balanced function-pointer declarators cover named/abstract callback parameters, typedef/local/global/field/parameter/return forms, including arbitrary fixed trailing array dimensions. Internal direct/static and function-pointer variadic calls use the dedicated right-to-left slot ABI. `va_list` / `va_start` / `va_arg` / `va_end` support `char`/`int`/scalar-pointer/function-pointer slots and CP/M runtime evidence. External variadic linkage, variadic aggregate arguments, function-returning-function, function/array return, and VLA remain out of scope. |
 | I01 | scalar and string-literal initialization | S | S | S | S | S | string literal support is char-array only |
 | I02 | local/file-scope aggregate brace initialization and zero fill | S | S | S | S | S | covered nested current layouts, row-braced 2-D aggregate arrays, and local/file-scope fully flat 2-D arrays of scalar/pointer/function-pointer, nested-struct, and scalar-like array-field structs; union flat initializers remain explicitly braced |
-| I03 | arbitrary nested/designated/compound-literal initialization | N | N | N | N | N | outside current initializer model |
+| I03 | recursive brace and designated initialization | S | S | S | S | S | brace elision、`.member` / `[index]` designator、designator 後の連続初期化、union active member、zero fill、nested aggregate copy、local/global/static と fixed-dimensional array を source-path CP/M test で確認。 |
+| I04 | compound literal | S | S | S | P | P | current scalar、fixed array、struct/union の block/file-scope storage と address/member/index consumer を実装中。評価回数、aggregate call/return、nested consumer の全 runtime matrix は未完了。 |
 | E01 | integer arithmetic, shifts, bitwise, comparisons | S | S | S | S | S | current char/int widths |
 | E02 | logical operators, conditional, comma, assignment expressions | S | S | S | S | S | short-circuit covered; aggregate lvalue result remains separate |
 | E03 | scalar/pointer casts and `sizeof` | S | S | S | S | S | aggregate casts and full type coverage excluded |
@@ -71,8 +72,8 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | S01 | expression/compound statements, blocks, lexical scopes | S | S | S | S | S | current nesting limit applies |
 | S02 | `if`/`else`, `switch`/`case`, `while`, `do`, `for` | S | S | S | S | S | case labels are integer literals; control nesting is capped |
 | S03 | `break` / `continue` | S | S | S | S | S | valid loop/switch contexts only |
-| S04 | `goto` / label | N | N | N | N | N | intentionally not implemented |
-| P01 | bundled-header preprocessing | P | - | - | P | P | quoted/angle bundled `#include`、object-like `#define`、include guard、`#ifdef`/`#ifndef`/`#if defined`/`#else`/`#endif` は TS source path で対応する。function-like macro、arbitrary system header、`#undef`、一般 `#if` expression は明示診断であり、full preprocessor は対象外。 |
+| S04 | `goto` / function-scoped label | S | S | S | S | S | forward/backward jump、nested block/loop exit、duplicate/undefined diagnostic、function-local label namespace を source-path CP/M test で確認。 |
+| P01 | token-aware preprocessing | S | - | - | S | S | quoted/angle include、include guard、object/function macro、recursive expansion suppression、`#`/`##`、`#undef`、`#elif`、integer `#if`、macro include name を source-path test で確認。variadic macro、pragma、line-control、system header discovery は current Subset の対象外。 |
 | A01 | `.scc.asm`, translation, assembly, link, CP/M execution | S | - | S | S | S | source-path adapter evidence only |
 
 ## Expression Syntax and Operand Matrix
@@ -170,5 +171,6 @@ Matrix notes:
 
 1. `D02`: qualifier を型モデルへ保持し、`const` object / pointer-to-const への書込みを診断する。
 2. `D05` の残境界: function-returning-function は C の不正宣言として診断し、VLA、external variadic linkage、variadic aggregate argument は現行 grammar/ABI の対象外である。固定長 3-D+ declarator は `T05` の対象である。
-3. `E07`: aggregate compare/truthiness と一般 aggregate lvalue expression result を Subset の意図的 reject として維持するか、一般 expression model の対象にするか決定する。
-4. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。
+3. `I03` / `I04`: nested aggregate copy initializer と compound literal の aggregate call/return・nested consumer を package-wide runtime test で再確認し、P を S へ移す条件を満たす。
+4. `E07`: aggregate compare/truthiness は C の不正操作として診断を維持する。legal aggregate producer/consumer は I03/I04 の完了と合わせて証跡を追加する。
+5. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。

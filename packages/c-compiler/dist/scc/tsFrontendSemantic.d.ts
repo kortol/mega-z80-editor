@@ -138,6 +138,18 @@ type BoundAggregateAssignmentTarget = ((BoundLocalSymbol | BoundGlobalSymbol) & 
 };
 export type BoundCallArg = BoundExpr | BoundAggregateValueExpr;
 export type BoundStmt = {
+    kind: "goto";
+    name: string;
+} | {
+    kind: "label";
+    name: string;
+    statement: BoundStmt;
+} | {
+    kind: "block";
+    block: BoundBlock;
+} | {
+    kind: "empty";
+} | {
     kind: "return";
     expr: BoundExpr | BoundAggregateValueExpr;
 } | {
@@ -221,6 +233,11 @@ export type BoundForInit = BoundSimpleStmt | {
     kind: "staticDecl";
 };
 export type BoundExpr = {
+    kind: "compoundAddress";
+    initializers: BoundStmt[];
+    address: BoundExpr;
+    type: SemanticPointerType;
+} | {
     kind: "const";
     value: number;
     type: SemanticScalarType;

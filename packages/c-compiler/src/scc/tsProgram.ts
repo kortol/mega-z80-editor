@@ -37,6 +37,7 @@ export type CallArgSpec =
   | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerSpec, { kind: "addressArg" }> };
 
 export type ExprSpec =
+  | { kind: "initializedAddress"; initializers: StatementSpec[]; address: ExprSpec }
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
   | { kind: "globalAddress"; name: string }
@@ -123,6 +124,7 @@ export type CallArgIR =
   | { kind: "aggregateConsumer"; consumer: Extract<AggregateConsumerIR, { kind: "addressArg" }> };
 
 export type ExprIR =
+  | { kind: "initializedAddress"; initializers: StmtIRHigh[]; address: ExprIR }
   | { kind: "const"; value: number }
   | { kind: "dataAddress"; label: string }
   | { kind: "globalAddress"; name: string }
@@ -169,6 +171,9 @@ export type FunctionIR = {
 };
 
 export type StmtIRHigh =
+  | { kind: "userGoto"; name: string }
+  | { kind: "userLabel"; name: string }
+  | { kind: "sequence"; body: StmtIRHigh[] }
   | { kind: "materializeAggregateProducer"; destination: AggregateDestinationIR; source: AggregateProducerIR }
   | { kind: "assignLocalConst"; slot: number; width: ValueWidth; value: number }
   | { kind: "assignLocalExpr"; slot: number; width: ValueWidth; expr: ExprIR }
@@ -294,6 +299,9 @@ export function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
 
 function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState, loop?: LoopContext): StatementSpec[] {
   switch (stmt.kind) {
+    case "userGoto": return [{ kind: "jump", target: `.${state.labelPrefix}_user_${stmt.name}` }];
+    case "userLabel": return [{ kind: "label", name: `.${state.labelPrefix}_user_${stmt.name}` }];
+    case "sequence": return stmt.body.flatMap((child) => lowerStmtIR(child, layout, state, loop));
     case "materializeAggregateProducer":
       return [{
         kind: "materializeAggregateProducer",
@@ -484,6 +492,11 @@ function allocateNumericLabel(state: LoweringState): string {
 }
 
 function lowerExprIR(expr: ExprIR, layout: FunctionLayout): ExprSpec {
+  if (expr.kind === "initializedAddress") return {
+    kind: "initializedAddress",
+    initializers: expr.initializers.flatMap((stmt) => lowerStmtIR(stmt, layout, { labelPrefix: "literal", nextLabelId: 0 })),
+    address: lowerExprIR(expr.address, layout),
+  };
   switch (expr.kind) {
     case "const":
       return { kind: "const", value: expr.value };
@@ -864,6 +877,7 @@ function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[]
 }
 
 function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
+  if (expr.kind === "initializedAddress") return [...expr.initializers.flatMap((stmt) => emitStatement(stmt, ctx)), ...emitExprToHl(expr.address, ctx)];
   switch (expr.kind) {
     case "const":
       return [`\tld\thl,#${expr.value}`];
