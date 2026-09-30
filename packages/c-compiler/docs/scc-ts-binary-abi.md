@@ -10,7 +10,7 @@
 
 **SDCC `__sdcccall(0)`** は将来の追加 compatibility profile 候補であり、既定 ABI ではない。stack-only、caller cleanup、16-bit `HL` return は近いが、8-bit return、argument layout、hidden aggregate-return slot を独立に検証する必要がある。
 
-現時点では register preservation、signedness、alignment の一部は未確定である。未確定項目は ABI 契約として利用してはならない。
+内部 TS ABI の stack/frame、call/return、byte-packed aggregate layout は source-path CP/M runtime で確認済みである。register preservation は external ABI 契約としては未確定であり、利用してはならない。
 
 ## Data Layout
 
@@ -97,7 +97,7 @@ Small-C proof obligations are: 8/16-bit return register, argument push order and
 | aggregate temporary slots | lowering allocation + frame layout | aggregate call/field consumer runtime tests | S |
 | Small-C external assembler/object interoperability | compatibility profile | no direct external object test | P |
 | SDCC `__sdcccall(0)` interoperability | compatibility profile | no implementation/test | N |
-| byte-packed aggregate layout | semantic layout + emitter | aggregate field/initializer tests | P |
+| byte-packed aggregate layout | semantic layout + emitter | unaligned `char`/`int`/`char` struct と union の by-value call/hidden-return CP/M test | S |
 | register preserved/clobbered set | none | no direct contract test | N |
 | stack alignment | none required/defined | Z80 byte-addressable stack only | N |
 

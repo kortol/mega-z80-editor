@@ -868,6 +868,15 @@ function materializeAggregateAssignExprViaTempLocal(source, destination, externs
     ];
 }
 function lowerAggregateSourceAddressToDestination(sourcePointer, sourceType, destination) {
+    // Keep compound-literal initialization outside the byte/field copy.  The
+    // copy helpers re-read a source pointer for every field, while a compound
+    // literal expression must be evaluated exactly once.
+    if (sourcePointer.kind === "initializedAddress") {
+        return [
+            ...sourcePointer.initializers,
+            ...lowerAggregateSourceAddressToDestination(sourcePointer.address, sourceType, destination),
+        ];
+    }
     switch (destination.kind) {
         case "localSlot":
             return lowerAggregateCopySourceAddressToLocalSlot(sourcePointer, destination.slot, destination.type);

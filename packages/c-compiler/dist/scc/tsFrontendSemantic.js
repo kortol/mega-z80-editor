@@ -1722,6 +1722,16 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
                 if (arrayFieldAddress) {
                     return arrayFieldAddress;
                 }
+                // `&((struct O){...}).member` is an address consumer.  Determine an
+                // aggregate member directly from the compound-literal storage instead
+                // of first materializing it as a scalar member read.
+                if (expr.expr.kind === "memberExprAccess" && expr.expr.target.kind === "deref" && expr.expr.target.expr.kind === "compoundAddress") {
+                    const base = getAggregateBasePointerFromExpr(expr.expr.target, scope, functionSymbols, functionName, sourceText, file);
+                    const field = getAggregateFieldLayout(base.type, expr.expr.field, functionName, sourceText, file);
+                    if (field.type.kind === "aggregate") {
+                        return getAggregateObjectPointerFromExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file).pointer;
+                    }
+                }
             }
             const target = analyzeExpr(expr.expr, scope, functionSymbols, functionName, sourceText, file);
             if (isAggregateFieldAccessExpr(expr.expr) && target.type.kind === "pointer" && target.kind !== "deref") {
@@ -3413,6 +3423,23 @@ function getAggregateObjectPointerFromExpr(targetExpr, scope, functionSymbols, f
 function getAggregateBasePointerFromExpr(targetExpr, scope, functionSymbols, functionName, sourceText, file) {
     if (targetExpr.kind === "arrayIndex") {
         const symbol = lookupVisible(scope, targetExpr.name);
+        if (symbol && (symbol.kind === "local" || symbol.kind === "param" || symbol.kind === "global") && symbol.type.kind === "pointer") {
+            const aggregate = typeof symbol.type.pointee === "string" ? undefined : symbol.type.pointee.kind === "aggregate" ? symbol.type.pointee : undefined;
+            if (!aggregate) {
+                (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `TsSccCompilerAdapter C Subset expected an aggregate array element in ${functionName}().`, { file, offset: 0 });
+            }
+            const type = toSemanticType(aggregate);
+            return {
+                pointer: {
+                    kind: "arrayElementAddress",
+                    base: symbol.kind === "global" ? { kind: "globalRef", symbol, type: symbol.type } : { kind: "ref", symbol, type: symbol.type },
+                    indices: [analyzeExpr(targetExpr.index, scope, functionSymbols, functionName, sourceText, file)],
+                    scales: [type.size],
+                    type: toSemanticPointerType({ kind: "aggregate", aggregateKind: type.aggregateKind, name: type.name }),
+                },
+                type,
+            };
+        }
         if (!symbol
             || (symbol.kind !== "local" && symbol.kind !== "param" && symbol.kind !== "global")
             || symbol.type.kind !== "array"
@@ -3439,14 +3466,17 @@ function getAggregateBasePointerFromExpr(targetExpr, scope, functionSymbols, fun
     }
     if (targetExpr.kind === "arrayPointerElement") {
         const rowPointer = analyzeExpr(targetExpr.pointer, scope, functionSymbols, functionName, sourceText, file);
-        if (rowPointer.type.kind !== "pointer"
-            || typeof rowPointer.type.pointee === "string"
-            || rowPointer.type.pointee.kind !== "arrayPointer"
-            || !rowPointer.type.pointee.elementValueType
-            || rowPointer.type.pointee.elementValueType.kind !== "aggregate") {
+        if (rowPointer.type.kind !== "pointer" || typeof rowPointer.type.pointee === "string") {
             (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `TsSccCompilerAdapter C Subset expected an aggregate array element in ${functionName}().`, { file, offset: 0 });
         }
-        const aggregate = rowPointer.type.pointee.elementValueType;
+        const aggregate = rowPointer.type.pointee.kind === "aggregate"
+            ? rowPointer.type.pointee
+            : rowPointer.type.pointee.kind === "arrayPointer" && rowPointer.type.pointee.elementValueType?.kind === "aggregate"
+                ? rowPointer.type.pointee.elementValueType
+                : undefined;
+        if (!aggregate) {
+            (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `TsSccCompilerAdapter C Subset expected an aggregate array element in ${functionName}().`, { file, offset: 0 });
+        }
         const type = toSemanticType(aggregate);
         return {
             pointer: {

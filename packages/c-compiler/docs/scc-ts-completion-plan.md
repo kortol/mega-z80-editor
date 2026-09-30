@@ -29,7 +29,7 @@ rejections and is not a percentage of this implementation target.
   designator; cover local/global/static, structs/unions and fixed-dimensional
   arrays. Preserve evaluation of initializer expressions and nested aggregate
   copies. Unit plus independent CP/M tests.
-- [ ] I04/X31: compound literals for supported object types, correct automatic
+- [x] I04/X31: compound literals for supported object types, correct automatic
   block lifetime and static file-scope storage; address/member/index consumers,
   by-value call/return and repeated evaluation. Diagnose invalid type/initializer.
 - [x] E07: audit legal aggregate lvalue-to-value consumers, expression statements,
@@ -47,5 +47,6 @@ rejections and is not a percentage of this implementation target.
 Initial checkout: clean main, HEAD 550c6b3. Existing #undef support is ahead of
 the inventory text; verify behavior instead of reimplementing it blindly.
 Completed verification: `pnpm test` (all package suites), `pnpm run typecheck`,
-`pnpm run build`, and `git diff --check`. The remaining I04 work is represented
-as P in the C Subset inventory.
+`pnpm run build`, and `git diff --check`. Compound literals are runtime-covered
+for aggregate by-value calls/returns, conditional consumers, nested member/address
+consumers, and repeated evaluation; no implementation-target P item remains.

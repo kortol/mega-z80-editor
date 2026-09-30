@@ -33,7 +33,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 ### Explicitly out of scope
 
 - `long`、浮動小数点、complex、atomic、bit-field、flexible array member。
-- `goto`/label、VLA、compound literal、designated initializer。
+- VLA。
 - Full preprocessor、完全な linkage/storage-duration、ISO C の全 conversion rule。
 
 これらは `N` だが、失敗時は legacy compiler へ自動フォールバックせず TypeScript compiler の診断として扱う。
@@ -57,7 +57,7 @@ non-scalar array element と2-D aggregate array の実装設計は [scc-ts-array
 | I01 | scalar and string-literal initialization | S | S | S | S | S | string literal support is char-array only |
 | I02 | local/file-scope aggregate brace initialization and zero fill | S | S | S | S | S | covered nested current layouts, row-braced 2-D aggregate arrays, and local/file-scope fully flat 2-D arrays of scalar/pointer/function-pointer, nested-struct, and scalar-like array-field structs; union flat initializers remain explicitly braced |
 | I03 | recursive brace and designated initialization | S | S | S | S | S | brace elision、`.member` / `[index]` designator、designator 後の連続初期化、union active member、zero fill、nested aggregate copy、local/global/static と fixed-dimensional array を source-path CP/M test で確認。 |
-| I04 | compound literal | S | S | S | P | P | current scalar、fixed array、struct/union の block/file-scope storage と address/member/index consumer を実装中。評価回数、aggregate call/return、nested consumer の全 runtime matrix は未完了。 |
+| I04 | compound literal | S | S | S | S | S | scalar/fixed array/struct/union の block/file-scope storage、address/member/index、aggregate value argument/return、conditional、nested member/address と評価ごとの初期化を source-path CP/M test で確認。 |
 | E01 | integer arithmetic, shifts, bitwise, comparisons | S | S | S | S | S | current char/int widths |
 | E02 | logical operators, conditional, comma, assignment expressions | S | S | S | S | S | short-circuit covered; aggregate lvalue result remains separate |
 | E03 | scalar/pointer casts and `sizeof` | S | S | S | S | S | aggregate casts and full type coverage excluded |
@@ -150,7 +150,7 @@ Matrix notes:
 | X28 | indirect call `fp(args)`, `(*p)(args)`, `f()(args)` | local/file-scope/function-pointer field target, `F *`+, function-pointer return | S | S | S | S | S | multi-level `F *` local/array/parameter, typedef field targets, plus 3-D/4-D local/global/parameter/field/typedef function-pointer element calls are runtime-covered |
 | X29 | aggregate producer expression | aggregate ref, call, assignment result, conditional, comma | S | S | S | S | S | dedicated producer/consumer representation |
 | X30 | aggregate consumer | field read/address, call argument, initializer, return | S | S | S | S | S | not a general scalar-expression conversion |
-| X31 | unsupported expression forms | compound literal, statement expression, generic selection, `typeof`, floating literal | N | N | N | N | N | outside current C Subset |
+| X31 | unsupported expression forms | statement expression, generic selection, `typeof`, floating literal | N | N | N | N | N | outside current C Subset |
 
 ### Expression Rejection Policy
 
@@ -171,6 +171,5 @@ Matrix notes:
 
 1. `D02`: qualifier を型モデルへ保持し、`const` object / pointer-to-const への書込みを診断する。
 2. `D05` の残境界: function-returning-function は C の不正宣言として診断し、VLA、external variadic linkage、variadic aggregate argument は現行 grammar/ABI の対象外である。固定長 3-D+ declarator は `T05` の対象である。
-3. `I03` / `I04`: nested aggregate copy initializer と compound literal の aggregate call/return・nested consumer を package-wide runtime test で再確認し、P を S へ移す条件を満たす。
-4. `E07`: aggregate compare/truthiness は C の不正操作として診断を維持する。legal aggregate producer/consumer は I03/I04 の完了と合わせて証跡を追加する。
-5. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。
+3. `E07`: aggregate compare/truthiness は C の不正操作として診断を維持する。
+4. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。
