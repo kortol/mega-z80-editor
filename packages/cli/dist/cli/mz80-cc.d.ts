@@ -3,6 +3,7 @@ import { RuntimeSelection } from "@mz80/c-compiler";
 export type Mz80CcCompilerKind = "sccz80" | "ts";
 export type Mz80CcCliOptions = {
     compiler?: Mz80CcCompilerKind;
+    tsAbi?: "internal" | "static-frame";
     runtime?: RuntimeSelection;
     library?: string[];
     include?: string[];

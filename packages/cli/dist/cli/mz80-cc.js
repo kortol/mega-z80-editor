@@ -10,8 +10,12 @@ const c_compiler_2 = require("@mz80/c-compiler");
 function compileSccProgramFromCli(logger, inputFile, outputFile, opts) {
     const resolvedOutput = node_path_1.default.resolve(outputFile);
     const defaultCom = /\.com$/i.test(resolvedOutput);
+    if (opts.tsAbi && opts.compiler !== "ts")
+        throw new Error("tsAbi requires compiler: ts");
+    if (opts.tsAbi && !["internal", "static-frame"].includes(opts.tsAbi))
+        throw new Error("Unknown TS ABI");
     const compilerAdapter = opts.compiler === "ts"
-        ? new c_compiler_2.TsSccCompilerAdapter()
+        ? new c_compiler_2.TsSccCompilerAdapter({ abi: opts.tsAbi === "static-frame" ? "ts-static-frame" : "ts-internal" })
         : new c_compiler_2.ExternalSccCompilerAdapter({
             dcppPath: opts.dcpp,
             sccz80Path: opts.sccz80,

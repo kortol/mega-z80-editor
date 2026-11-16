@@ -6,6 +6,7 @@
 
 - [scc-ts-c-subset.md](scc-ts-c-subset.md): supported / unsupported C subset matrix
 - [scc-ts-binary-abi.md](scc-ts-binary-abi.md): generated code、aggregate、pointer-to-array、variadic ABI
+- [scc-ts-static-frame-abi-design.md](scc-ts-static-frame-abi-design.md): A1.1 non-reentrant ABI の Goal、MVP contract、task 分解
 - [scc-ts-array-element-design.md](scc-ts-array-element-design.md): fixed-size multidimensional array design
 - [scc-runtime-guide.md](scc-runtime-guide.md): multi-platform runtime configuration、ABI、library boundary、artifact
 - [scc-feature-plan.md](scc-feature-plan.md): 全体 Feature List、次期の repository 整備、ABI profile、heap、numeric / float 拡張計画

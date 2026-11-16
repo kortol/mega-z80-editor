@@ -1,4 +1,8 @@
 export type ValueWidth = 1 | 2;
+export type TsAbiProfile = "ts-internal" | "ts-static-frame";
+export function staticFrameEntry(name: string): string {
+  return name === "main" ? name : `__ts_static_frame_v1_${name}`;
+}
 
 export type ProgramSpec = {
   moduleName: string;
@@ -82,6 +86,7 @@ export type ExprSpec =
 export type FunctionSpec = {
   name: string;
   statements: StatementSpec[];
+  staticFrame?: { label: string; size: number; params: Array<{ offset: number; width: ValueWidth }> };
 };
 
 export type DataSpec = {
@@ -164,6 +169,7 @@ export type ExprIR =
 
 export type FunctionIR = {
   name: string;
+  abi?: TsAbiProfile;
   params: ValueWidth[];
   isVariadic?: boolean;
   locals: number[];
@@ -245,6 +251,8 @@ type StatementSpec =
 
 type EmitExprContext = {
   stackDelta: number;
+  staticFrame?: string;
+  staticFunctions?: Map<string, NonNullable<FunctionSpec["staticFrame"]>>;
   labels: {
     nextLogicalLabelId: number;
     labelPrefix: string;
@@ -254,7 +262,7 @@ type EmitExprContext = {
 export function emitProgram(spec: ProgramSpec): string {
   const lines: string[] = [];
   for (const exp of spec.exports ?? []) {
-    lines.push(`\t.globl\t${exp}`);
+    lines.push(`\t.globl\t${spec.functions.some((fn) => fn.name === exp && fn.staticFrame) ? staticFrameEntry(exp) : exp}`);
   }
   for (const ext of spec.externs ?? []) {
     lines.push(`\t.globl\t${ext}`);
@@ -262,7 +270,7 @@ export function emitProgram(spec: ProgramSpec): string {
   lines.push(`\t.module\t${spec.moduleName}`);
   lines.push("\t.area\t_CODE");
   for (const fn of spec.functions) {
-    lines.push(...emitFunction(fn));
+    lines.push(...emitFunction(fn, spec.functions));
   }
   if (spec.data && spec.data.length > 0) {
     lines.push("\t.area\t_DATA");
@@ -274,6 +282,9 @@ export function emitProgram(spec: ProgramSpec): string {
   }
   if (spec.includeBss || (spec.bss && spec.bss.length > 0)) {
     lines.push("\t.area\t_BSS");
+    for (const fn of spec.functions) {
+      if (fn.staticFrame) lines.push(`${fn.staticFrame.label}:\t.ds\t${Math.max(1, fn.staticFrame.size)}`);
+    }
     for (const item of spec.bss ?? []) {
       lines.push(item.label
         ? `${item.label}:\t${item.directive}\t${item.value}`
@@ -294,7 +305,17 @@ export function lowerFunctionIR(fn: FunctionIR): FunctionSpec {
   for (const stmt of fn.body) {
     statements.push(...lowerStmtIR(stmt, layout, state));
   }
-  return { name: fn.name, statements };
+  return {
+    name: fn.name,
+    statements,
+    ...(fn.abi === "ts-static-frame" ? {
+      staticFrame: {
+        label: `.__ts_sf_${fn.name}`,
+        size: layout.localBytes + 2 + fn.params.length * 2,
+        params: fn.params.map((width, index) => ({ offset: layout.paramOffsets[index], width })),
+      },
+    } : {}),
+  };
 }
 
 function lowerStmtIR(stmt: StmtIRHigh, layout: FunctionLayout, state: LoweringState, loop?: LoopContext): StatementSpec[] {
@@ -798,10 +819,12 @@ function getParamOffset(layout: FunctionLayout, slot: number): number {
   return layout.paramOffsets[slot] ?? 0;
 }
 
-function emitFunction(fn: FunctionSpec): string[] {
-  const lines = [`${fn.name}:`];
+function emitFunction(fn: FunctionSpec, functions: FunctionSpec[]): string[] {
+  const lines = [`${fn.staticFrame ? staticFrameEntry(fn.name) : fn.name}:`];
   const ctx: EmitExprContext = {
     stackDelta: 0,
+    staticFrame: fn.staticFrame?.label,
+    staticFunctions: fn.staticFrame ? new Map(functions.filter((entry) => entry.staticFrame).map((entry) => [entry.name, entry.staticFrame!])) : undefined,
     labels: {
       nextLogicalLabelId: 2000,
       labelPrefix: fn.name,
@@ -846,9 +869,9 @@ function emitStatement(statement: StatementSpec, ctx: EmitExprContext): string[]
     case "incSp":
       return emitReleaseBytes(1);
     case "reserveBytes":
-      return emitReserveBytes(statement.count);
+      return ctx.staticFrame ? [] : emitReserveBytes(statement.count);
     case "releaseBytes":
-      return emitReleaseBytes(statement.count);
+      return ctx.staticFrame ? [] : emitReleaseBytes(statement.count);
     case "loadLocalAddrHl":
       return emitLoadStackAddrToHl(statement.offset, ctx);
     case "storeImmToLocal":
@@ -973,6 +996,17 @@ function emitExprToHl(expr: ExprSpec, ctx: EmitExprContext): string[] {
 }
 
 function emitCallExpr(target: string, args: CallArgSpec[], ctx: EmitExprContext, isVariadic = false): string[] {
+  const frame = ctx.staticFunctions?.get(target);
+  if (frame) {
+    const lines = emitPushArgs(args, ctx);
+    for (let index = args.length - 1; index >= 0; index -= 1) {
+      const param = frame.params[index];
+      lines.push("\tpop\thl");
+      if (param.width === 1) lines.push("\tld\ta,l", `\tld\t(${frame.label}+${param.offset}),a`);
+      else lines.push(`\tld\t(${frame.label}+${param.offset}),hl`);
+    }
+    return [...lines, `\tcall\t${staticFrameEntry(target)}`];
+  }
   if (args.length === 0) {
     return [`\tcall\t${target}`];
   }
@@ -1097,6 +1131,7 @@ function emitReleaseBytes(count: number): string[] {
 }
 
 function emitLoadStackAddrToHl(offset: number, ctx: EmitExprContext): string[] {
+  if (ctx.staticFrame) return [`\tld\thl,#${ctx.staticFrame}+${offset}`];
   return [`\tld\thl,#${offset + ctx.stackDelta}`, "\tadd\thl,sp"];
 }
 

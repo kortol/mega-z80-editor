@@ -16,14 +16,20 @@ const tsProgram_1 = require("./tsProgram");
 const translateAsm_1 = require("./translateAsm");
 class TsSccCompilerAdapter {
     fixtureId;
+    abi;
     constructor(opts = {}) {
         this.fixtureId = opts.fixtureId;
+        this.abi = opts.abi ?? "ts-internal";
+        if (!["ts-internal", "ts-static-frame"].includes(this.abi))
+            throw new Error("Unknown TS ABI profile");
+        if (this.fixtureId && this.abi !== "ts-internal")
+            throw new Error("ts-static-frame requires source mode");
     }
     compileToRel(logger, opts) {
         if (this.fixtureId) {
             return compileFromFixture(logger, opts, this.fixtureId);
         }
-        return compileFromSource(logger, opts);
+        return compileFromSource(logger, opts, this.abi);
     }
 }
 exports.TsSccCompilerAdapter = TsSccCompilerAdapter;
@@ -65,7 +71,7 @@ function compileFromFixture(logger, opts, fixtureId) {
         stageDir,
     };
 }
-function compileFromSource(logger, opts) {
+function compileFromSource(logger, opts, abi) {
     const resolvedInput = node_path_1.default.resolve(opts.inputFile);
     const stageRoot = node_path_1.default.resolve(opts.tempDir);
     const stem = sanitizeStageStem(node_path_1.default.basename(resolvedInput, node_path_1.default.extname(resolvedInput)).toLowerCase());
@@ -78,7 +84,7 @@ function compileFromSource(logger, opts) {
     const preprocessed = (0, tsPreprocessor_1.preprocessTsCSource)(sourceText, resolvedInput, opts);
     const parsed = (0, tsFrontendParser_1.parseProgram)(preprocessed.sourceText, resolvedInput);
     const bound = (0, tsFrontendSemantic_1.analyzeProgram)(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
-    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput);
+    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi);
     node_fs_1.default.mkdirSync(stageDir, { recursive: true });
     node_fs_1.default.writeFileSync(preprocessedFile, preprocessed.sourceText, "utf8");
     node_fs_1.default.writeFileSync(sccAsmFile, (0, tsProgram_1.emitProgram)(spec), "utf8");

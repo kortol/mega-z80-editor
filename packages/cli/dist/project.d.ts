@@ -27,6 +27,8 @@ export type Mz80CleanOptions = {
     files?: string[];
 };
 export type Mz80CcOptions = {
+    compiler?: "sccz80" | "ts";
+    tsAbi?: "internal" | "static-frame";
     runtime?: RuntimeSelection;
     libraries?: string[];
     includeDirs?: string[];

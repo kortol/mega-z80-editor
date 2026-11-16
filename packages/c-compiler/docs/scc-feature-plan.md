@@ -61,7 +61,7 @@ binary ABI、runtime guide、実行証跡までを同時に更新する。状態
 | ID | Feature | 状態 | 主な依存 / 判断 |
 | --- | --- | --- | --- |
 | A0 | `ts-internal` stack-frame ABI | 完了 | 再帰、callback、aggregate、internal variadic を含む |
-| A1 | `ts-static-frame` 非リエントラント ABI | 候補 | direct call MVP、recursion / indirect call / variadic の禁止範囲を決める |
+| A1 | `ts-static-frame` 非リエントラント ABI | 候補 | [A1.1 design](scc-ts-static-frame-abi-design.md) で direct-call MVP と禁止範囲を定義 |
 | A2 | `ts-isr` interrupt ABI | 保留 | register save、nesting、runtime call policy、target interrupt model |
 | A3 | `ts-naked` ABI | 候補 | prologue/epilogue 無しの assembly boundary を定義する |
 | A4 | Small-C external object / assembler interoperability | 候補 | 現行 default profile の `P` を外部 object test で確定する |
@@ -151,6 +151,19 @@ source 移動後に旧 asset path が package に残らない。
 ## A1 — ABI profile
 
 ### A1.1 `ts-static-frame`（非リエントラント ABI）
+
+状態: **A1.1 限定 MVP は 3/3 slice 完了、進捗 100%**（2026-11-16）。
+CLI `--ts-abi static-frame`、project `cc.tsAbi`、version 付き entry symbol と REL/archive ABI 混在検出を提供する。
+詳細な採用範囲と制限は [A1.1 design](scc-ts-static-frame-abi-design.md) を参照する。
+
+- [x] Core ABI slice: scalar/object-pointer 固定 BSS frame、direct call、runtime bridge、再帰などの拒否診断と CP/M 実行。
+- [x] Public integration slice: CLI、YAML config、backend/profile validation、複数 C translation unit 拒否、REL/archive ABI mismatch 検出。
+- [x] Completion slice: 仕様・制限・RAM/stack 使用の文書化、生成 artifact 更新、回帰検証。
+
+検証結果: C compiler 16 suites / 935 tests、CLI/project 関連 3 suites / 10 tests が成功。
+型検査、core/C compiler/CLI build、package boundary、55 Markdown の local link、差分検査も成功。
+この完了率は A1.1 の scalar/pointer direct-call MVP が母数であり、aggregate、callback、ISR、
+cross-module static-frame call、frame overlay は含めない。A1 全体の完了を意味しない。
 
 再帰よりも速度と RAM 使用量の予測可能性を優先する小規模 memory target 向けに、opt-in ABI を提供する。
 

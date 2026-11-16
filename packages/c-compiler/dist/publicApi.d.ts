@@ -2,6 +2,7 @@ import type { Logger } from "@mz80/core";
 import type { CompileSccSourceResult } from "./scc/compilerAdapter";
 /** Stable file-oriented entrypoint for the bundled TypeScript C subset compiler. */
 export type CompileCFileOptions = {
+    abi?: "ts-internal" | "ts-static-frame";
     inputFile: string;
     tempDir: string;
     outputRelFile?: string;

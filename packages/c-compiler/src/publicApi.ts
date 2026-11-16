@@ -6,6 +6,7 @@ import { TsSccCompilerAdapter } from "./scc/tsCompilerAdapter";
 
 /** Stable file-oriented entrypoint for the bundled TypeScript C subset compiler. */
 export type CompileCFileOptions = {
+  abi?: "ts-internal" | "ts-static-frame";
   inputFile: string;
   tempDir: string;
   outputRelFile?: string;
@@ -24,7 +25,7 @@ export type CompileCSourceOptions = Omit<CompileCFileOptions, "inputFile"> & {
 };
 
 export function compileCFile(logger: Logger, options: CompileCFileOptions): CompileSccSourceResult {
-  return new TsSccCompilerAdapter().compileToRel(logger, options);
+  return new TsSccCompilerAdapter({ abi: options.abi }).compileToRel(logger, options);
 }
 
 export function compileCSource(logger: Logger, options: CompileCSourceOptions): CompileSccSourceResult {

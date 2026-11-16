@@ -209,6 +209,7 @@ program
     .command("cc <input> <output>")
     .description("Compile Small-C source into mz80 output")
     .option("--compiler <kind>", "Compiler backend: sccz80 | ts", "sccz80")
+    .option("--ts-abi <profile>", "TS ABI: internal | static-frame (requires --compiler ts)")
     .option("--runtime <name>", `Bundled runtime to link (${c_compiler_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--runtime-platform <platform>", "Runtime platform: cpm | msx-bios | raw")
     .option("--runtime-profile <profile>", "Runtime profile: lite | full")
@@ -249,6 +250,7 @@ program
         const runtime = resolveRuntimeOptions(opts);
         (0, mz80_cc_1.compileSccProgramFromCli)(logger, input, output, {
             compiler: opts.compiler,
+            tsAbi: opts.tsAbi,
             runtime,
             library: opts.library,
             include: opts.include,

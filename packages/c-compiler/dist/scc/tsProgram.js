@@ -1,11 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.staticFrameEntry = staticFrameEntry;
 exports.emitProgram = emitProgram;
 exports.lowerFunctionIR = lowerFunctionIR;
+function staticFrameEntry(name) {
+    return name === "main" ? name : `__ts_static_frame_v1_${name}`;
+}
 function emitProgram(spec) {
     const lines = [];
     for (const exp of spec.exports ?? []) {
-        lines.push(`\t.globl\t${exp}`);
+        lines.push(`\t.globl\t${spec.functions.some((fn) => fn.name === exp && fn.staticFrame) ? staticFrameEntry(exp) : exp}`);
     }
     for (const ext of spec.externs ?? []) {
         lines.push(`\t.globl\t${ext}`);
@@ -13,7 +17,7 @@ function emitProgram(spec) {
     lines.push(`\t.module\t${spec.moduleName}`);
     lines.push("\t.area\t_CODE");
     for (const fn of spec.functions) {
-        lines.push(...emitFunction(fn));
+        lines.push(...emitFunction(fn, spec.functions));
     }
     if (spec.data && spec.data.length > 0) {
         lines.push("\t.area\t_DATA");
@@ -25,6 +29,10 @@ function emitProgram(spec) {
     }
     if (spec.includeBss || (spec.bss && spec.bss.length > 0)) {
         lines.push("\t.area\t_BSS");
+        for (const fn of spec.functions) {
+            if (fn.staticFrame)
+                lines.push(`${fn.staticFrame.label}:\t.ds\t${Math.max(1, fn.staticFrame.size)}`);
+        }
         for (const item of spec.bss ?? []) {
             lines.push(item.label
                 ? `${item.label}:\t${item.directive}\t${item.value}`
@@ -44,7 +52,17 @@ function lowerFunctionIR(fn) {
     for (const stmt of fn.body) {
         statements.push(...lowerStmtIR(stmt, layout, state));
     }
-    return { name: fn.name, statements };
+    return {
+        name: fn.name,
+        statements,
+        ...(fn.abi === "ts-static-frame" ? {
+            staticFrame: {
+                label: `.__ts_sf_${fn.name}`,
+                size: layout.localBytes + 2 + fn.params.length * 2,
+                params: fn.params.map((width, index) => ({ offset: layout.paramOffsets[index], width })),
+            },
+        } : {}),
+    };
 }
 function lowerStmtIR(stmt, layout, state, loop) {
     switch (stmt.kind) {
@@ -536,10 +554,12 @@ function getLocalOffset(layout, slot) {
 function getParamOffset(layout, slot) {
     return layout.paramOffsets[slot] ?? 0;
 }
-function emitFunction(fn) {
-    const lines = [`${fn.name}:`];
+function emitFunction(fn, functions) {
+    const lines = [`${fn.staticFrame ? staticFrameEntry(fn.name) : fn.name}:`];
     const ctx = {
         stackDelta: 0,
+        staticFrame: fn.staticFrame?.label,
+        staticFunctions: fn.staticFrame ? new Map(functions.filter((entry) => entry.staticFrame).map((entry) => [entry.name, entry.staticFrame])) : undefined,
         labels: {
             nextLogicalLabelId: 2000,
             labelPrefix: fn.name,
@@ -583,9 +603,9 @@ function emitStatement(statement, ctx) {
         case "incSp":
             return emitReleaseBytes(1);
         case "reserveBytes":
-            return emitReserveBytes(statement.count);
+            return ctx.staticFrame ? [] : emitReserveBytes(statement.count);
         case "releaseBytes":
-            return emitReleaseBytes(statement.count);
+            return ctx.staticFrame ? [] : emitReleaseBytes(statement.count);
         case "loadLocalAddrHl":
             return emitLoadStackAddrToHl(statement.offset, ctx);
         case "storeImmToLocal":
@@ -709,6 +729,19 @@ function emitExprToHl(expr, ctx) {
     }
 }
 function emitCallExpr(target, args, ctx, isVariadic = false) {
+    const frame = ctx.staticFunctions?.get(target);
+    if (frame) {
+        const lines = emitPushArgs(args, ctx);
+        for (let index = args.length - 1; index >= 0; index -= 1) {
+            const param = frame.params[index];
+            lines.push("\tpop\thl");
+            if (param.width === 1)
+                lines.push("\tld\ta,l", `\tld\t(${frame.label}+${param.offset}),a`);
+            else
+                lines.push(`\tld\t(${frame.label}+${param.offset}),hl`);
+        }
+        return [...lines, `\tcall\t${staticFrameEntry(target)}`];
+    }
     if (args.length === 0) {
         return [`\tcall\t${target}`];
     }
@@ -804,6 +837,8 @@ function emitReleaseBytes(count) {
     return Array.from({ length: count }, () => "\tinc\tsp");
 }
 function emitLoadStackAddrToHl(offset, ctx) {
+    if (ctx.staticFrame)
+        return [`\tld\thl,#${ctx.staticFrame}+${offset}`];
     return [`\tld\thl,#${offset + ctx.stackDelta}`, "\tadd\thl,sp"];
 }
 function emitLoadStackByteToHl(offset, ctx) {

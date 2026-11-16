@@ -13,6 +13,7 @@ import { safeRmDir } from "./externalToolchain";
 import { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId } from "./runtime";
 import { getBundledRuntimeArtifacts } from "./runtimeArtifacts";
 import { translateSccAsm } from "./translateAsm";
+import { validateTsAbiLinkInputs } from "./abiLinkCheck";
 
 type AssembleFile = typeof assemble;
 type LinkFiles = typeof link;
@@ -106,6 +107,7 @@ export function compileSccProgram(
       }
     }
     linkInputs.push(compiled.relFile, ...(opts.libraries ?? []).map((entry) => path.resolve(entry)));
+    validateTsAbiLinkInputs(linkInputs);
 
     linkFiles(linkInputs, path.resolve(opts.outputFile), {
       verbose: opts.verbose,

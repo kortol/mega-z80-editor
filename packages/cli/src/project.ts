@@ -3,7 +3,8 @@ import path from "path";
 import yaml from "yaml";
 import { Logger, link } from "@mz80/core";
 import { assemble } from "@mz80/assembler";
-import { compileSccSourceToRel, ExternalSccCompilerAdapter, getBundledRuntimeArtifacts, getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
+import { validateTsAbiLinkInputs } from "@mz80/c-compiler";
+import { compileSccSourceToRel, ExternalSccCompilerAdapter, TsSccCompilerAdapter, getBundledRuntimeArtifacts, getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;
@@ -35,6 +36,8 @@ export type Mz80CleanOptions = {
 };
 
 export type Mz80CcOptions = {
+  compiler?: "sccz80" | "ts";
+  tsAbi?: "internal" | "static-frame";
   runtime?: RuntimeSelection;
   libraries?: string[];
   includeDirs?: string[];
@@ -210,7 +213,15 @@ export function buildProjectTarget(
   const tempDir = target.cc?.tempDir
     ? path.resolve(target.cc.tempDir)
     : path.join(path.dirname(target.output), `.mz80-scc-${target.name}`);
-  const compilerAdapter = new ExternalSccCompilerAdapter({
+  if (target.cc?.compiler && !["sccz80", "ts"].includes(target.cc.compiler)) throw new Error("Unknown C compiler");
+  if (target.cc?.tsAbi && target.cc.compiler !== "ts") throw new Error("tsAbi requires compiler: ts");
+  if (target.cc?.tsAbi && !["internal", "static-frame"].includes(target.cc.tsAbi)) throw new Error("Unknown TS ABI");
+  if (target.cc?.tsAbi === "static-frame" && target.modules.filter((mod) => mod.kind === "c").length !== 1) {
+    throw new Error("ts-static-frame requires exactly one C translation unit");
+  }
+  const compilerAdapter = target.cc?.compiler === "ts"
+    ? new TsSccCompilerAdapter({ abi: target.cc.tsAbi === "static-frame" ? "ts-static-frame" : "ts-internal" })
+    : new ExternalSccCompilerAdapter({
     dcppPath: target.cc?.dcpp,
     sccz80Path: target.cc?.sccz80,
     toolMode: target.cc?.toolMode ?? "host",
@@ -261,12 +272,14 @@ export function buildProjectTarget(
     }
 
     fs.mkdirSync(path.dirname(target.output), { recursive: true });
-    link([
+    const linkInputs = [
       ...(target.runtime ? [target.runtime.object] : []),
       ...(target.runtime?.libraries ?? []),
       ...target.modules.map((mod) => mod.object),
       ...target.libraries,
-    ], target.output, {
+    ];
+    validateTsAbiLinkInputs(linkInputs);
+    link(linkInputs, target.output, {
       ...(target.link ?? {}),
       requireSymbols: target.runtime?.requiredSymbols,
     });

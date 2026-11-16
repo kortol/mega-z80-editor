@@ -9,10 +9,12 @@ import { parseProgram } from "./tsFrontendParser";
 import { analyzeProgram } from "./tsFrontendSemantic";
 import { preprocessTsCSource } from "./tsPreprocessor";
 import { emitProgram as emitLoweredProgram } from "./tsProgram";
+import { TsAbiProfile } from "./tsProgram";
 import { translateSccAsm } from "./translateAsm";
 
 export type TsSccCompilerAdapterOptions = {
   fixtureId?: string;
+  abi?: TsAbiProfile;
 };
 
 type ScalarType = "char" | "int";
@@ -172,16 +174,20 @@ type EmitExprContext = {
 
 export class TsSccCompilerAdapter implements CompilerAdapter {
   private readonly fixtureId?: string;
+  private readonly abi: TsAbiProfile;
 
   constructor(opts: TsSccCompilerAdapterOptions = {}) {
     this.fixtureId = opts.fixtureId;
+    this.abi = opts.abi ?? "ts-internal";
+    if (!["ts-internal", "ts-static-frame"].includes(this.abi)) throw new Error("Unknown TS ABI profile");
+    if (this.fixtureId && this.abi !== "ts-internal") throw new Error("ts-static-frame requires source mode");
   }
 
   compileToRel(logger: Logger, opts: CompilerAdapterCompileOptions): CompileSccSourceResult {
     if (this.fixtureId) {
       return compileFromFixture(logger, opts, this.fixtureId);
     }
-    return compileFromSource(logger, opts);
+    return compileFromSource(logger, opts, this.abi);
   }
 }
 
@@ -239,6 +245,7 @@ function compileFromFixture(
 function compileFromSource(
   logger: Logger,
   opts: CompilerAdapterCompileOptions,
+  abi: TsAbiProfile,
 ): CompileSccSourceResult {
   const resolvedInput = path.resolve(opts.inputFile);
   const stageRoot = path.resolve(opts.tempDir);
@@ -253,7 +260,7 @@ function compileFromSource(
   const preprocessed = preprocessTsCSource(sourceText, resolvedInput, opts);
   const parsed = parseProgram(preprocessed.sourceText, resolvedInput);
   const bound = analyzeProgram(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
-  const spec = lowerBoundProgram(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput);
+  const spec = lowerBoundProgram(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi);
 
   fs.mkdirSync(stageDir, { recursive: true });
   fs.writeFileSync(preprocessedFile, preprocessed.sourceText, "utf8");

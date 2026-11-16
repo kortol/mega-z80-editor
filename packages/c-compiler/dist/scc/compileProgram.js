@@ -15,6 +15,7 @@ const externalToolchain_1 = require("./externalToolchain");
 const runtime_1 = require("./runtime");
 const runtimeArtifacts_1 = require("./runtimeArtifacts");
 const translateAsm_1 = require("./translateAsm");
+const abiLinkCheck_1 = require("./abiLinkCheck");
 var compilerAdapter_2 = require("./compilerAdapter");
 Object.defineProperty(exports, "compileSccSourceToRel", { enumerable: true, get: function () { return compilerAdapter_2.compileSccSourceToRel; } });
 function compileSccProgram(logger, opts, deps = {}) {
@@ -61,6 +62,7 @@ function compileSccProgram(logger, opts, deps = {}) {
             }
         }
         linkInputs.push(compiled.relFile, ...(opts.libraries ?? []).map((entry) => node_path_1.default.resolve(entry)));
+        (0, abiLinkCheck_1.validateTsAbiLinkInputs)(linkInputs);
         linkFiles(linkInputs, node_path_1.default.resolve(opts.outputFile), {
             verbose: opts.verbose,
             map: opts.map,

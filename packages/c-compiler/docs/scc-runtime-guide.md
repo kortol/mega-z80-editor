@@ -124,6 +124,14 @@ archive format は `@mz80/core` の `MZ80AR1` だけであり、system の `.a` 
 
 ## Runtime source and artifact ownership
 
+### Static-frame caller
+
+`mz80 cc main.c main.com --compiler ts --ts-abi static-frame --runtime-platform cpm --runtime-profile lite --com`
+で A1.1 の固定 frame profile を利用できる。project は `cc.compiler: ts` / `cc.tsAbi: static-frame` を指定する。
+runtime 自体は stack ABI を保持し、caller が限定 bridge を生成する。
+ABI 混在の preflight は compile program と project build で実行する。
+詳細な MVP 制限は [static-frame design](scc-ts-static-frame-abi-design.md) を参照する。
+
 runtime の編集入口は [../src/scc/runtime/README.md](../src/scc/runtime/README.md) である。`src/scc/runtime`
 には platform CRT source、legacy CP/M alias、full library source、bundled header を置く。package build は
 この directory を `dist/scc/runtime` へ copy した後、prebuilt CRT REL と full archive を生成する。

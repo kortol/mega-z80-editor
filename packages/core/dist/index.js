@@ -14,11 +14,13 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TextRelAdapter = exports.emitRelV2 = exports.buildRelFile = exports.RelBuilder = exports.resolveExamplesRepoDir = exports.resolveExamplesPath = exports.EXAMPLES_REPO_NAME = exports.decodeOne = exports.runRemoteScript = exports.runRemoteRepl = exports.DebugRpcClient = exports.dbgBinary = exports.Z80DebugCore = exports.loadArchiveFile = exports.createArchive = exports.link = exports.createLogger = void 0;
+exports.TextRelAdapter = exports.emitRelV2 = exports.buildRelFile = exports.RelBuilder = exports.resolveExamplesRepoDir = exports.resolveExamplesPath = exports.EXAMPLES_REPO_NAME = exports.decodeOne = exports.runRemoteScript = exports.runRemoteRepl = exports.DebugRpcClient = exports.dbgBinary = exports.Z80DebugCore = exports.loadArchiveFile = exports.createArchive = exports.parseRelFile = exports.link = exports.createLogger = void 0;
 var logger_1 = require("./logger");
 Object.defineProperty(exports, "createLogger", { enumerable: true, get: function () { return logger_1.createLogger; } });
 var link_1 = require("./link");
 Object.defineProperty(exports, "link", { enumerable: true, get: function () { return link_1.link; } });
+var parser_1 = require("./linker/core/parser");
+Object.defineProperty(exports, "parseRelFile", { enumerable: true, get: function () { return parser_1.parseRelFile; } });
 var archive_1 = require("./linker/archive");
 Object.defineProperty(exports, "createArchive", { enumerable: true, get: function () { return archive_1.createArchive; } });
 var archive_2 = require("./linker/archive");

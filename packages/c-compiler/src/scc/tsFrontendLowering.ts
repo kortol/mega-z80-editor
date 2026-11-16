@@ -30,13 +30,15 @@ import {
   RefIR,
   StmtIRHigh,
   ValueWidth,
+  TsAbiProfile,
   lowerFunctionIR,
 } from "./tsProgram";
 
-export function lowerSourceProgram(program: BoundProgram, moduleName: string, sourceText: string, file?: string): ProgramSpec {
+export function lowerSourceProgram(program: BoundProgram, moduleName: string, sourceText: string, file?: string, abi: TsAbiProfile = "ts-internal"): ProgramSpec {
+  if (abi === "ts-static-frame") validateStaticFrameProgram(program);
   const definedFunctions = new Set(program.functions.map((fn) => fn.name));
   const externs = new Set<string>();
-  const state: LoweringState = { nextStringId: 0, data: [], bss: [] };
+  const state: LoweringState = { nextStringId: 0, data: [], bss: [], abi };
   const globalsByName = new Map(program.globals.map((global) => [global.name, global]));
   for (const global of program.globals) {
     if (global.isExtern) {
@@ -65,7 +67,50 @@ export function lowerSourceProgram(program: BoundProgram, moduleName: string, so
   };
 }
 
+function validateStaticFrameProgram(program: BoundProgram): void {
+  const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit"]);
+  const functions = new Map(program.functions.map((fn) => [fn.name, fn]));
+  const edges = new Map<string, Set<string>>();
+  const fail = (message: string): never => { throw new Error(`ts-static-frame: ${message}`); };
+  for (const fn of program.functions) {
+    if (fn.isVariadic) fail("variadic functions are unsupported");
+    const calls = new Set<string>();
+    edges.set(fn.name, calls);
+    const seen = new Set<object>();
+    const visit = (value: unknown): void => {
+      if (!value || typeof value !== "object" || seen.has(value)) return;
+      seen.add(value);
+      const node = value as Record<string, any>;
+      if (["aggregate", "array", "functionPointer"].includes(node.kind)) fail("aggregate, array and function-pointer objects are unsupported");
+      if (node.kind === "indirectCall") fail("indirect calls and callbacks are unsupported");
+      if (node.kind === "call") {
+        if (node.target?.isVariadic) fail("variadic calls are unsupported");
+        const name = node.target?.name;
+        if (functions.has(name)) calls.add(name);
+        else if (!bridge.has(name)) fail(`external user call '${name}' is unsupported`);
+      }
+      for (const child of Object.values(node)) visit(child);
+    };
+    visit(fn.returnType);
+    visit(fn.params);
+    visit(fn.locals);
+    visit(fn.body);
+  }
+  const active = new Set<string>();
+  const complete = new Set<string>();
+  const check = (name: string): void => {
+    if (active.has(name)) fail(`recursive call cycle at '${name}'`);
+    if (complete.has(name)) return;
+    active.add(name);
+    for (const target of edges.get(name) ?? []) check(target);
+    active.delete(name);
+    complete.add(name);
+  };
+  for (const name of functions.keys()) check(name);
+}
+
 type LoweringState = {
+  abi: TsAbiProfile;
   nextStringId: number;
   data: DataSpec[];
   bss: DataSpec[];
@@ -629,6 +674,7 @@ function lowerFunction(
   const body = lowerBlock(fn.body, externs, definedFunctions, sourceText, state, functionState, file);
   const functionIr: FunctionIR = {
     name: fn.name,
+    abi: state.abi,
     params: [...(fn.returnType.kind === "aggregate" ? [2 as const] : []), ...fn.params.map((param) => getParamWidth(param))],
     ...(fn.isVariadic ? { isVariadic: true } : {}),
     locals: [...fn.locals.map((local) => local.storageBytes), ...functionState.tempLocals],

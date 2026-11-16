@@ -66,6 +66,11 @@ For aggregate-returning functions, user parameter slot `n` is lowered as ABI slo
 
 ## Compatibility Profiles
 
+opt-in `ts-static-frame` v1 は scalar/object-pointer direct-call MVP を提供する。
+local / argument は BSS frame、return は HL、runtime bridge は既存 stack ABI。
+公開関数名を version 付き symbol にし、compile program / project build の preflight が通常 ABI 参照との
+不一致を拒否する。詳細は [static-frame design](scc-ts-static-frame-abi-design.md)。
+
 | profile | role | current status | compatibility boundary |
 | --- | --- | --- | --- |
 | `smallc` | default target profile | P | current `.scc.asm` and bundled runtime pass; historic Small-C external object ABI needs proof |

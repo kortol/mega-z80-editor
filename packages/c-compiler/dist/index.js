@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.compileCSource = exports.compileCFile = exports.safeRmDir = exports.TsSccCompilerAdapter = exports.ExternalSccCompilerAdapter = exports.SCC_LIBRARY_PRESETS = exports.SCC_RUNTIME_NAMES = exports.MSX_RUNTIME_EXIT_MODES = exports.BUNDLED_RUNTIME_PROFILES = exports.BUNDLED_RUNTIME_PLATFORMS = exports.translateSccAsmFile = exports.buildSccLibraryArchive = exports.translateSccAsm = exports.writeSccRuntimeFile = exports.getBundledRuntimeArtifacts = exports.writeBundledSccRuntime = exports.runtimeId = exports.isSccRuntimeName = exports.isBundledRuntimeSpec = exports.getBundledSccRuntime = exports.getBundledRuntimeIncludeDir = exports.getBundledRuntimeDefines = exports.compileSccSourceToRel = exports.compileSccProgram = void 0;
+exports.compileCSource = exports.compileCFile = exports.safeRmDir = exports.validateTsAbiLinkInputs = exports.TsSccCompilerAdapter = exports.ExternalSccCompilerAdapter = exports.SCC_LIBRARY_PRESETS = exports.SCC_RUNTIME_NAMES = exports.MSX_RUNTIME_EXIT_MODES = exports.BUNDLED_RUNTIME_PROFILES = exports.BUNDLED_RUNTIME_PLATFORMS = exports.translateSccAsmFile = exports.buildSccLibraryArchive = exports.translateSccAsm = exports.writeSccRuntimeFile = exports.getBundledRuntimeArtifacts = exports.writeBundledSccRuntime = exports.runtimeId = exports.isSccRuntimeName = exports.isBundledRuntimeSpec = exports.getBundledSccRuntime = exports.getBundledRuntimeIncludeDir = exports.getBundledRuntimeDefines = exports.compileSccSourceToRel = exports.compileSccProgram = void 0;
 var compileProgram_1 = require("./scc/compileProgram");
 Object.defineProperty(exports, "compileSccProgram", { enumerable: true, get: function () { return compileProgram_1.compileSccProgram; } });
 Object.defineProperty(exports, "compileSccSourceToRel", { enumerable: true, get: function () { return compileProgram_1.compileSccSourceToRel; } });
@@ -33,6 +33,8 @@ var compilerAdapter_1 = require("./scc/compilerAdapter");
 Object.defineProperty(exports, "ExternalSccCompilerAdapter", { enumerable: true, get: function () { return compilerAdapter_1.ExternalSccCompilerAdapter; } });
 var tsCompilerAdapter_1 = require("./scc/tsCompilerAdapter");
 Object.defineProperty(exports, "TsSccCompilerAdapter", { enumerable: true, get: function () { return tsCompilerAdapter_1.TsSccCompilerAdapter; } });
+var abiLinkCheck_1 = require("./scc/abiLinkCheck");
+Object.defineProperty(exports, "validateTsAbiLinkInputs", { enumerable: true, get: function () { return abiLinkCheck_1.validateTsAbiLinkInputs; } });
 var externalToolchain_1 = require("./scc/externalToolchain");
 Object.defineProperty(exports, "safeRmDir", { enumerable: true, get: function () { return externalToolchain_1.safeRmDir; } });
 var publicApi_1 = require("./publicApi");

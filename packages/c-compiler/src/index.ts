@@ -12,6 +12,7 @@ export { BUNDLED_RUNTIME_PLATFORMS, BUNDLED_RUNTIME_PROFILES, MSX_RUNTIME_EXIT_M
 export { SCC_LIBRARY_PRESETS } from "./scc/libraryPresets";
 export { ExternalSccCompilerAdapter } from "./scc/compilerAdapter";
 export { TsSccCompilerAdapter } from "./scc/tsCompilerAdapter";
+export { validateTsAbiLinkInputs } from "./scc/abiLinkCheck";
 export { safeRmDir } from "./scc/externalToolchain";
 export type { ToolMode } from "./scc/externalToolchain";
 export { compileCFile, compileCSource } from "./publicApi";

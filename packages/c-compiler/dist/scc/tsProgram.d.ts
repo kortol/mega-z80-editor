@@ -1,4 +1,6 @@
 export type ValueWidth = 1 | 2;
+export type TsAbiProfile = "ts-internal" | "ts-static-frame";
+export declare function staticFrameEntry(name: string): string;
 export type ProgramSpec = {
     moduleName: string;
     exports?: string[];
@@ -278,6 +280,14 @@ export type ExprSpec = {
 export type FunctionSpec = {
     name: string;
     statements: StatementSpec[];
+    staticFrame?: {
+        label: string;
+        size: number;
+        params: Array<{
+            offset: number;
+            width: ValueWidth;
+        }>;
+    };
 };
 export type DataSpec = {
     label?: string;
@@ -543,6 +553,7 @@ export type ExprIR = {
 };
 export type FunctionIR = {
     name: string;
+    abi?: TsAbiProfile;
     params: ValueWidth[];
     isVariadic?: boolean;
     locals: number[];

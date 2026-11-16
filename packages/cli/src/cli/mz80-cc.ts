@@ -7,6 +7,7 @@ export type Mz80CcCompilerKind = "sccz80" | "ts";
 
 export type Mz80CcCliOptions = {
   compiler?: Mz80CcCompilerKind;
+  tsAbi?: "internal" | "static-frame";
   runtime?: RuntimeSelection;
   library?: string[];
   include?: string[];
@@ -38,8 +39,10 @@ export function compileSccProgramFromCli(
 ): void {
   const resolvedOutput = path.resolve(outputFile);
   const defaultCom = /\.com$/i.test(resolvedOutput);
+  if (opts.tsAbi && opts.compiler !== "ts") throw new Error("tsAbi requires compiler: ts");
+  if (opts.tsAbi && !["internal", "static-frame"].includes(opts.tsAbi)) throw new Error("Unknown TS ABI");
   const compilerAdapter = opts.compiler === "ts"
-    ? new TsSccCompilerAdapter()
+    ? new TsSccCompilerAdapter({ abi: opts.tsAbi === "static-frame" ? "ts-static-frame" : "ts-internal" })
     : new ExternalSccCompilerAdapter({
       dcppPath: opts.dcpp,
       sccz80Path: opts.sccz80,
