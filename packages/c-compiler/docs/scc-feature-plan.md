@@ -1,6 +1,6 @@
 # SCC Feature Plan
 
-更新日: 2026-11-16
+更新日: 2026-11-17
 
 ## 基準状態
 
@@ -38,6 +38,7 @@ binary ABI、runtime guide、実行証跡までを同時に更新する。状態
 | --- | --- |
 | `完了` | 現行の fixed 8/16-bit scope で実装・文書化・実行検証済み |
 | `候補` | 実装価値はあるが、採否または contract の決定が必要 |
+| `進行中` | 採用済みで、一部 delivery slice の実装・検証が完了 |
 | `保留` | 依存する feature / platform contract の後に検討する |
 | `対象外` | 現行 product scope では採用しない。必要になれば独立 proposal とする |
 
@@ -75,8 +76,8 @@ binary ABI、runtime guide、実行証跡までを同時に更新する。状態
 | ID | Feature | 状態 | 主な依存 / 判断 |
 | --- | --- | --- | --- |
 | R0 | runtime source / artifact repository organization | 完了 | platform / legacy / lib / include と manifest に整理済み |
-| H1 | configured arena と `malloc` / `free` / `calloc` / `realloc` | 候補 | arena configuration、alignment、failure、debug policy を決める |
-| H2 | heap diagnostics / statistics | 保留 | H1 の allocator と debug profile 後 |
+| H1 | configured arena と `malloc` / `free` / `calloc` / `realloc` | 完了 | 3/3 slice（100%）。CP/M/raw、openMSX、tarball clean-install で検証 |
+| H2 | custom heap diagnostics / statistics | 保留 | H1 の allocator と opt-in debug 検査を基礎とする |
 | L1 | `qsort` / `bsearch` | 保留 | H1 と comparator ABI が必要 |
 | L2 | `strerror` / minimal `errno` / panic hook | 候補 | global / profile-local / 未提供の error model を決める |
 | L3 | `printf` / `sprintf` の width、precision、integer length | 候補 | code size 上限と integer width policy を決める |
@@ -188,6 +189,15 @@ cross-module static-frame call、frame overlay は含めない。A1 全体の完
 
 ## H1 — Heap 基盤
 
+状態: Slice 1/2/3 完了、3/3 delivery slice（100%）。
+4 allocation API、arena 初期化、split/coalesce、void pointer、header/archive、A1.1 bridge、
+heap_check/debug/fail-fast、両 ABI の CP/M 実行を実装済み。
+raw 両 ABI、openMSX の heap 両 ABI × halt/return、tarball clean-install の heap 実行も検証済み。
+最終結果は C compiler 970 tests、CLI/project 関連 10 tests、MSX smoke 計 8 variant、check:pack が成功。
+詳細は [H1 Heap design](scc-heap-design.md)。
+初回は application 提供 arena を C API で初期化し、CLI/linker 自動配置は後続とする。
+3 slice は使用可能な allocator、4 API/debug contract、platform/配布検証のまとまりで実装する。
+
 ### 目的
 
 platform OS allocator を仮定せず、`full` runtime に opt-in かつ deterministic な heap を追加する。
@@ -198,8 +208,8 @@ platform OS allocator を仮定せず、`full` runtime に opt-in かつ determi
   `lite` は allocation-free のままとする。
 - `malloc`、`free`、`calloc`、`realloc` を実装し、alignment、zero-size allocation、失敗時の `NULL`、
   double-free policy、fragmentation 挙動を定義する。
-- 最初は小さな coalescing free-list allocator を採用する。diagnostics / statistics hook は通常 ABI を
-  小さく保つため debug profile でのみ有効化する。
+- 最初は小さな coalescing free-list allocator を採用する。debug 検査は runtime flag で opt-in とし、
+  custom diagnostics / statistics hook は H2 で扱う。
 - interrupt context から allocation しないことを保証し、`ts-static-frame` / `ts-isr` との関係を文書化する。
 
 ### 受入条件
@@ -207,7 +217,7 @@ platform OS allocator を仮定せず、`full` runtime に opt-in かつ determi
 - CP/M source-path test が allocation、reuse、coalescing、`calloc` の zeroing、`realloc` の
   preservation / failure、exhaustion を覆う。
 - raw runtime test が hard-coded I/O や platform address なしに、設定済み arena を使うことを証明する。
-- debug build では heap corruption と double-free が deterministic diagnostic になり、release policy が
+- debug 有効時は heap corruption と double-free が deterministic fail-fast になり、release policy が
   文書化されている。
 
 ## L1 — C library 拡張
@@ -219,7 +229,8 @@ platform OS allocator を仮定せず、`full` runtime に opt-in かつ determi
 
 ### 計画する増分
 
-- allocation 依存の `<stdlib.h>`: `qsort`、`bsearch`、H1 の heap API。`qsort` comparator ABI は実装前に定義する。
+- `<stdlib.h>`: `qsort`、`bsearch`、H1 の heap API。search/sort は heap を必須としない。
+  comparator ABI は実装前に定義する。
 - `<string.h>`: `strerror` は error model 決定後にだけ追加する。locale を別途承認しないかぎり、既存の
   ASCII / no-locale 境界を維持する。
 - `<stdio.h>`: code-size cost を受容できる場合に限り、float を必要としない format parsing 改良（`width`、

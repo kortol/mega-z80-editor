@@ -2174,6 +2174,8 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
                 });
             }
             assertModifiableType(symbol.type, `object '${expr.name}'`, functionName, sourceText, file);
+            if (symbol.type.kind === "pointer")
+                getPointerPointeeStride(symbol.type.pointee);
             return {
                 kind: expr.kind,
                 local: symbol,
@@ -2538,6 +2540,10 @@ function analyzeExpr(expr, scope, functionSymbols, functionName, sourceText, fil
             {
                 const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
                 const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
+                for (const operand of [left, right]) {
+                    if (operand.type.kind === "pointer")
+                        getPointerPointeeStride(operand.type.pointee);
+                }
                 if (left.type.kind === "pointer" && right.type.kind === "scalar") {
                     return {
                         kind: "pointerAdd",
@@ -2813,7 +2819,7 @@ function getArrayDecayPointee(type) {
         return {
             kind: "arrayPointer",
             elementType: type.elementType,
-            ...(typeof nested === "string" ? {} : { elementValueType: nested }),
+            ...(typeof nested === "string" || nested.kind === "void" ? {} : { elementValueType: nested }),
             length,
         };
     };
@@ -2829,7 +2835,7 @@ function getArrayIndexPointee(type) {
             return element;
         const [length, ...tail] = dimensions;
         const nested = build(tail);
-        return { kind: "arrayPointer", elementType: type.elementType, ...(typeof nested === "string" ? {} : { elementValueType: nested }), length };
+        return { kind: "arrayPointer", elementType: type.elementType, ...(typeof nested === "string" || nested.kind === "void" ? {} : { elementValueType: nested }), length };
     };
     return build(remaining);
 }
@@ -2999,9 +3005,17 @@ function getConditionalResultType(thenExpr, elseExpr, functionName, sourceText, 
     return toSemanticScalarType("int");
 }
 function samePointerType(left, right) {
+    if (typeof left.pointee !== "string" && left.pointee.kind === "void")
+        return true;
+    if (typeof right.pointee !== "string" && right.pointee.kind === "void")
+        return true;
     return samePointerPointee(left.pointee, right.pointee);
 }
 function samePointerPointee(left, right) {
+    if (typeof left !== "string" && left.kind === "void")
+        return typeof right !== "string" && right.kind === "void";
+    if (typeof right !== "string" && right.kind === "void")
+        return false;
     if (typeof left === "string" || typeof right === "string") {
         return left === right;
     }
@@ -3029,6 +3043,8 @@ function isZeroConstantExpr(expr) {
     return expr.kind === "const" && expr.value === 0;
 }
 function getPointerPointeeStride(pointee) {
+    if (typeof pointee !== "string" && pointee.kind === "void")
+        throw new Error("void pointer arithmetic is unsupported");
     if (typeof pointee === "string") {
         return pointee === "char" ? 1 : 2;
     }
@@ -3095,6 +3111,8 @@ function getPointerPointeeValueType(type, functionName, sourceText, file) {
     (0, tsFrontendDiagnostics_1.throwDiagnostic)(sourceText, `TsSccCompilerAdapter Phase C subset does not support aggregate dereference values in ${functionName}().`, { file, offset: 0 });
 }
 function formatPointerPointee(type) {
+    if (type.kind === "void")
+        return "void";
     if (type.kind === "aggregate") {
         return `${type.aggregateKind} ${type.name}`;
     }

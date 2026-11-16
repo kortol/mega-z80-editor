@@ -8,7 +8,7 @@ calling scripts directly when a corresponding command exists.
 | --- | --- | --- |
 | `pnpm run check:versions` | `check-versions.cjs` | Validates public package versions and manifests. |
 | `pnpm run check:boundaries` | `check-boundaries.cjs` | Validates package dependency and import boundaries. |
-| `pnpm run check:pack` | `check-packages.cjs` | Validates package tarballs, metadata, and runtime assets. |
+| `pnpm run check:pack` | `check-packages.cjs` | Validates tarballs, metadata, runtime assets, and heap execution through both TS ABIs after a clean install. |
 | `pnpm run check:vsix` | `check-vsix.cjs` | Validates the packaged VS Code extension. |
 | `pnpm run check:docs` | `check-docs.cjs` | Validates local Markdown links and rejects absolute filesystem links. |
 | `pnpm run verify:dist` | `verify-dist.cjs` | Rebuilds managed generated output in an isolated environment. |

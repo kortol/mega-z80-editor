@@ -2664,12 +2664,12 @@ function parseTypeText(context: ParseContext, text: string): SourceType | null {
     return parseNamedType(context, trimmed);
   }
   const baseType = parseTypeText(context, pointerMatch[1]);
-  if (!baseType || baseType.kind === "array" || baseType.kind === "void") {
+  if (!baseType || baseType.kind === "array") {
     return null;
   }
   const pointerQualifiers = [...pointerMatch[2].matchAll(/\*\s*((?:(?:const|volatile|restrict)\s*)*)/g)]
     .map((match) => parseQualifiers(match[1]));
-  let current: Exclude<SourceType, { kind: "array" | "void" }> = baseType;
+  let current: Exclude<SourceType, { kind: "array" }> = baseType;
   for (const qualifiers of pointerQualifiers) {
     current = {
       kind: "pointer",
@@ -2716,7 +2716,7 @@ function withTypeQualifiers(type: SourceType, qualifiers: TypeQualifiers): Sourc
   return { ...type, qualifiers: { ...getTypeQualifiers(type), ...qualifiers } } as SourceType;
 }
 
-function sourceTypeToPointerPointee(type: Exclude<SourceType, { kind: "array" | "void" }>): PointerPointee | { kind: "pointer"; pointee: PointerPointee } {
+function sourceTypeToPointerPointee(type: Exclude<SourceType, { kind: "array" }>): PointerPointee | { kind: "pointer"; pointee: PointerPointee } {
   if (type.kind === "scalar") {
     return type.name;
   }

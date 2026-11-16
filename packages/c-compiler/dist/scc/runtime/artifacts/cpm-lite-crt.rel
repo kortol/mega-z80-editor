@@ -1,5 +1,5 @@
 MZ8R
-H CPM-LITE-CRT
+H CPM_LITE_CRT
 $SECTION 0 .text kind=TEXT size=103 align=1
 $TEXT section=.text
 T 0000 CD 00 00
@@ -57,16 +57,16 @@ T 005F 6F
 T 0060 C9
 T 0061 C3 58 00
 T 0064 C3 5C 00
-S GETCHAR 0009 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=19
-S PUTCHAR 0012 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=26
-S PUTS 0023 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=38
-S OUTSTR 0044 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=61
-S MZ80_CPM_OUTSTR 0044 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=62
-S EXIT 0052 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=71
-S __SCC_DOT_GCHAR 0058 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=76
-S __SCC_DOT_GINT 005C .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=80
-S MZ80_RUNTIME_GCHAR 0061 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=87
-S MZ80_RUNTIME_GINT 0064 .text REL module=CPM-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm-lite-crt.asm defLine=89
+S GETCHAR 0009 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=19
+S PUTCHAR 0012 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=26
+S PUTS 0023 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=38
+S OUTSTR 0044 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=61
+S MZ80_CPM_OUTSTR 0044 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=62
+S EXIT 0052 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=71
+S __SCC_DOT_GCHAR 0058 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=76
+S __SCC_DOT_GINT 005C .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=80
+S MZ80_RUNTIME_GCHAR 0061 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=87
+S MZ80_RUNTIME_GINT 0064 .text REL module=CPM_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Ccpm_lite_crt.asm defLine=89
 X MAIN
 R 0001 MAIN .text
 R 0007 EXIT .text

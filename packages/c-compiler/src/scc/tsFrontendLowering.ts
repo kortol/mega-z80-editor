@@ -68,7 +68,7 @@ export function lowerSourceProgram(program: BoundProgram, moduleName: string, so
 }
 
 function validateStaticFrameProgram(program: BoundProgram): void {
-  const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit"]);
+  const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit", "mz80_heap_init", "malloc", "free", "calloc", "realloc", "mz80_heap_check", "mz80_heap_set_debug"]);
   const functions = new Map(program.functions.map((fn) => [fn.name, fn]));
   const edges = new Map<string, Set<string>>();
   const fail = (message: string): never => { throw new Error(`ts-static-frame: ${message}`); };
@@ -81,6 +81,9 @@ function validateStaticFrameProgram(program: BoundProgram): void {
       if (!value || typeof value !== "object" || seen.has(value)) return;
       seen.add(value);
       const node = value as Record<string, any>;
+      // Global storage is shared independently of the activation ABI; allow a
+      // global byte arena while continuing to reject automatic array frames.
+      if (node.kind === "global" && node.type?.kind === "array" && !node.type.elementValueType) return;
       if (["aggregate", "array", "functionPointer"].includes(node.kind)) fail("aggregate, array and function-pointer objects are unsupported");
       if (node.kind === "indirectCall") fail("indirect calls and callbacks are unsupported");
       if (node.kind === "call") {
@@ -2108,6 +2111,7 @@ function getArrayPointerElementBytes(type: Extract<import("./tsFrontendAst").Poi
 }
 
 function getPointerPointeeBytes(type: import("./tsFrontendAst").PointerPointee): number {
+  if (typeof type !== "string" && type.kind === "void") throw new Error("void pointer arithmetic is unsupported");
   if (type === "char") {
     return 1;
   }

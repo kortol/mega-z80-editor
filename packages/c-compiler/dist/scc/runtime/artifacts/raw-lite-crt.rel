@@ -1,5 +1,5 @@
 MZ8R
-H RAW-LITE-CRT
+H RAW_LITE_CRT
 $SECTION 0 .text kind=TEXT size=83 align=1
 $TEXT section=.text
 T 0000 CD 00 00
@@ -45,14 +45,14 @@ T 004B 6F
 T 004C C9
 T 004D C3 44 00
 T 0050 C3 48 00
-S GETCHAR 0009 .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=19
-S PUTCHAR 000C .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=21
-S PUTS 0016 .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=26
-S EXIT 003A .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=50
-S __SCC_DOT_GCHAR 0044 .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=55
-S __SCC_DOT_GINT 0048 .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=59
-S MZ80_RUNTIME_GCHAR 004D .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=66
-S MZ80_RUNTIME_GINT 0050 .text REL module=RAW-LITE-CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw-lite-crt.asm defLine=68
+S GETCHAR 0009 .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=19
+S PUTCHAR 000C .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=21
+S PUTS 0016 .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=26
+S EXIT 003A .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=50
+S __SCC_DOT_GCHAR 0044 .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=55
+S __SCC_DOT_GINT 0048 .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=59
+S MZ80_RUNTIME_GCHAR 004D .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=66
+S MZ80_RUNTIME_GINT 0050 .text REL module=RAW_LITE_CRT defFile=C%3A%5CWorkspace%5Cwork%5Cmega-z80-editor%5Cpackages%5Cc-compiler%5Cdist%5Cscc%5Cruntime%5Cartifacts%5Craw_lite_crt.asm defLine=68
 X __MZ80_RAW_EXIT
 X __MZ80_RAW_GETC
 X __MZ80_RAW_PUTC

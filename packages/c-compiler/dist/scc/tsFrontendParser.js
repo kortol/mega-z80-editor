@@ -2424,7 +2424,7 @@ function parseTypeText(context, text) {
         return parseNamedType(context, trimmed);
     }
     const baseType = parseTypeText(context, pointerMatch[1]);
-    if (!baseType || baseType.kind === "array" || baseType.kind === "void") {
+    if (!baseType || baseType.kind === "array") {
         return null;
     }
     const pointerQualifiers = [...pointerMatch[2].matchAll(/\*\s*((?:(?:const|volatile|restrict)\s*)*)/g)]

@@ -37,7 +37,7 @@ function lowerSourceProgram(program, moduleName, sourceText, file, abi = "ts-int
     };
 }
 function validateStaticFrameProgram(program) {
-    const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit"]);
+    const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit", "mz80_heap_init", "malloc", "free", "calloc", "realloc", "mz80_heap_check", "mz80_heap_set_debug"]);
     const functions = new Map(program.functions.map((fn) => [fn.name, fn]));
     const edges = new Map();
     const fail = (message) => { throw new Error(`ts-static-frame: ${message}`); };
@@ -52,6 +52,10 @@ function validateStaticFrameProgram(program) {
                 return;
             seen.add(value);
             const node = value;
+            // Global storage is shared independently of the activation ABI; allow a
+            // global byte arena while continuing to reject automatic array frames.
+            if (node.kind === "global" && node.type?.kind === "array" && !node.type.elementValueType)
+                return;
             if (["aggregate", "array", "functionPointer"].includes(node.kind))
                 fail("aggregate, array and function-pointer objects are unsupported");
             if (node.kind === "indirectCall")
@@ -1623,6 +1627,8 @@ function getArrayPointerElementBytes(type) {
     return 2;
 }
 function getPointerPointeeBytes(type) {
+    if (typeof type !== "string" && type.kind === "void")
+        throw new Error("void pointer arithmetic is unsupported");
     if (type === "char") {
         return 1;
     }

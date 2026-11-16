@@ -75,6 +75,7 @@ describe("bundled SCC runtimes", () => {
       "mz80c-string.rel",
       "mz80c-ctype.rel",
       "mz80c-stdio.rel",
+      "mz80c-heap.rel",
     ]);
 
     const rawLite = getBundledRuntimeArtifacts({ platform: "raw", profile: "lite" });

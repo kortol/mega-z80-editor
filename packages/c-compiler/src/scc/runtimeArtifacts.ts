@@ -50,8 +50,8 @@ export function getBundledRuntimeArtifacts(selection: RuntimeSelection): Bundled
 }
 
 function assembleRuntime(source: string, moduleName: string, output: string): void {
-  const tempAsm = output.replace(/\.rel$/i, ".asm");
-  fs.writeFileSync(tempAsm, translateSccAsm(source, { moduleName }), "utf8");
+  const tempAsm = path.join(path.dirname(output), path.basename(output).replace(/\.rel$/i, ".asm").replace(/-/g, "_"));
+  fs.writeFileSync(tempAsm, translateSccAsm(source, { moduleName: moduleName.replace(/[^A-Za-z0-9_]/g, "_") }), "utf8");
   const result = assemble(createLogger("quiet"), tempAsm, output, { relVersion: 2 });
   fs.rmSync(tempAsm, { force: true });
   if (result.errors.length) throw new Error(`Assembly failed for runtime artifact ${moduleName}: ${result.errors.map((error) => error.message).join("; ")}`);

@@ -79,7 +79,7 @@ full profile は `memcpy`、`memmove`、`memset`、`memcmp`、`strcmp`、C local
 optional sign、decimal digits を受け付ける。format は `%%`、`%c`、`%s`、`%d`、`%u`、`%x`、`%X`、
 `%p` を受け付ける。`%p` は `0x` に続く小文字4桁の16進値である。`assert(0)` は selected CRT の
 `exit(1)` を実行する。`rand` は 15-bit の deterministic な疑似乱数であり、暗号用途には使えない。
-`strtok` は C89 と同じ static continuation state を使うため reentrant ではない。heap allocation、`qsort` /
+`strtok` は C89 と同じ static continuation state を使うため reentrant ではない。`qsort` /
 `bsearch`、診断 text/source location、numeric
 conversion の全 C89 surface はまだ対象外である。
 
@@ -95,7 +95,7 @@ subset である。`full` profile の public surface と、意図的に未対応
 | `<stddef.h>` | `size_t`、`NULL` | `size_t` は 16-bit `int` alias。|
 | `<stdarg.h>` | `va_list`、`va_start`、`va_arg`、`va_end` | TS SCC internal ABI 専用。aggregate variadic argument と external ABI は未対応。|
 | `<stdio.h>` | `getchar`、`putchar`、`puts`、限定 `printf` / `sprintf` | stream / file I/O、scanf family、width/precision/float format は未対応。|
-| `<stdlib.h>` | `EXIT_*`、`abs`、`atoi`、`exit`、`rand`、`srand` | heap、environment/process、search/sort、long / floating / multibyte conversion は未対応。|
+| `<stdlib.h>` | `EXIT_*`、`abs`、`atoi`、`exit`、`rand`、`srand`、`malloc`、`free`、`calloc`、`realloc` | environment/process、search/sort、long / floating / multibyte conversion は未対応。|
 | `<string.h>` | `memcpy`、`memmove`、`memset`、`memcmp`、copy/concat/compare/search/span/tokenize、C locale `strcoll` / `strxfrm` | `strerror` と locale/multibyte support は未対応。|
 
 この表にない ISO C headers（`<errno.h>`、`<float.h>`、`<locale.h>`、`<setjmp.h>`、`<signal.h>`、`<time.h>` 等）は
@@ -107,7 +107,7 @@ runtime evidence を同時に追加する。
 構造化 runtime は build 時に source runtime を target output directory へ再生成しない。package に
 同梱された prebuilt CRT REL と archive を linker へ渡す。lite は platform CRT だけ、full は同じ
 platform CRT と `libmz80c-full.lib` を使用する。MSX CRT は exit mode ごとに分かれる。full archive は
-`mz80c-stdlib`、`mz80c-string`、`mz80c-ctype`、`mz80c-stdio` の4 REL member で構成し、linker は必要な
+`mz80c-stdlib`、`mz80c-string`、`mz80c-ctype`、`mz80c-stdio`、`mz80c-heap` の5 REL member で構成し、linker は必要な
 export を持つ member だけを抽出する。
 
 | Selection | CRT artifact | library artifact |
@@ -132,7 +132,7 @@ runtime 自体は stack ABI を保持し、caller が限定 bridge を生成す�
 ABI 混在の preflight は compile program と project build で実行する。
 詳細な MVP 制限は [static-frame design](scc-ts-static-frame-abi-design.md) を参照する。
 
-runtime の編集入口は [../src/scc/runtime/README.md](../src/scc/runtime/README.md) である。`src/scc/runtime`
+runtime の編集入口は [ownership README](../dist/scc/runtime/README.md) である（正本は `src/scc/runtime/README.md`）。`src/scc/runtime`
 には platform CRT source、legacy CP/M alias、full library source、bundled header を置く。package build は
 この directory を `dist/scc/runtime` へ copy した後、prebuilt CRT REL と full archive を生成する。
 
@@ -145,4 +145,25 @@ public runtime selection と artifact name はこの source layout から独立�
 bundled `<stdio.h>` から full profile で include された `printf` / `sprintf` だけを TS compiler
 の internal variadic ABI provider として扱う。任意の external variadic declaration、external
 Z80SCC との variadic ABI 互換、aggregate variadic argument は対象外である。width、precision、
-length modifier、float、allocation、file I/O は対象外である。
+length modifier、float、file I/O は対象外である。
+
+## Heap (H1 complete)
+
+full profile では application 提供 arena を `mz80_heap_init(void *base, size_t bytes)` で初期化し、
+`malloc` / `free` / `calloc` / `realloc` を使える。init は mz80.h、allocation API は stdlib.h に宣言する。
+init 前・size 0・負値・枯渇時は NULL。free(NULL) は no-op。
+2-byte alignment、4-byte block header、split/coalesce に対応し、最大 arena size は 32767 bytes。
+arena の stack/code との重なりは caller が回避する。ISR と同時呼出しは禁止。
+calloc は積の overflow を検査し、成功時に要求 byte 数を 0 で初期化する。
+realloc(NULL,n) は malloc、realloc(p,0) は free 後 NULL。縮小・隣接拡張・移動に対応し、
+失敗時は元の block と内容を保持する。
+
+mz80.h の `mz80_heap_set_debug(1)` で検査を有効にする（既定 off）。
+`mz80_heap_check()` は常時利用でき、正常 1、未初期化/破損 0。
+debug 有効時の二重解放、不正 payload pointer、metadata/free-list 破損は selected CRT の exit(1) で停止する。
+debug off の invalid pointer / double-free には回復保証がない。
+CP/M/raw の両 caller ABI、openMSX/C-BIOS の両 ABI × halt/return、tarball clean install で heap の 4 API を検証済み。
+MSX ROM では allocator DATA と arena を RAM に置き、startup で DATA を初期化する必要がある。
+heap smoke は DATA=C000H、BSS=C100H を使い、専用 test startup で zero DATA を初期化する。
+汎用 ROM DATA-copy startup の自動生成は別 feature である。
+詳細は [heap design](scc-heap-design.md) を参照する。

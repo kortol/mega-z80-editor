@@ -37,6 +37,12 @@ export const FULL_RUNTIME_LIBRARY_MODULES: readonly RuntimeLibraryModule[] = [
     exports: ["printf", "sprintf", "mz80_full_vformat", "mz80_full_next_arg", "mz80_full_emit", "mz80_full_emit_unsigned", "mz80_full_emit_signed", "mz80_full_emit_hex_lower", "mz80_full_emit_hex_upper", "mz80_full_emit_hex", "mz80_full_emit_hex_recurse", "mz80_full_emit_hex_fixed", "mz80_full_emit_hex_digit", "mz80_full_format_loop", "mz80_full_hex_alpha"],
     externs: ["putchar", "mz80_runtime_gchar", "mz80_runtime_gint"],
   },
+  {
+    name: "mz80c-heap",
+    file: "heap.scc.asm",
+    exports: ["mz80_heap_init", "malloc", "free", "calloc", "realloc", "mz80_heap_check", "mz80_heap_set_debug"],
+    externs: ["mz80_runtime_gint", "exit"],
+  },
 ];
 
 const FULL_RUNTIME_PUBLIC_EXPORTS = [
@@ -50,6 +56,7 @@ export function readFullRuntimeSource(libraryRoot: string): string {
     "; Profile supplement shared by all bundled full runtimes.",
     "; Entry arguments use the current TypeScript SCC non-variadic ABI (first argument farthest from SP).",
     ...FULL_RUNTIME_PUBLIC_EXPORTS.map((symbol) => `\t.globl\t${symbol}`),
+    ...["mz80_heap_init", "malloc", "free", "calloc", "realloc", "mz80_heap_check", "mz80_heap_set_debug"].map((symbol) => `\t.globl\t${symbol}`),
     "\t.area\t_CODE",
     ...bodies,
   ].join("\n");

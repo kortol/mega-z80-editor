@@ -41,6 +41,27 @@ function assembleRawHooks(tempDir: string): string {
 }
 
 describe("raw bundled runtime", () => {
+  test.each(["ts-internal", "ts-static-frame"] as const)("heap uses application arena and raw hooks through %s", (abi) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-raw-heap-"));
+    const inputFile = path.join(tempDir, "heap.c");
+    const outputFile = path.join(tempDir, "heap.com");
+    fs.writeFileSync(inputFile, [
+      "#include <stdio.h>", "#include <stdlib.h>", "#include <mz80.h>",
+      "char arena[128];int main(){char *p;char *q;mz80_heap_init(arena,128);mz80_heap_set_debug(1);p=malloc(8);p[0]=65;p=realloc(p,32);putchar(p[0]);q=calloc(2,4);putchar(q[0]+66);free(p);free(q);putchar(mz80_heap_check()+66);return 0;}",
+    ].join("\n"));
+    compileSccProgram(createLogger("quiet"), {
+      inputFile, outputFile, tempDir, runtime: { platform: "raw", profile: "full" },
+      libraries: [assembleRawHooks(tempDir)], com: true, map: true,
+    }, { compilerAdapter: new TsSccCompilerAdapter({ abi }) });
+    const core = new Z80DebugCore(false);
+    core.setCpm22Enabled(true);
+    core.setAllowOutOfImage(true);
+    core.loadImage(fs.readFileSync(outputFile), 0x100);
+    core.setEntry(0x100);
+    expect(core.run(30000).reason).toBe("BDOS 0: terminate");
+    expect(core.getOutput()).toBe("ABC");
+    expect(fs.readFileSync(path.join(tempDir, "heap.map"), "utf8")).toMatch(/MZ80_HEAP_INIT/);
+  });
   test("links user-provided hooks and executes its I/O and exit ABI", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-raw-runtime-"));
     const sourcePath = path.join(tempDir, "raw.c");

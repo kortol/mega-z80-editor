@@ -47,8 +47,8 @@ function getBundledRuntimeArtifacts(selection) {
     return { crtRelPath, libraryPaths, requiredSymbols };
 }
 function assembleRuntime(source, moduleName, output) {
-    const tempAsm = output.replace(/\.rel$/i, ".asm");
-    node_fs_1.default.writeFileSync(tempAsm, (0, translateAsm_1.translateSccAsm)(source, { moduleName }), "utf8");
+    const tempAsm = node_path_1.default.join(node_path_1.default.dirname(output), node_path_1.default.basename(output).replace(/\.rel$/i, ".asm").replace(/-/g, "_"));
+    node_fs_1.default.writeFileSync(tempAsm, (0, translateAsm_1.translateSccAsm)(source, { moduleName: moduleName.replace(/[^A-Za-z0-9_]/g, "_") }), "utf8");
     const result = (0, assembler_1.assemble)((0, core_1.createLogger)("quiet"), tempAsm, output, { relVersion: 2 });
     node_fs_1.default.rmSync(tempAsm, { force: true });
     if (result.errors.length)

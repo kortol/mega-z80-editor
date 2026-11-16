@@ -2872,6 +2872,7 @@ function analyzeExpr(
         });
       }
       assertModifiableType(symbol.type, `object '${expr.name}'`, functionName, sourceText, file);
+      if (symbol.type.kind === "pointer") getPointerPointeeStride(symbol.type.pointee);
       return {
         kind: expr.kind,
         local: symbol,
@@ -3236,6 +3237,9 @@ function analyzeExpr(
       {
         const left = analyzeExpr(expr.left, scope, functionSymbols, functionName, sourceText, file);
         const right = analyzeExpr(expr.right, scope, functionSymbols, functionName, sourceText, file);
+        for (const operand of [left, right]) {
+          if (operand.type.kind === "pointer") getPointerPointeeStride(operand.type.pointee);
+        }
         if (left.type.kind === "pointer" && right.type.kind === "scalar") {
           return {
             kind: "pointerAdd",
@@ -3558,7 +3562,7 @@ function getArrayDecayPointee(type: SemanticArrayType): PointerPointee {
     return {
       kind: "arrayPointer",
       elementType: type.elementType,
-      ...(typeof nested === "string" ? {} : { elementValueType: nested }),
+      ...(typeof nested === "string" || nested.kind === "void" ? {} : { elementValueType: nested }),
       length,
     };
   };
@@ -3573,7 +3577,7 @@ function getArrayIndexPointee(type: SemanticArrayType): PointerPointee {
     if (dimensions.length === 0) return element;
     const [length, ...tail] = dimensions;
     const nested = build(tail);
-    return { kind: "arrayPointer", elementType: type.elementType, ...(typeof nested === "string" ? {} : { elementValueType: nested }), length };
+    return { kind: "arrayPointer", elementType: type.elementType, ...(typeof nested === "string" || nested.kind === "void" ? {} : { elementValueType: nested }), length };
   };
   return build(remaining);
 }
@@ -3770,10 +3774,14 @@ function getConditionalResultType(
 }
 
 function samePointerType(left: SemanticPointerType, right: SemanticPointerType): boolean {
+  if (typeof left.pointee !== "string" && left.pointee.kind === "void") return true;
+  if (typeof right.pointee !== "string" && right.pointee.kind === "void") return true;
   return samePointerPointee(left.pointee, right.pointee);
 }
 
 function samePointerPointee(left: PointerPointee, right: PointerPointee): boolean {
+  if (typeof left !== "string" && left.kind === "void") return typeof right !== "string" && right.kind === "void";
+  if (typeof right !== "string" && right.kind === "void") return false;
   if (typeof left === "string" || typeof right === "string") {
     return left === right;
   }
@@ -3803,6 +3811,7 @@ function isZeroConstantExpr(expr: BoundExpr): boolean {
 }
 
 function getPointerPointeeStride(pointee: PointerPointee): number {
+  if (typeof pointee !== "string" && pointee.kind === "void") throw new Error("void pointer arithmetic is unsupported");
   if (typeof pointee === "string") {
     return pointee === "char" ? 1 : 2;
   }
@@ -3892,6 +3901,7 @@ function getPointerPointeeValueType(
 }
 
 function formatPointerPointee(type: Exclude<PointerPointee, ScalarType>): string {
+  if (type.kind === "void") return "void";
   if (type.kind === "aggregate") {
     return `${type.aggregateKind} ${type.name}`;
   }

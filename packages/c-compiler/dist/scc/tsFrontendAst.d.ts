@@ -37,7 +37,7 @@ export type FunctionPointerTypeRef = {
     qualifiers?: TypeQualifiers;
 };
 export type ArrayElementTypeRef = ScalarType | AggregateTypeRef | PointerTypeRef | FunctionPointerTypeRef;
-export type PointerPointee = ScalarType | AggregateTypeRef | PointerTypeRef | ArrayPointerTypeRef | FunctionPointerTypeRef;
+export type PointerPointee = ScalarType | VoidTypeRef | AggregateTypeRef | PointerTypeRef | ArrayPointerTypeRef | FunctionPointerTypeRef;
 export type SourceType = VoidTypeRef | {
     kind: "scalar";
     name: ScalarType;

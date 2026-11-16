@@ -15,6 +15,7 @@ prebuilt CRT REL と `libmz80c-full.lib` を生成する。`dist/scc/runtime/art
 | `lib/string.scc.asm` | memory / string 操作を提供する full library module |
 | `lib/ctype.scc.asm` | ASCII ctype を提供する full library module |
 | `lib/stdio.scc.asm` | 限定 `printf` / `sprintf` を提供する full library module |
+| `lib/heap.scc.asm` | explicit arena、4 allocation API、split/coalesce、opt-in debug / heap_check を提供する optional full library member |
 | `legacy/cpmcrt.scc.asm` | external-SCC 互換用の legacy CP/M runtime alias |
 | `legacy/cpmlibc.scc.asm` | external-SCC library 併用用の legacy CP/M runtime alias |
 | `include/` | bundled public C header。declaration と runtime export を同じ変更で更新する |

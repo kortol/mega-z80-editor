@@ -4,6 +4,8 @@
 
 ## Current references
 
+- [scc-heap-design.md](scc-heap-design.md): H1 heap の Goal、arena/API/ABI/debug contract と 3 delivery slice
+
 - [scc-ts-c-subset.md](scc-ts-c-subset.md): supported / unsupported C subset matrix
 - [scc-ts-binary-abi.md](scc-ts-binary-abi.md): generated code、aggregate、pointer-to-array、variadic ABI
 - [scc-ts-static-frame-abi-design.md](scc-ts-static-frame-abi-design.md): A1.1 non-reentrant ABI の Goal、MVP contract、task 分解
@@ -17,7 +19,7 @@
 
 ## Runtime source ownership
 
-- [../src/scc/runtime/README.md](../src/scc/runtime/README.md): runtime source、header、生成 artifact の所有関係と build flow
+- [../dist/scc/runtime/README.md](../dist/scc/runtime/README.md): runtime source、header、生成 artifact の所有関係と build flow（配布物にも同梱）
 - platform/runtime API: [scc-runtime-guide.md](scc-runtime-guide.md)
 - legacy external-SCC library path: [scc-cpm-library.md](scc-cpm-library.md)
 
