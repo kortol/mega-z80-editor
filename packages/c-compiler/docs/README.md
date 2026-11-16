@@ -7,16 +7,29 @@
 - [scc-ts-c-subset.md](scc-ts-c-subset.md): supported / unsupported C subset matrix
 - [scc-ts-binary-abi.md](scc-ts-binary-abi.md): generated code、aggregate、pointer-to-array、variadic ABI
 - [scc-ts-array-element-design.md](scc-ts-array-element-design.md): fixed-size multidimensional array design
-- [scc-cpm-library.md](scc-cpm-library.md): CP/M runtime と library build
-- [scc-runtime-guide.md](scc-runtime-guide.md): multi-platform runtime configuration と ABI
+- [scc-runtime-guide.md](scc-runtime-guide.md): multi-platform runtime configuration、ABI、library boundary、artifact
+- [scc-feature-plan.md](scc-feature-plan.md): 全体 Feature List、次期の repository 整備、ABI profile、heap、numeric / float 拡張計画
+- [scc-cpm-library.md](scc-cpm-library.md): external Z80SCC / Small-C 向け legacy CP/M library build
+
+対応可否は C subset matrix、internal ABI は binary ABI 文書、runtime の public surface は runtime guide を
+正本とする。Feature Plan は次期拡張の task と受入条件を定義するが、現行 Subset の進捗率は変更しない。
+
+## Runtime source ownership
+
+- [../src/scc/runtime/README.md](../src/scc/runtime/README.md): runtime source、header、生成 artifact の所有関係と build flow
+- platform/runtime API: [scc-runtime-guide.md](scc-runtime-guide.md)
+- legacy external-SCC library path: [scc-cpm-library.md](scc-cpm-library.md)
 
 ## Historical and planning notes
 
-- `scc-ts-migration.md`
+- `scc-ts-migration.md`: TypeScript source-path 移行時の phase 記録。Phase 10 の checklist は current progress ではない。
 - `scc-ts-full-c-coverage-phase0.md`
 - `scc-ts-full-c-coverage-phase0b.md`
 
-これらは調査・移行の背景として保持します。現在の対応可否を判断する際は C subset matrix と ABI 文書を優先してください。
+これらは調査・移行の背景として保持します。現在の対応可否を判断する際は C subset matrix、binary ABI、runtime guide を優先してください。
+
+仕様を変更する pull request では、対応する current reference と実行証跡を同時に更新する。generated
+runtime artifact は source の代替資料ではなく、`pnpm run build` の出力である。
 
 ## Related documentation
 

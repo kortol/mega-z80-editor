@@ -14,6 +14,7 @@ exports.getBundledSccRuntime = getBundledSccRuntime;
 exports.writeBundledSccRuntime = writeBundledSccRuntime;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
+const runtimeLibrary_1 = require("./runtimeLibrary");
 exports.SCC_RUNTIME_NAMES = ["cpmcrt", "cpmlibc"];
 exports.BUNDLED_RUNTIME_PLATFORMS = ["cpm", "msx-bios", "raw"];
 exports.BUNDLED_RUNTIME_PROFILES = ["lite", "full"];
@@ -65,14 +66,14 @@ function getBundledRuntimeIncludeDir() {
 }
 function runtimeFilePath(selection) {
     if (typeof selection === "string")
-        return node_path_1.default.join(__dirname, "runtime", `${selection}.scc.asm`);
+        return node_path_1.default.join(__dirname, "runtime", "legacy", `${selection}.scc.asm`);
     const spec = normalizeBundledRuntime(selection);
-    return node_path_1.default.join(__dirname, "runtime", `${spec.platform}-${spec.profile === "full" ? "lite" : spec.profile}.scc.asm`);
+    return node_path_1.default.join(__dirname, "runtime", "platform", `${spec.platform}-${spec.profile === "full" ? "lite" : spec.profile}.scc.asm`);
 }
 function getBundledSccRuntime(selection) {
     let source = node_fs_1.default.readFileSync(runtimeFilePath(selection), "utf8");
     if (typeof selection !== "string" && selection.profile === "full") {
-        source += `\n${node_fs_1.default.readFileSync(node_path_1.default.join(__dirname, "runtime", "full.scc.asm"), "utf8")}`;
+        source += `\n${(0, runtimeLibrary_1.readFullRuntimeSource)(node_path_1.default.join(__dirname, "runtime", "lib"))}`;
     }
     if (typeof selection === "string" || selection.platform !== "msx-bios")
         return source;

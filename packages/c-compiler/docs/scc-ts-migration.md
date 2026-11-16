@@ -2,6 +2,10 @@
 
 > **Historical migration note.** この文書の adapter 構成、fixture、source path は記録時点の
 > 移行計画を示す。現在の対応範囲は C Subset matrix と runtime guide を正本とする。
+>
+> Phase 10 の historical checklist と残課題は、2026-09-29 の fixed 8/16-bit C Subset 完了で
+> supersede された。ここに残る `P` / `N` や future wording は当時の分析であり、current progress を
+> 算出してはならない。現行の未対応境界と次期 task は C Subset matrix、binary ABI、Feature Plan を参照する。
 
 Current C Subset の feature inventory と実装確認 matrix は [scc-ts-c-subset.md](./scc-ts-c-subset.md) を正本とする。この文書の coverage map は migration 設計上の補助資料である。
 

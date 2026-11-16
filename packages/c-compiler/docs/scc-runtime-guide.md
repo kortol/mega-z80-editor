@@ -122,6 +122,18 @@ archive format は `@mz80/core` の `MZ80AR1` だけであり、system の `.a` 
 維持する。`runtimeObject` を structured runtime と併用した場合は CRT path だけを置換し、full archive
 は引き続き自動 link される。
 
+## Runtime source and artifact ownership
+
+runtime の編集入口は [../src/scc/runtime/README.md](../src/scc/runtime/README.md) である。`src/scc/runtime`
+には platform CRT source、legacy CP/M alias、full library source、bundled header を置く。package build は
+この directory を `dist/scc/runtime` へ copy した後、prebuilt CRT REL と full archive を生成する。
+
+生成済みの `dist/scc/runtime/artifacts` は source of truth ではない。runtime source を変更した場合は
+`pnpm -C packages/c-compiler run build` で artifact を再生成し、source-path CP/M test と runtime artifact
+test を更新する。full archive は `lib/stdlib.scc.asm`、`lib/string.scc.asm`、`lib/ctype.scc.asm`、
+`lib/stdio.scc.asm` から作る。member 境界と export symbol は `runtimeLibrary.ts` の manifest で管理する。
+public runtime selection と artifact name はこの source layout から独立して維持する。
+
 bundled `<stdio.h>` から full profile で include された `printf` / `sprintf` だけを TS compiler
 の internal variadic ABI provider として扱う。任意の external variadic declaration、external
 Z80SCC との variadic ABI 互換、aggregate variadic argument は対象外である。width、precision、

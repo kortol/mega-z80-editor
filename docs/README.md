@@ -21,3 +21,16 @@
 - assembler/linker contracts: `docs/spec/`
 - C compiler behavior and ABI: `packages/c-compiler/docs/`
 - package usage and exports: each package `README.md`
+
+## Reading and maintenance rules
+
+新しい作業を始めるときは、root `README`、対象 package の `README`、その package の current docs の順に読む。
+`docs/dev/` と package 内の migration / coverage phase 文書は、設計判断の履歴であり current status の
+根拠には使わない。
+
+- public API、runtime selection、supported language/library surface を変える変更は、同じ変更で package
+  `README` と current docs を更新する。
+- C compiler の language feature は C Subset matrix、internal ABI は binary ABI、runtime public surface は
+  runtime guide を更新する。
+- generated `dist` を管理する package では source と artifact を同じ build で再生成し、artifact のみを
+  source of truth として編集しない。

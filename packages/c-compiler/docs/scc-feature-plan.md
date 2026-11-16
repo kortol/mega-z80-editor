@@ -1,6 +1,6 @@
 # SCC Feature Plan
 
-日付: 2026-09-30
+更新日: 2026-11-16
 
 ## 基準状態
 
@@ -29,6 +29,98 @@ R0 Runtime のリポジトリ再編成
 `R0` を最初に置く。allocator と数値 module を増やす前に、source の所有範囲と artifact の構築
 経路を明確にするためである。その gate 後は `A1`、`H1`、`N1` を独立して進められる。
 
+## 全体 Feature List
+
+この一覧は「ISO C 全体を無条件に実装する」backlog ではない。各項目は採用時に C Subset matrix、
+binary ABI、runtime guide、実行証跡までを同時に更新する。状態の意味は次のとおり。
+
+| 状態 | 意味 |
+| --- | --- |
+| `完了` | 現行の fixed 8/16-bit scope で実装・文書化・実行検証済み |
+| `候補` | 実装価値はあるが、採否または contract の決定が必要 |
+| `保留` | 依存する feature / platform contract の後に検討する |
+| `対象外` | 現行 product scope では採用しない。必要になれば独立 proposal とする |
+
+### 1. 言語フロントエンドと型モデル
+
+| ID | Feature | 状態 | 主な依存 / 判断 |
+| --- | --- | --- | --- |
+| C0 | fixed `char` / `int`、pointer、aggregate、fixed array、function pointer、preprocessor subset | 完了 | 現行 C Subset の正本 |
+| C1 | 完全な signedness / integer conversion rule | 候補 | `unsigned` / `short` を構文 alias から意味論へ昇格するか |
+| C2 | `long` / `unsigned long` | 候補 | 32-bit arithmetic helper、layout、format、ABI が必要 |
+| C3 | IEEE binary32 `float` | 保留 | F1。software arithmetic、ABI、conversion を含む |
+| C4 | `double` | 保留 | binary32 の code size / ABI 実績後に別判断 |
+| C5 | VLA | 保留 | dynamic stack と frame ABI の設計を要する |
+| C6 | bit-field / flexible array member | 候補 | layout contract と object model を先に定義する |
+| C7 | aggregate lvalue の一般値化 | 保留 | 現在の producer/consumer model を拡張するか判断 |
+| C8 | variadic macro、pragma、line-control、system header discovery | 候補 | preprocessor を hosted C へ近づけるか判断 |
+| C9 | `_Static_assert`、`inline`、C99/C11 extension | 対象外 | C89-oriented fixed ABI の外。必要時は個別 proposal |
+
+### 2. ABI と低水準コード生成
+
+| ID | Feature | 状態 | 主な依存 / 判断 |
+| --- | --- | --- | --- |
+| A0 | `ts-internal` stack-frame ABI | 完了 | 再帰、callback、aggregate、internal variadic を含む |
+| A1 | `ts-static-frame` 非リエントラント ABI | 候補 | direct call MVP、recursion / indirect call / variadic の禁止範囲を決める |
+| A2 | `ts-isr` interrupt ABI | 保留 | register save、nesting、runtime call policy、target interrupt model |
+| A3 | `ts-naked` ABI | 候補 | prologue/epilogue 無しの assembly boundary を定義する |
+| A4 | Small-C external object / assembler interoperability | 候補 | 現行 default profile の `P` を外部 object test で確定する |
+| A5 | SDCC `__sdcccall(0)` profile | 保留 | argument / return / aggregate rule と interop toolchain が必要 |
+| A6 | register preserved / clobbered contract | 候補 | external ABI / ISR / inline assembly の基礎契約 |
+| A7 | banked-memory / far pointer ABI | 保留 | 対象機種と linker memory model を先に選ぶ |
+| A8 | debug ABI（function name、stack trace、C source location） | 候補 | debug symbol format と CLI/debugger integration を決める |
+
+### 3. Runtime、library、memory model
+
+| ID | Feature | 状態 | 主な依存 / 判断 |
+| --- | --- | --- | --- |
+| R0 | runtime source / artifact repository organization | 完了 | platform / legacy / lib / include と manifest に整理済み |
+| H1 | configured arena と `malloc` / `free` / `calloc` / `realloc` | 候補 | arena configuration、alignment、failure、debug policy を決める |
+| H2 | heap diagnostics / statistics | 保留 | H1 の allocator と debug profile 後 |
+| L1 | `qsort` / `bsearch` | 保留 | H1 と comparator ABI が必要 |
+| L2 | `strerror` / minimal `errno` / panic hook | 候補 | global / profile-local / 未提供の error model を決める |
+| L3 | `printf` / `sprintf` の width、precision、integer length | 候補 | code size 上限と integer width policy を決める |
+| L4 | `scanf` family | 保留 | stream / input error / conversion contract が必要 |
+| L5 | file / stream I/O | 保留 | CP/M BDOS、MSX BIOS、raw の共通 abstraction が必要 |
+| L6 | locale、multibyte / wide character | 対象外 | fixed ASCII runtime の scope 外 |
+| L7 | `setjmp` / `longjmp`、signal、time、environment | 対象外 | target startup / OS contract が未定義 |
+| L8 | CP/M BDOS / MSX BIOS service wrapper | 候補 | portable stream とは分離し、`<mz80.h>` API として設計する |
+
+### 4. 数値機能
+
+| ID | Feature | 状態 | 主な依存 / 判断 |
+| --- | --- | --- | --- |
+| N1 | `q8.8` / `q16.16` fixed point library type | 候補 | overflow / rounding / multiplication division helper を定義する |
+| N2 | BCD decimal library type | 候補 | packed representation、精度、sign、conversion、helper ABI を定義する |
+| F1 | IEEE-754 binary32 `float` | 保留 | literal / layout / call / return / arithmetic / comparison / conversion を段階導入 |
+| F2 | float formatting / parsing、`%f` | 保留 | F1 arithmetic と code-size 評価後 |
+| F3 | `math.h` elementary functions | 保留 | F1 と numerical accuracy policy 後 |
+
+### 5. Target、toolchain、開発体験
+
+| ID | Feature | 状態 | 主な依存 / 判断 |
+| --- | --- | --- | --- |
+| T0 | CP/M、MSX BIOS、raw runtime | 完了 | lite / full profile と MSX exit mode |
+| T1 | openMSX smoke の CI 化 | 候補 | emulator / C-BIOS の利用可能な CI runner が必要 |
+| T2 | target memory / stack / heap size configuration | 候補 | H1、A1、linker memory model と接続する |
+| T3 | target startup customization（entry、BSS、data copy、stack reservation） | 候補 | platform CRT contract を拡張する |
+| T4 | C compiler diagnostics の warning level / `-Werror` | 候補 | diagnostic category と CLI option を定義する |
+| T5 | C source map と debugger C-level view | 保留 | A8 と debug file format が必要 |
+| T6 | example program / compatibility corpus | 候補 | CP/M 実行可能な小規模 program を仕様例として固定する |
+
+### 選定ルール
+
+次に実装する feature は、以下を満たすものから選ぶ。
+
+1. **利用目的**: 実際に作りたい program を一つ以上直接可能にする。
+2. **境界の明確さ**: ABI、memory、error、platform 依存が文書で閉じている。
+3. **検証可能性**: source-path CP/M runtime test と artifact test を同じ change に追加できる。
+4. **段階性**: 既定 `ts-internal` と current runtime を壊さず opt-in で導入できる。
+
+現時点の有力な選択肢は、A1（非リエントラント ABI）、H1（heap）、N1（fixed point）、A4/A6
+（external ABI の明文化）の四つである。選択後は対象 item を `候補` から実装 milestone へ分割し、
+完了率の母数と受入条件をこの文書で固定する。
+
 ## R0 — Runtime のリポジトリ再編成
 
 ### 目的
@@ -38,13 +130,17 @@ R0 Runtime のリポジトリ再編成
 
 ### タスク
 
-- `src/scc/runtime` を `crt/`、`platform/`、`lib/`、`include/`、生成 `artifacts/` の入出力という
+- [x] `src/scc/runtime` を `platform/`、`legacy/`、`lib/`、`include/`、生成 `artifacts/` の入出力という
   論理的な source group に分割する。
-- 現在 `full.scc.asm` に集約されている library member を、`lib/string`、`lib/ctype`、`lib/stdio`、
-  `lib/stdlib` などの focused module へ移す。
-- artifact build script に明示的な member manifest を持たせ、archive 順序を再現可能にする。
-- `cpmcrt` / `cpmlibc` compatibility alias と、structured な `cpm`、`msx-bios`、`raw` selection を維持する。
-- source-to-artifact の所有関係と local test command を architecture / contributor 文書へ追加する。
+- [x] library member を `lib/stdlib.scc.asm`、`lib/string.scc.asm`、`lib/ctype.scc.asm`、
+  `lib/stdio.scc.asm` の focused module へ移す。
+- [x] artifact build script に明示的な member manifest を持たせ、archive 順序を再現可能にする。
+- [x] `cpmcrt` / `cpmlibc` compatibility alias と、structured な `cpm`、`msx-bios`、`raw` selection を維持する。
+- [x] source-to-artifact の所有関係と local test command を architecture / contributor 文書へ追加する。
+
+`platform/` は structured runtime の CRT / platform I/O source、`legacy/` は external-SCC 互換 alias、
+`lib/` は platform 共通 library source を置く。`tools/copy-runtime.js` は `dist/scc/runtime` を再作成するため、
+source 移動後に旧 asset path が package に残らない。
 
 ### 受入条件
 

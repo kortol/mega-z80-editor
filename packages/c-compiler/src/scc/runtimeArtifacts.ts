@@ -3,6 +3,7 @@ import path from "node:path";
 import { assemble } from "@mz80/assembler";
 import { createArchive, createLogger } from "@mz80/core";
 import { RuntimeSelection, normalizeBundledRuntime } from "./runtime";
+import { FULL_RUNTIME_LIBRARY_MODULES } from "./runtimeLibrary";
 import { translateSccAsm } from "./translateAsm";
 
 export type BundledRuntimeArtifacts = {
@@ -60,13 +61,6 @@ function withPublicHelpers(source: string): string {
   return `${source}\n\t.globl\tmz80_runtime_gchar\n\t.globl\tmz80_runtime_gint\nmz80_runtime_gchar:\n\tjp\t.gchar\nmz80_runtime_gint:\n\tjp\t.gint\n`;
 }
 
-function extractRuntimeSection(source: string, firstLabel: string, nextLabel?: string): string {
-  const start = source.indexOf(`\n${firstLabel}:`);
-  const end = nextLabel ? source.indexOf(`\n${nextLabel}:`, start + 1) : source.length;
-  if (start < 0 || end < 0) throw new Error(`Cannot split bundled runtime section ${firstLabel}.`);
-  return source.slice(start + 1, end);
-}
-
 function libraryModule(source: string, exports: string[], externs: string[]): string {
   return [
     ...exports.map((symbol) => `\t.globl\t${symbol}`),
@@ -81,42 +75,21 @@ export function buildBundledRuntimeArtifacts(): void {
   const root = artifactRoot();
   fs.mkdirSync(root, { recursive: true });
   const runtimeRoot = path.join(__dirname, "runtime");
-  const cpmLite = fs.readFileSync(path.join(runtimeRoot, "cpm-lite.scc.asm"), "utf8");
-  const msxLite = fs.readFileSync(path.join(runtimeRoot, "msx-bios-lite.scc.asm"), "utf8");
-  const rawLite = fs.readFileSync(path.join(runtimeRoot, "raw-lite.scc.asm"), "utf8");
-  const full = fs.readFileSync(path.join(runtimeRoot, "full.scc.asm"), "utf8");
+  const platformRoot = path.join(runtimeRoot, "platform");
+  const libraryRoot = path.join(runtimeRoot, "lib");
+  const cpmLite = fs.readFileSync(path.join(platformRoot, "cpm-lite.scc.asm"), "utf8");
+  const msxLite = fs.readFileSync(path.join(platformRoot, "msx-bios-lite.scc.asm"), "utf8");
+  const rawLite = fs.readFileSync(path.join(platformRoot, "raw-lite.scc.asm"), "utf8");
 
   assembleRuntime(withPublicHelpers(cpmLite), "cpm-lite-crt", path.join(root, "cpm-lite-crt.rel"));
   assembleRuntime(withPublicHelpers(msxLite.replace("{{MSX_EXIT}}", ".halt_loop:\n\thalt\n\tjr\t.halt_loop")), "msx-bios-lite-halt-crt", path.join(root, "msx-bios-lite-halt-crt.rel"));
   assembleRuntime(withPublicHelpers(msxLite.replace("{{MSX_EXIT}}", "\tret")), "msx-bios-lite-return-crt", path.join(root, "msx-bios-lite-return-crt.rel"));
   assembleRuntime(withPublicHelpers(rawLite), "raw-lite-crt", path.join(root, "raw-lite-crt.rel"));
 
-  const modules: Array<{ name: string; exports: string[]; externs: string[]; source: string }> = [
-    {
-      name: "mz80c-stdlib",
-      exports: ["abs", "atoi", "__mz80_assert", "rand", "srand", "mz80_full_atoi_negative", "mz80_full_atoi_pointer", "mz80_full_rand_seed"],
-      externs: ["exit", "mz80_runtime_gint"],
-      source: extractRuntimeSection(full, "abs", "strlen"),
-    },
-    {
-      name: "mz80c-string",
-      exports: ["strlen", "memcpy", "memmove", "memset", "strcmp", "strcoll", "strxfrm", "memcmp", "strcpy", "strcat", "strncat", "strncpy", "strncmp", "strchr", "strrchr", "strpbrk", "strspn", "strcspn", "strstr", "strtok", "mz80_full_memset_value", "mz80_full_strxfrm_remaining", "mz80_full_strxfrm_source", "mz80_full_strxfrm_destination", "mz80_full_strxfrm_char", "mz80_full_strstr_needle", "mz80_full_strstr_cursor", "mz80_full_strstr_candidate", "mz80_full_strpbrk_accept", "mz80_full_span_accept", "mz80_full_strtok_is_delimiter", "mz80_full_strtok_delimiters", "mz80_full_strtok_cursor", "mz80_full_strtok_token"],
-      externs: ["mz80_runtime_gchar", "mz80_runtime_gint"],
-      source: extractRuntimeSection(full, "strlen", "isalpha"),
-    },
-    {
-      name: "mz80c-ctype",
-      exports: ["isalpha", "isalnum", "iscntrl", "isdigit", "isgraph", "islower", "isprint", "ispunct", "isupper", "isspace", "isxdigit", "tolower", "toupper", "mz80_full_isalpha_a"],
-      externs: ["mz80_runtime_gchar"],
-      source: extractRuntimeSection(full, "isalpha", "printf"),
-    },
-    {
-      name: "mz80c-stdio",
-      exports: ["printf", "sprintf", "mz80_full_vformat", "mz80_full_next_arg", "mz80_full_emit", "mz80_full_emit_unsigned", "mz80_full_emit_signed", "mz80_full_emit_hex_lower", "mz80_full_emit_hex_upper", "mz80_full_emit_hex", "mz80_full_emit_hex_recurse", "mz80_full_emit_hex_fixed", "mz80_full_emit_hex_digit", "mz80_full_format_loop", "mz80_full_hex_alpha"],
-      externs: ["putchar", "mz80_runtime_gchar", "mz80_runtime_gint"],
-      source: extractRuntimeSection(full, "printf"),
-    },
-  ];
+  const modules = FULL_RUNTIME_LIBRARY_MODULES.map((module) => ({
+    ...module,
+    source: fs.readFileSync(path.join(libraryRoot, module.file), "utf8"),
+  }));
   const moduleRelFiles = modules.map(({ name }) => path.join(root, `${name}.rel`));
   try {
     modules.forEach((module, index) => {

@@ -1,6 +1,6 @@
 # TsSccCompiler C Subset Feature Inventory
 
-更新日: 2026-09-29
+更新日: 2026-10-20
 
 ## Purpose
 
@@ -167,9 +167,17 @@ Matrix notes:
 4. 意図的 reject は `N` に留め、診断テストを追加する。未実装と誤認しない。
 5. fixture または external SCC compiler の成功だけでは matrix を更新しない。
 
-## Immediate Backlog
+## Current Boundary and Next Work
 
-1. `D02`: qualifier を型モデルへ保持し、`const` object / pointer-to-const への書込みを診断する。
-2. `D05` の残境界: function-returning-function は C の不正宣言として診断し、VLA、external variadic linkage、variadic aggregate argument は現行 grammar/ABI の対象外である。固定長 3-D+ declarator は `T05` の対象である。
-3. `E07`: aggregate compare/truthiness は C の不正操作として診断を維持する。
-4. ABI: Small-C external object interoperability、register preservation、pointer-return / recursive aggregate-return の境界を明文化・実証する。
+この inventory の fixed 8/16-bit implementation target は完了している。`D02`、`D05`、`E07` を
+再実装する backlog はない。
+
+- `D05` の残境界である external variadic linkage と variadic aggregate argument は、internal TS ABI
+  の対象外である。function-returning-function は C の不正宣言として診断を維持する。VLA は未対応であり、
+  固定長 3-D+ array は `T05` の対象として実装済みである。
+- `E07` の aggregate compare/truthiness は C の不正操作であり、実装対象ではない。診断テストを維持する。
+- Small-C external object interoperability と register preservation は、[binary ABI](scc-ts-binary-abi.md)
+  の external compatibility boundary として `P` / `N` のままである。internal TS ABI の完了率には含めない。
+
+repository 再編成、非リエントラント ABI、heap、library、fixed point / BCD、IEEE float の次期 task は
+[Feature Plan](scc-feature-plan.md) を参照する。新規 C language feature はこの matrix に `P` として追加してから着手する。

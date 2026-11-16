@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readFullRuntimeSource } from "./runtimeLibrary";
 
 export const SCC_RUNTIME_NAMES = ["cpmcrt", "cpmlibc"] as const;
 export type SccRuntimeName = (typeof SCC_RUNTIME_NAMES)[number];
@@ -70,15 +71,15 @@ export function getBundledRuntimeIncludeDir(): string {
 }
 
 function runtimeFilePath(selection: RuntimeSelection): string {
-  if (typeof selection === "string") return path.join(__dirname, "runtime", `${selection}.scc.asm`);
+  if (typeof selection === "string") return path.join(__dirname, "runtime", "legacy", `${selection}.scc.asm`);
   const spec = normalizeBundledRuntime(selection);
-  return path.join(__dirname, "runtime", `${spec.platform}-${spec.profile === "full" ? "lite" : spec.profile}.scc.asm`);
+  return path.join(__dirname, "runtime", "platform", `${spec.platform}-${spec.profile === "full" ? "lite" : spec.profile}.scc.asm`);
 }
 
 export function getBundledSccRuntime(selection: RuntimeSelection): string {
   let source = fs.readFileSync(runtimeFilePath(selection), "utf8");
   if (typeof selection !== "string" && selection.profile === "full") {
-    source += `\n${fs.readFileSync(path.join(__dirname, "runtime", "full.scc.asm"), "utf8")}`;
+    source += `\n${readFullRuntimeSource(path.join(__dirname, "runtime", "lib"))}`;
   }
   if (typeof selection === "string" || selection.platform !== "msx-bios") return source;
   const exit = normalizeBundledRuntime(selection).exit === "return"

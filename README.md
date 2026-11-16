@@ -44,6 +44,7 @@ pnpm run mz80 -- --help
 - [Assembler/linker specifications](docs/spec/README.md)
 - [SCC C compiler documentation](packages/c-compiler/docs/README.md)
 - [Multi-platform C runtime guide](packages/c-compiler/docs/scc-runtime-guide.md)
+- [SCC Feature Plan](packages/c-compiler/docs/scc-feature-plan.md)
 - [VS Code extension](editor/vscode-ext/README.md)
 - [Workspace verification scripts](scripts/README.md)
 
