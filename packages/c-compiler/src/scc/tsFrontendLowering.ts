@@ -33,9 +33,10 @@ import {
   TsAbiProfile,
   lowerFunctionIR,
 } from "./tsProgram";
+import { NumericFeature, NUMERIC_PROVIDERS, requireNumericFeatures } from "./runtimeFeatures";
 
-export function lowerSourceProgram(program: BoundProgram, moduleName: string, sourceText: string, file?: string, abi: TsAbiProfile = "ts-internal"): ProgramSpec {
-  if (abi === "ts-static-frame") validateStaticFrameProgram(program);
+export function lowerSourceProgram(program: BoundProgram, moduleName: string, sourceText: string, file?: string, abi: TsAbiProfile = "ts-internal", features: NumericFeature[] = []): ProgramSpec {
+  if (abi === "ts-static-frame") validateStaticFrameProgram(program, features);
   const definedFunctions = new Set(program.functions.map((fn) => fn.name));
   const externs = new Set<string>();
   const state: LoweringState = { nextStringId: 0, data: [], bss: [], abi };
@@ -67,9 +68,10 @@ export function lowerSourceProgram(program: BoundProgram, moduleName: string, so
   };
 }
 
-function validateStaticFrameProgram(program: BoundProgram): void {
+function validateStaticFrameProgram(program: BoundProgram, features: NumericFeature[]): void {
   const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit", "mz80_heap_init", "malloc", "free", "calloc", "realloc", "mz80_heap_check", "mz80_heap_set_debug"]);
   const functions = new Map(program.functions.map((fn) => [fn.name, fn]));
+  for (const feature of requireNumericFeatures(features)) for (const symbol of NUMERIC_PROVIDERS[feature]) bridge.add(symbol);
   const edges = new Map<string, Set<string>>();
   const fail = (message: string): never => { throw new Error(`ts-static-frame: ${message}`); };
   for (const fn of program.functions) {
@@ -81,9 +83,9 @@ function validateStaticFrameProgram(program: BoundProgram): void {
       if (!value || typeof value !== "object" || seen.has(value)) return;
       seen.add(value);
       const node = value as Record<string, any>;
-      // Global storage is shared independently of the activation ABI; allow a
-      // global byte arena while continuing to reject automatic array frames.
-      if (node.kind === "global" && node.type?.kind === "array" && !node.type.elementValueType) return;
+      // Global storage and pointee metadata do not describe automatic frames.
+      // Validate value use at each expression/call; retain local aggregate rejection.
+      if (node.kind === "global" || node.kind === "pointer") return;
       if (["aggregate", "array", "functionPointer"].includes(node.kind)) fail("aggregate, array and function-pointer objects are unsupported");
       if (node.kind === "indirectCall") fail("indirect calls and callbacks are unsupported");
       if (node.kind === "call") {
@@ -2330,8 +2332,8 @@ function internStringLiteral(state: LoweringState, value: string): string {
   state.nextStringId += 1;
   state.data.push({
     label,
-    directive: ".asciz",
-    value: encodeAsciiLiteral(value),
+    directive: value.length ? ".asciz" : ".db",
+    value: value.length ? encodeAsciiLiteral(value) : "0",
   });
   return label;
 }

@@ -3,9 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.lowerSourceProgram = lowerSourceProgram;
 const tsFrontendSemantic_1 = require("./tsFrontendSemantic");
 const tsProgram_1 = require("./tsProgram");
-function lowerSourceProgram(program, moduleName, sourceText, file, abi = "ts-internal") {
+const runtimeFeatures_1 = require("./runtimeFeatures");
+function lowerSourceProgram(program, moduleName, sourceText, file, abi = "ts-internal", features = []) {
     if (abi === "ts-static-frame")
-        validateStaticFrameProgram(program);
+        validateStaticFrameProgram(program, features);
     const definedFunctions = new Set(program.functions.map((fn) => fn.name));
     const externs = new Set();
     const state = { nextStringId: 0, data: [], bss: [], abi };
@@ -36,9 +37,12 @@ function lowerSourceProgram(program, moduleName, sourceText, file, abi = "ts-int
         includeBss: true,
     };
 }
-function validateStaticFrameProgram(program) {
+function validateStaticFrameProgram(program, features) {
     const bridge = new Set(["outchar", "putchar", "puts", "getchar", "exit", "mz80_heap_init", "malloc", "free", "calloc", "realloc", "mz80_heap_check", "mz80_heap_set_debug"]);
     const functions = new Map(program.functions.map((fn) => [fn.name, fn]));
+    for (const feature of (0, runtimeFeatures_1.requireNumericFeatures)(features))
+        for (const symbol of runtimeFeatures_1.NUMERIC_PROVIDERS[feature])
+            bridge.add(symbol);
     const edges = new Map();
     const fail = (message) => { throw new Error(`ts-static-frame: ${message}`); };
     for (const fn of program.functions) {
@@ -52,9 +56,9 @@ function validateStaticFrameProgram(program) {
                 return;
             seen.add(value);
             const node = value;
-            // Global storage is shared independently of the activation ABI; allow a
-            // global byte arena while continuing to reject automatic array frames.
-            if (node.kind === "global" && node.type?.kind === "array" && !node.type.elementValueType)
+            // Global storage and pointee metadata do not describe automatic frames.
+            // Validate value use at each expression/call; retain local aggregate rejection.
+            if (node.kind === "global" || node.kind === "pointer")
                 return;
             if (["aggregate", "array", "functionPointer"].includes(node.kind))
                 fail("aggregate, array and function-pointer objects are unsupported");
@@ -1808,8 +1812,8 @@ function internStringLiteral(state, value) {
     state.nextStringId += 1;
     state.data.push({
         label,
-        directive: ".asciz",
-        value: encodeAsciiLiteral(value),
+        directive: value.length ? ".asciz" : ".db",
+        value: value.length ? encodeAsciiLiteral(value) : "0",
     });
     return label;
 }

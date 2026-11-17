@@ -4,7 +4,9 @@ import { assemble } from "@mz80/assembler";
 import { createArchive, createLogger } from "@mz80/core";
 import { RuntimeSelection, normalizeBundledRuntime } from "./runtime";
 import { FULL_RUNTIME_LIBRARY_MODULES } from "./runtimeLibrary";
+import { availableNumericFeatures, NUMERIC_C_MEMBERS, requireNumericFeatures } from "./runtimeFeatures";
 import { translateSccAsm } from "./translateAsm";
+import { TsSccCompilerAdapter } from "./tsCompilerAdapter";
 
 export type BundledRuntimeArtifacts = {
   crtRelPath: string;
@@ -42,6 +44,7 @@ export function getBundledRuntimeArtifacts(selection: RuntimeSelection): Bundled
   const root = artifactRoot();
   const crtRelPath = path.join(root, crtName(selection));
   const libraryPaths = spec.profile === "full" ? [path.join(root, "libmz80c-full.lib")] : [];
+  for (const feature of requireNumericFeatures(spec.features)) libraryPaths.push(path.join(root, `libmz80-${feature}-v1.lib`));
   const requiredSymbols = spec.platform === "raw" ? rawHooks : undefined;
   for (const artifact of [crtRelPath, ...libraryPaths]) {
     if (!fs.existsSync(artifact)) throw new Error(`Bundled runtime artifact is missing: ${artifact}`);
@@ -101,5 +104,31 @@ export function buildBundledRuntimeArtifacts(): void {
     createArchive(moduleRelFiles, path.join(root, "libmz80c-full.lib"));
   } finally {
     for (const relFile of moduleRelFiles) fs.rmSync(relFile, { force: true });
+  }
+  for (const feature of availableNumericFeatures()) {
+    const featureRoot = path.join(runtimeRoot, "numeric", feature);
+    const members = ["constructors", "cpu", ...NUMERIC_C_MEMBERS];
+    const relFiles = members.map((name) => path.join(root, `mz80_${feature}_v1_${name}.rel`));
+    const staging = fs.mkdtempSync(path.join(root, "numeric-build-"));
+    try {
+      members.forEach((name, index) => {
+        let source: string;
+        if ((NUMERIC_C_MEMBERS as readonly string[]).includes(name)) {
+          const result = new TsSccCompilerAdapter().compileToRel(createLogger("quiet"), {
+            inputFile: path.join(featureRoot, `${name}.c`), tempDir: staging,
+            bundledIncludeDirs: [path.join(runtimeRoot, "include"), path.join(featureRoot, "include")],
+            defines: { [`MZ80_FEATURE_${feature.toUpperCase()}`]: "1" }, runtimeFeatures: [feature],
+          });
+          source = fs.readFileSync(result.sccAsmFile, "utf8")
+            .replace(/\.(eq|ne|lt|le|gt|ge|asl|asr|mul)\b/g, `mz80_${feature}_cpu_$1`);
+          fs.writeFileSync(path.join(featureRoot, `${name}.generated.scc.asm`), source);
+        } else source = fs.readFileSync(path.join(featureRoot, `${name}.scc.asm`), "utf8");
+        assembleRuntime(source, `mz80_${feature}_v1_${name}`, relFiles[index]);
+      });
+      createArchive(relFiles, path.join(root, `libmz80-${feature}-v1.lib`));
+    } finally {
+      for (const relFile of relFiles) fs.rmSync(relFile, { force: true });
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
   }
 }

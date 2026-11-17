@@ -10,11 +10,13 @@ exports.normalizeBundledRuntime = normalizeBundledRuntime;
 exports.runtimeId = runtimeId;
 exports.getBundledRuntimeDefines = getBundledRuntimeDefines;
 exports.getBundledRuntimeIncludeDir = getBundledRuntimeIncludeDir;
+exports.getBundledRuntimeIncludeDirs = getBundledRuntimeIncludeDirs;
 exports.getBundledSccRuntime = getBundledSccRuntime;
 exports.writeBundledSccRuntime = writeBundledSccRuntime;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const runtimeLibrary_1 = require("./runtimeLibrary");
+const runtimeFeatures_1 = require("./runtimeFeatures");
 exports.SCC_RUNTIME_NAMES = ["cpmcrt", "cpmlibc"];
 exports.BUNDLED_RUNTIME_PLATFORMS = ["cpm", "msx-bios", "raw"];
 exports.BUNDLED_RUNTIME_PROFILES = ["lite", "full"];
@@ -26,6 +28,12 @@ function isBundledRuntimeSpec(value) {
     if (!value || typeof value !== "object")
         return false;
     const candidate = value;
+    try {
+        (0, runtimeFeatures_1.normalizeNumericFeatures)(candidate.features);
+    }
+    catch {
+        return false;
+    }
     return exports.BUNDLED_RUNTIME_PLATFORMS.includes(candidate.platform ?? "") &&
         exports.BUNDLED_RUNTIME_PROFILES.includes(candidate.profile ?? "") &&
         (candidate.exit === undefined || exports.MSX_RUNTIME_EXIT_MODES.includes(candidate.exit));
@@ -35,7 +43,9 @@ function normalizeBundledRuntime(selection) {
         if (selection.platform !== "msx-bios" && selection.exit !== undefined) {
             throw new Error(`Runtime exit mode is valid only for msx-bios, got ${selection.platform}.`);
         }
-        return selection.platform === "msx-bios" ? { ...selection, exit: selection.exit ?? "halt" } : { ...selection };
+        const features = (0, runtimeFeatures_1.normalizeNumericFeatures)(selection.features);
+        const normalized = { ...selection, ...(selection.features !== undefined ? { features } : {}) };
+        return selection.platform === "msx-bios" ? { ...normalized, exit: selection.exit ?? "halt" } : normalized;
     }
     if (selection === "cpmcrt")
         return { platform: "cpm", profile: "lite" };
@@ -59,10 +69,18 @@ function getBundledRuntimeDefines(selection) {
     if (spec.platform === "msx-bios") {
         defines[`MZ80_MSX_EXIT_${(spec.exit ?? "halt").toUpperCase()}`] = "1";
     }
+    for (const feature of (0, runtimeFeatures_1.requireNumericFeatures)(spec.features))
+        defines[`MZ80_FEATURE_${feature.toUpperCase()}`] = "1";
     return defines;
 }
 function getBundledRuntimeIncludeDir() {
     return node_path_1.default.join(__dirname, "runtime", "include");
+}
+function getBundledRuntimeIncludeDirs(selection) {
+    const features = (0, runtimeFeatures_1.requireNumericFeatures)(normalizeBundledRuntime(selection).features);
+    const root = node_fs_1.default.existsSync(node_path_1.default.join(__dirname, "runtime", "numeric", "available.json"))
+        ? node_path_1.default.join(__dirname, "runtime") : node_path_1.default.resolve(__dirname, "../../dist/scc/runtime");
+    return [getBundledRuntimeIncludeDir(), ...features.map((feature) => node_path_1.default.join(root, "numeric", feature, "include"))];
 }
 function runtimeFilePath(selection) {
     if (typeof selection === "string")
@@ -74,6 +92,15 @@ function getBundledSccRuntime(selection) {
     let source = node_fs_1.default.readFileSync(runtimeFilePath(selection), "utf8");
     if (typeof selection !== "string" && selection.profile === "full") {
         source += `\n${(0, runtimeLibrary_1.readFullRuntimeSource)(node_path_1.default.join(__dirname, "runtime", "lib"))}`;
+    }
+    if (typeof selection !== "string") {
+        for (const feature of (0, runtimeFeatures_1.requireNumericFeatures)(selection.features)) {
+            const root = getBundledRuntimeIncludeDirs(selection).find((entry) => entry.endsWith(node_path_1.default.join(feature, "include")));
+            source += "\n" + node_fs_1.default.readFileSync(node_path_1.default.join(root, "..", "constructors.scc.asm"), "utf8");
+            source += "\n" + node_fs_1.default.readFileSync(node_path_1.default.join(root, "..", "cpu.scc.asm"), "utf8");
+            for (const name of runtimeFeatures_1.NUMERIC_C_MEMBERS)
+                source += "\n" + node_fs_1.default.readFileSync(node_path_1.default.join(root, "..", `${name}.generated.scc.asm`), "utf8");
+        }
     }
     if (typeof selection === "string" || selection.platform !== "msx-bios")
         return source;

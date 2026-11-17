@@ -1,7 +1,9 @@
 import type { Logger } from "@mz80/core";
 import type { CompileSccSourceResult } from "./scc/compilerAdapter";
+import { NumericFeature } from "./scc/runtimeFeatures";
 /** Stable file-oriented entrypoint for the bundled TypeScript C subset compiler. */
 export type CompileCFileOptions = {
+    features?: NumericFeature[];
     abi?: "ts-internal" | "ts-static-frame";
     inputFile: string;
     tempDir: string;

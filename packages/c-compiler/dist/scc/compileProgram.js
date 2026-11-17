@@ -16,6 +16,7 @@ const runtime_1 = require("./runtime");
 const runtimeArtifacts_1 = require("./runtimeArtifacts");
 const translateAsm_1 = require("./translateAsm");
 const abiLinkCheck_1 = require("./abiLinkCheck");
+const tsCompilerAdapter_1 = require("./tsCompilerAdapter");
 var compilerAdapter_2 = require("./compilerAdapter");
 Object.defineProperty(exports, "compileSccSourceToRel", { enumerable: true, get: function () { return compilerAdapter_2.compileSccSourceToRel; } });
 function compileSccProgram(logger, opts, deps = {}) {
@@ -27,6 +28,9 @@ function compileSccProgram(logger, opts, deps = {}) {
         toolMode: opts.toolMode,
         assembleFile,
     });
+    if (opts.runtime && (0, runtime_1.normalizeBundledRuntime)(opts.runtime).features?.length && !(compilerAdapter instanceof tsCompilerAdapter_1.TsSccCompilerAdapter)) {
+        throw new Error("Numeric runtime features require the TS compiler");
+    }
     const comMode = !!opts.com || /\.com$/i.test(opts.outputFile);
     const tempDir = opts.tempDir
         ? node_path_1.default.resolve(opts.tempDir)
@@ -45,7 +49,8 @@ function compileSccProgram(logger, opts, deps = {}) {
             sym: opts.sym,
             smap: opts.smap,
             defines: runtimeDefines,
-            bundledIncludeDirs: opts.runtime ? [(0, runtime_1.getBundledRuntimeIncludeDir)()] : [],
+            bundledIncludeDirs: opts.runtime ? (0, runtime_1.getBundledRuntimeIncludeDirs)(opts.runtime) : [],
+            runtimeFeatures: opts.runtime ? (0, runtime_1.normalizeBundledRuntime)(opts.runtime).features : [],
         }, compilerAdapter);
         const linkInputs = [];
         let requiredSymbols;

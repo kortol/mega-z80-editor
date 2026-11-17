@@ -11,7 +11,7 @@
 START:
 	call	main
 	ld	hl,#0
-	call	exit
+	jp	exit
 
 getchar:
 	call	$009f

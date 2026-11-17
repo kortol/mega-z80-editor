@@ -2439,6 +2439,7 @@ function findDoWhileKeywordIndex(text: string): number {
 
 function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { index: number; op: BinaryOp } | null {
   let depth = 0;
+  let bracketDepth = 0;
   let inString = false;
   const orderedOps = [...ops].sort((left, right) => right.length - left.length);
   const allBinaryOps = [...new Set(BINARY_PRECEDENCE.flatMap((entry) => entry.ops))].sort((left, right) => right.length - left.length);
@@ -2451,6 +2452,8 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
     if (inString) {
       continue;
     }
+    if (ch === "]") { bracketDepth++; continue; }
+    if (ch === "[") { bracketDepth--; continue; }
     if (ch === ")") {
       depth += 1;
       continue;
@@ -2459,7 +2462,7 @@ function findTopLevelBinaryOp(exprText: string, ops: readonly BinaryOp[]): { ind
       depth -= 1;
       continue;
     }
-    if (depth !== 0) {
+    if (depth !== 0 || bracketDepth !== 0) {
       continue;
     }
     const matchedOp = allBinaryOps.find((op) => exprText.slice(index - op.length + 1, index + 1) === op);

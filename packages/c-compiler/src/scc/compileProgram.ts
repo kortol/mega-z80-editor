@@ -10,10 +10,11 @@ import {
   ExternalSccCompilerAdapterOptions,
 } from "./compilerAdapter";
 import { safeRmDir } from "./externalToolchain";
-import { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId } from "./runtime";
+import { getBundledRuntimeDefines, getBundledRuntimeIncludeDirs, getBundledSccRuntime, normalizeBundledRuntime, RuntimeSelection, runtimeId } from "./runtime";
 import { getBundledRuntimeArtifacts } from "./runtimeArtifacts";
 import { translateSccAsm } from "./translateAsm";
 import { validateTsAbiLinkInputs } from "./abiLinkCheck";
+import { TsSccCompilerAdapter } from "./tsCompilerAdapter";
 
 type AssembleFile = typeof assemble;
 type LinkFiles = typeof link;
@@ -71,6 +72,9 @@ export function compileSccProgram(
     toolMode: opts.toolMode,
     assembleFile,
   });
+  if (opts.runtime && normalizeBundledRuntime(opts.runtime).features?.length && !(compilerAdapter instanceof TsSccCompilerAdapter)) {
+    throw new Error("Numeric runtime features require the TS compiler");
+  }
   const comMode = !!opts.com || /\.com$/i.test(opts.outputFile);
   const tempDir = opts.tempDir
     ? path.resolve(opts.tempDir)
@@ -90,7 +94,8 @@ export function compileSccProgram(
       sym: opts.sym,
       smap: opts.smap,
       defines: runtimeDefines,
-      bundledIncludeDirs: opts.runtime ? [getBundledRuntimeIncludeDir()] : [],
+      bundledIncludeDirs: opts.runtime ? getBundledRuntimeIncludeDirs(opts.runtime) : [],
+      runtimeFeatures: opts.runtime ? normalizeBundledRuntime(opts.runtime).features : [],
     }, compilerAdapter);
 
     const linkInputs: string[] = [];

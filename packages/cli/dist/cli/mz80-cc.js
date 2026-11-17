@@ -12,6 +12,8 @@ function compileSccProgramFromCli(logger, inputFile, outputFile, opts) {
     const defaultCom = /\.com$/i.test(resolvedOutput);
     if (opts.tsAbi && opts.compiler !== "ts")
         throw new Error("tsAbi requires compiler: ts");
+    if (typeof opts.runtime === "object" && opts.runtime.features?.length && opts.compiler !== "ts")
+        throw new Error("Numeric runtime features require compiler: ts");
     if (opts.tsAbi && !["internal", "static-frame"].includes(opts.tsAbi))
         throw new Error("Unknown TS ABI");
     const compilerAdapter = opts.compiler === "ts"

@@ -4,6 +4,11 @@ import { lowerSourceProgram } from "../tsFrontendLowering";
 import { emitProgram } from "../tsProgram";
 
 describe("tsFrontendLowering", () => {
+  test("emits an empty string as a single NUL byte", () => {
+    const source = 'int main(){puts("");return 0;}';
+    const spec = lowerSourceProgram(analyzeProgram(parseProgram(source),source),"empty.i",source);
+    expect(spec.data).toEqual([{label:".str0",directive:".db",value:"0"}]);
+  });
   test("lowers compare expressions and function calls into program spec externs", () => {
     const source = "int flag(int a, int b){ if (a > b) return 1; return 0; }\nint main(){ return flag(66, 65); }\n";
     const parsed = parseProgram(source, "flag.c");

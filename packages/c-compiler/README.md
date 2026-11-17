@@ -48,6 +48,14 @@ package 同梱の prebuilt CRT REL と、full profile 用 `MZ80AR1` archive を 
 `<stddef.h>`、`<stdarg.h>`、`<stdio.h>`、`<stdlib.h>`、`<string.h>`、`<mz80.h>` である。
 `<stdarg.h>` は TS SCC の internal variadic ABI 専用で、external Z80SCC variadic ABI とは互換でない。
 
+TS compiler の optional numeric module は `features: [fixed]` / `[bcd]` / `[fixed, bcd]` で選択する。
+既定は無効。CLI は `--runtime-feature fixed` / `--runtime-feature bcd` を指定する。
+Q8.8、Q16.16 の四則演算・比較・整数変換・十進文字列の parse/format を提供する（N1 Slice 2）。
+16桁・小数4桁 BCD も四則演算・比較・整数／文字列変換に対応する。
+両 ABI の CP/M、raw、openMSX と縮小 tarball の clean-install 実行で検証する。
+module ごとに header/archive を分離し、build/pack 時の
+`MZ80_NUMERIC_MODULES=none|fixed|bcd|fixed,bcd` で配布物からも除外できる。
+
 設定、bundled header、raw hook、MSX exit mode の詳細は
 [docs/scc-runtime-guide.md](docs/scc-runtime-guide.md) を参照してください。
 

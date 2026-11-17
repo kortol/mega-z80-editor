@@ -11,6 +11,7 @@ export type CompileSccSourceResult = {
     stageDir: string;
 };
 export type CompilerAdapterCompileOptions = {
+    runtimeFeatures?: import("./runtimeFeatures").NumericFeature[];
     inputFile: string;
     tempDir: string;
     outputRelFile?: string;

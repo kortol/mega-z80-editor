@@ -4,6 +4,8 @@
 
 ## Current references
 
+- [scc-numeric-design.md](scc-numeric-design.md): N1 fixed/BCD の独立 optional module、数値仕様案、Goal と delivery slice
+
 - [scc-heap-design.md](scc-heap-design.md): H1 heap の Goal、arena/API/ABI/debug contract と 3 delivery slice
 
 - [scc-ts-c-subset.md](scc-ts-c-subset.md): supported / unsupported C subset matrix

@@ -11,7 +11,9 @@ const assembler_1 = require("@mz80/assembler");
 const core_1 = require("@mz80/core");
 const runtime_1 = require("./runtime");
 const runtimeLibrary_1 = require("./runtimeLibrary");
+const runtimeFeatures_1 = require("./runtimeFeatures");
 const translateAsm_1 = require("./translateAsm");
+const tsCompilerAdapter_1 = require("./tsCompilerAdapter");
 const rawHooks = ["__mz80_raw_putc", "__mz80_raw_getc", "__mz80_raw_exit"];
 function artifactRoot() {
     // Published code runs from dist/scc. Source-path tests run from src/scc but
@@ -39,6 +41,8 @@ function getBundledRuntimeArtifacts(selection) {
     const root = artifactRoot();
     const crtRelPath = node_path_1.default.join(root, crtName(selection));
     const libraryPaths = spec.profile === "full" ? [node_path_1.default.join(root, "libmz80c-full.lib")] : [];
+    for (const feature of (0, runtimeFeatures_1.requireNumericFeatures)(spec.features))
+        libraryPaths.push(node_path_1.default.join(root, `libmz80-${feature}-v1.lib`));
     const requiredSymbols = spec.platform === "raw" ? rawHooks : undefined;
     for (const artifact of [crtRelPath, ...libraryPaths]) {
         if (!node_fs_1.default.existsSync(artifact))
@@ -96,5 +100,35 @@ function buildBundledRuntimeArtifacts() {
     finally {
         for (const relFile of moduleRelFiles)
             node_fs_1.default.rmSync(relFile, { force: true });
+    }
+    for (const feature of (0, runtimeFeatures_1.availableNumericFeatures)()) {
+        const featureRoot = node_path_1.default.join(runtimeRoot, "numeric", feature);
+        const members = ["constructors", "cpu", ...runtimeFeatures_1.NUMERIC_C_MEMBERS];
+        const relFiles = members.map((name) => node_path_1.default.join(root, `mz80_${feature}_v1_${name}.rel`));
+        const staging = node_fs_1.default.mkdtempSync(node_path_1.default.join(root, "numeric-build-"));
+        try {
+            members.forEach((name, index) => {
+                let source;
+                if (runtimeFeatures_1.NUMERIC_C_MEMBERS.includes(name)) {
+                    const result = new tsCompilerAdapter_1.TsSccCompilerAdapter().compileToRel((0, core_1.createLogger)("quiet"), {
+                        inputFile: node_path_1.default.join(featureRoot, `${name}.c`), tempDir: staging,
+                        bundledIncludeDirs: [node_path_1.default.join(runtimeRoot, "include"), node_path_1.default.join(featureRoot, "include")],
+                        defines: { [`MZ80_FEATURE_${feature.toUpperCase()}`]: "1" }, runtimeFeatures: [feature],
+                    });
+                    source = node_fs_1.default.readFileSync(result.sccAsmFile, "utf8")
+                        .replace(/\.(eq|ne|lt|le|gt|ge|asl|asr|mul)\b/g, `mz80_${feature}_cpu_$1`);
+                    node_fs_1.default.writeFileSync(node_path_1.default.join(featureRoot, `${name}.generated.scc.asm`), source);
+                }
+                else
+                    source = node_fs_1.default.readFileSync(node_path_1.default.join(featureRoot, `${name}.scc.asm`), "utf8");
+                assembleRuntime(source, `mz80_${feature}_v1_${name}`, relFiles[index]);
+            });
+            (0, core_1.createArchive)(relFiles, node_path_1.default.join(root, `libmz80-${feature}-v1.lib`));
+        }
+        finally {
+            for (const relFile of relFiles)
+                node_fs_1.default.rmSync(relFile, { force: true });
+            node_fs_1.default.rmSync(staging, { recursive: true, force: true });
+        }
     }
 }

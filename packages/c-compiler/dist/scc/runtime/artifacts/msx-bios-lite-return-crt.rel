@@ -4,7 +4,7 @@ $SECTION 0 .text kind=TEXT size=75 align=1
 $TEXT section=.text
 T 0000 CD 00 00
 T 0003 21 00 00
-T 0006 CD 3B 00
+T 0006 C3 3B 00
 T 0009 CD 9F 00
 T 000C 6F
 T 000D 26 00

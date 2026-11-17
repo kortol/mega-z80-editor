@@ -34,7 +34,8 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
       return;
     }
     if (!runtime || typeof runtime !== "object") { errors.push(`${where} must be a runtime name or object`); return; }
-    const spec = runtime as { platform?: unknown; profile?: unknown; exit?: unknown };
+    const spec = runtime as { platform?: unknown; profile?: unknown; exit?: unknown; features?: unknown };
+    if (spec.features !== undefined && (!Array.isArray(spec.features) || spec.features.some((name) => name !== "fixed" && name !== "bcd"))) errors.push(`${where}.features must contain only fixed | bcd`);
     if (!(BUNDLED_RUNTIME_PLATFORMS as readonly unknown[]).includes(spec.platform)) errors.push(`${where}.platform must be cpm | msx-bios | raw`);
     if (!(BUNDLED_RUNTIME_PROFILES as readonly unknown[]).includes(spec.profile)) errors.push(`${where}.profile must be lite | full`);
     if (spec.exit !== undefined && (!(MSX_RUNTIME_EXIT_MODES as readonly unknown[]).includes(spec.exit) || spec.platform !== "msx-bios")) errors.push(`${where}.exit is valid only for msx-bios: halt | return`);
@@ -128,8 +129,8 @@ function collect(value: string, previous: string[]): string[] {
   return previous;
 }
 
-function resolveRuntimeOptions(opts: { runtime?: string; runtimePlatform?: string; runtimeProfile?: string; runtimeExit?: string }): RuntimeSelection | undefined {
-  if (opts.runtimePlatform || opts.runtimeProfile || opts.runtimeExit) {
+function resolveRuntimeOptions(opts: { runtime?: string; runtimePlatform?: string; runtimeProfile?: string; runtimeExit?: string; runtimeFeature?: Array<"fixed" | "bcd"> }): RuntimeSelection | undefined {
+  if (opts.runtimePlatform || opts.runtimeProfile || opts.runtimeExit || opts.runtimeFeature?.length) {
     if (opts.runtime) throw new Error("--runtime cannot be combined with --runtime-platform/profile/exit.");
     if (!opts.runtimePlatform || !opts.runtimeProfile) throw new Error("--runtime-platform and --runtime-profile must be specified together.");
     if (!(BUNDLED_RUNTIME_PLATFORMS as readonly string[]).includes(opts.runtimePlatform)) throw new Error(`Unknown runtime platform: ${opts.runtimePlatform}`);
@@ -137,7 +138,7 @@ function resolveRuntimeOptions(opts: { runtime?: string; runtimePlatform?: strin
     if (opts.runtimeExit && (!(MSX_RUNTIME_EXIT_MODES as readonly string[]).includes(opts.runtimeExit) || opts.runtimePlatform !== "msx-bios")) {
       throw new Error(`Runtime exit mode is valid only for msx-bios: ${opts.runtimeExit}`);
     }
-    return { platform: opts.runtimePlatform as BundledRuntimeSpec["platform"], profile: opts.runtimeProfile as BundledRuntimeSpec["profile"], ...(opts.runtimeExit ? { exit: opts.runtimeExit as BundledRuntimeSpec["exit"] } : {}) };
+    return { platform: opts.runtimePlatform as BundledRuntimeSpec["platform"], profile: opts.runtimeProfile as BundledRuntimeSpec["profile"], ...(opts.runtimeFeature?.length ? { features: opts.runtimeFeature } : {}), ...(opts.runtimeExit ? { exit: opts.runtimeExit as BundledRuntimeSpec["exit"] } : {}) };
   }
   if (opts.runtime && !SCC_RUNTIME_NAMES.includes(opts.runtime as any)) throw new Error(`Unknown SCC runtime: ${opts.runtime}`);
   return opts.runtime as RuntimeSelection | undefined;
@@ -204,6 +205,7 @@ program
   .option("--runtime <name>", `Bundled runtime to link (${SCC_RUNTIME_NAMES.join(", ")})`)
   .option("--runtime-platform <platform>", "Runtime platform: cpm | msx-bios | raw")
   .option("--runtime-profile <profile>", "Runtime profile: lite | full")
+  .option("--runtime-feature <name>", "Optional numeric module: fixed | bcd (repeatable)", collect, [])
   .option("--runtime-exit <mode>", "MSX exit mode: halt | return")
   .option("--library <path>", "Add a .lib/.a archive to the link", collect, [])
   .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])

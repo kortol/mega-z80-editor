@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readFullRuntimeSource } from "./runtimeLibrary";
+import { NumericFeature, NUMERIC_C_MEMBERS, normalizeNumericFeatures, requireNumericFeatures } from "./runtimeFeatures";
 
 export const SCC_RUNTIME_NAMES = ["cpmcrt", "cpmlibc"] as const;
 export type SccRuntimeName = (typeof SCC_RUNTIME_NAMES)[number];
@@ -14,6 +15,7 @@ export type MsxRuntimeExitMode = (typeof MSX_RUNTIME_EXIT_MODES)[number];
 
 /** Portable runtime selection used by project configuration and public APIs. */
 export type BundledRuntimeSpec = {
+  features?: NumericFeature[];
   platform: BundledRuntimePlatform;
   profile: BundledRuntimeProfile;
   /** Required only by the MSX BIOS backend; omitted means halt. */
@@ -29,6 +31,7 @@ export function isSccRuntimeName(value: unknown): value is SccRuntimeName {
 export function isBundledRuntimeSpec(value: unknown): value is BundledRuntimeSpec {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<BundledRuntimeSpec>;
+  try { normalizeNumericFeatures(candidate.features); } catch { return false; }
   return (BUNDLED_RUNTIME_PLATFORMS as readonly string[]).includes(candidate.platform ?? "") &&
     (BUNDLED_RUNTIME_PROFILES as readonly string[]).includes(candidate.profile ?? "") &&
     (candidate.exit === undefined || (MSX_RUNTIME_EXIT_MODES as readonly string[]).includes(candidate.exit));
@@ -39,7 +42,9 @@ export function normalizeBundledRuntime(selection: RuntimeSelection): BundledRun
     if (selection.platform !== "msx-bios" && selection.exit !== undefined) {
       throw new Error(`Runtime exit mode is valid only for msx-bios, got ${selection.platform}.`);
     }
-    return selection.platform === "msx-bios" ? { ...selection, exit: selection.exit ?? "halt" } : { ...selection };
+    const features = normalizeNumericFeatures(selection.features);
+    const normalized = { ...selection, ...(selection.features !== undefined ? { features } : {}) };
+    return selection.platform === "msx-bios" ? { ...normalized, exit: selection.exit ?? "halt" } : normalized;
   }
   if (selection === "cpmcrt") return { platform: "cpm", profile: "lite" };
   // cpmlibc remains a link-compatible legacy runtime rather than a full profile.
@@ -63,11 +68,19 @@ export function getBundledRuntimeDefines(selection: RuntimeSelection): Record<st
   if (spec.platform === "msx-bios") {
     defines[`MZ80_MSX_EXIT_${(spec.exit ?? "halt").toUpperCase()}`] = "1";
   }
+  for (const feature of requireNumericFeatures(spec.features)) defines[`MZ80_FEATURE_${feature.toUpperCase()}`] = "1";
   return defines;
 }
 
 export function getBundledRuntimeIncludeDir(): string {
   return path.join(__dirname, "runtime", "include");
+}
+
+export function getBundledRuntimeIncludeDirs(selection: RuntimeSelection): string[] {
+  const features = requireNumericFeatures(normalizeBundledRuntime(selection).features);
+  const root = fs.existsSync(path.join(__dirname, "runtime", "numeric", "available.json"))
+    ? path.join(__dirname, "runtime") : path.resolve(__dirname, "../../dist/scc/runtime");
+  return [getBundledRuntimeIncludeDir(), ...features.map((feature) => path.join(root, "numeric", feature, "include"))];
 }
 
 function runtimeFilePath(selection: RuntimeSelection): string {
@@ -80,6 +93,14 @@ export function getBundledSccRuntime(selection: RuntimeSelection): string {
   let source = fs.readFileSync(runtimeFilePath(selection), "utf8");
   if (typeof selection !== "string" && selection.profile === "full") {
     source += `\n${readFullRuntimeSource(path.join(__dirname, "runtime", "lib"))}`;
+  }
+  if (typeof selection !== "string") {
+    for (const feature of requireNumericFeatures(selection.features)) {
+      const root = getBundledRuntimeIncludeDirs(selection).find((entry) => entry.endsWith(path.join(feature, "include")))!;
+      source += "\n" + fs.readFileSync(path.join(root, "..", "constructors.scc.asm"), "utf8");
+      source += "\n" + fs.readFileSync(path.join(root, "..", "cpu.scc.asm"), "utf8");
+      for (const name of NUMERIC_C_MEMBERS) source += "\n" + fs.readFileSync(path.join(root, "..", `${name}.generated.scc.asm`), "utf8");
+    }
   }
   if (typeof selection === "string" || selection.platform !== "msx-bios") return source;
   const exit = normalizeBundledRuntime(selection).exit === "return"

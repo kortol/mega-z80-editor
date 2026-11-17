@@ -1,6 +1,6 @@
 # SCC Feature Plan
 
-更新日: 2026-11-17
+更新日: 2026-11-18
 
 ## 基準状態
 
@@ -91,8 +91,8 @@ binary ABI、runtime guide、実行証跡までを同時に更新する。状態
 
 | ID | Feature | 状態 | 主な依存 / 判断 |
 | --- | --- | --- | --- |
-| N1 | `q8.8` / `q16.16` fixed point library type | 候補 | overflow / rounding / multiplication division helper を定義する |
-| N2 | BCD decimal library type | 候補 | packed representation、精度、sign、conversion、helper ABI を定義する |
+| N1 | optional fixed point / BCD library type | 完了: 100% | Slice 1/2/3/4 完了。全数値 API、両 ABI、3 platform、縮小配布を検証済み |
+| N2 | BCD decimal library type | N1 へ統合 | 独立 opt-in module として N1 Slice 1/3/4 で実装・検証する |
 | F1 | IEEE-754 binary32 `float` | 保留 | literal / layout / call / return / arithmetic / comparison / conversion を段階導入 |
 | F2 | float formatting / parsing、`%f` | 保留 | F1 arithmetic と code-size 評価後 |
 | F3 | `math.h` elementary functions | 保留 | F1 と numerical accuracy policy 後 |
@@ -250,6 +250,22 @@ proposal のままとする。これらを fixed-ABI library scope の未完了�
 - library profile と未対応 corner case を、同じ変更で `scc-runtime-guide.md` に追加する。
 
 ## N1 — 数値基盤: fixed point と BCD
+
+状態: Slice 1/2/3/4 完了、4/4 delivery slice（100%、slice 等分。2026-11-18）。
+詳細は [N1 optional numeric design](scc-numeric-design.md)。
+fixed と BCD は独立 opt-in feature / header / archive とし、full にも既定では含めない。
+MZ80_NUMERIC_MODULES で不要 module の source/header/archive 自体を除外できる。
+Q8.8/Q16.16 と、16桁・小数4桁の固定 scale BCD の object layout、整数 constructor を実装済み。
+4 selection × lite/full × 両 ABI の CP/M 実行、境界 byte vector、CLI/YAML、縮小 prepack 4構成を検証済み。
+fixed の to_int・四則演算・比較・strict parse / exact format を実装し、BigInt vector を両 ABI の CP/M で検証済み。
+BCD の同9 API family も実装し、16桁・小数4桁、負のゼロ正規化、不正 nibble、precision、alias / 出力保持を検証済み。
+共有可変領域・heap なし、最大追加 stack は fixed 87 / BCD 110 bytes。
+CP/M/raw 32構成、openMSX 32構成、縮小 tarball 4構成の clean-install 全 API 実行と、未選択 source が存在しない再buildを検証済み。
+既存 runtime/heap の openMSX 8構成も成功。Cコンパイラ21 suites / 1062 tests、CLI 11 tests、
+root build、通常配布 check:pack（全数値 API / heap / CLI / DAP clean-install）を通過済み。
+外側 caller を除く stack 上限と code/tarball size snapshot は詳細設計に記録する。
+指数を持つ BCD floating point と IEEE float は別 scope として扱う。
+4 slice は optional 基盤、fixed 実用化、BCD 実用化、platform/配布総合検証の単位で進める。
 
 ### 目的
 

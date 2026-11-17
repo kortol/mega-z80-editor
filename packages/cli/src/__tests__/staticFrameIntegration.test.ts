@@ -47,3 +47,17 @@ test("static-frame project rejects multiple C translation units", () => {
     targets: { demo: { output: "main.com", modules: ["main.c", "other.c"] } },
   }, "demo", createLogger("quiet"))).toThrow("exactly one C translation unit");
 });
+
+test("YAML selects fixed alone and CLI adapter selects BCD alone", () => {
+  const { dir, input, output } = fixture();
+  fs.writeFileSync(input, "#include <stdio.h>\n#include <mz80_fixed.h>\nmz80_q16_16 q;int main(){putchar(mz80_q16_from_int(&q,7)+65);return 0;}");
+  const config = path.join(dir, "mz80.yaml");
+  fs.writeFileSync(config, "cc:\n  compiler: ts\n  tsAbi: static-frame\n  runtime:\n    platform: cpm\n    profile: lite\n    features: [fixed]\ntargets:\n  demo:\n    output: main.com\n    modules: [main.c]\n    link:\n      com: true\n      orgText: 100H\n");
+  buildProjectTarget(config, loadProjectConfig(config), "demo", createLogger("quiet"));
+  run(output);
+  fs.writeFileSync(input, "#include <stdio.h>\n#include <mz80_bcd.h>\nmz80_bcd q;int main(){putchar(mz80_bcd_from_int(&q,-7)+65);return 0;}");
+  compileSccProgramFromCli(createLogger("quiet"), input, output, {
+    compiler: "ts", tsAbi: "static-frame", runtime: { platform: "cpm", profile: "lite", features: ["bcd"] },
+  });
+  run(output);
+});

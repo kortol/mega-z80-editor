@@ -1,6 +1,14 @@
 import { parseProgram } from "../tsFrontendParser";
 
 describe("tsFrontendParser", () => {
+  test("keeps operators within subscript expressions below the outer comparison", () => {
+    const program = parseProgram("int f(char *value,int count){return value[count-1]>=128;}\n");
+    expect(program.functions[0].body.statements[0]).toMatchObject({
+      kind: "return", expr: { kind: "binary", op: ">=", left: {
+        kind: "arrayIndex", name: "value", index: { kind: "binary", op: "-" },
+      } },
+    });
+  });
   test("parses function-pointer typedefs with abstract function-pointer parameters", () => {
     const source = "typedef char (*Factory)(char (*)(char));\nFactory factory;\nint main(){ return 0; }\n";
     const program = parseProgram(source, "abstract-function-pointer-param.c");

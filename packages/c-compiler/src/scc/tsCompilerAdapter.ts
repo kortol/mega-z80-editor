@@ -10,6 +10,7 @@ import { analyzeProgram } from "./tsFrontendSemantic";
 import { preprocessTsCSource } from "./tsPreprocessor";
 import { emitProgram as emitLoweredProgram } from "./tsProgram";
 import { TsAbiProfile } from "./tsProgram";
+import { validateNumericProviders } from "./runtimeFeatures";
 import { translateSccAsm } from "./translateAsm";
 
 export type TsSccCompilerAdapterOptions = {
@@ -260,7 +261,8 @@ function compileFromSource(
   const preprocessed = preprocessTsCSource(sourceText, resolvedInput, opts);
   const parsed = parseProgram(preprocessed.sourceText, resolvedInput);
   const bound = analyzeProgram(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
-  const spec = lowerBoundProgram(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi);
+  validateNumericProviders(bound, opts.runtimeFeatures);
+  const spec = lowerBoundProgram(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi, opts.runtimeFeatures);
 
   fs.mkdirSync(stageDir, { recursive: true });
   fs.writeFileSync(preprocessedFile, preprocessed.sourceText, "utf8");

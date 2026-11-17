@@ -42,6 +42,8 @@ function validateConfig(cfg) {
             return;
         }
         const spec = runtime;
+        if (spec.features !== undefined && (!Array.isArray(spec.features) || spec.features.some((name) => name !== "fixed" && name !== "bcd")))
+            errors.push(`${where}.features must contain only fixed | bcd`);
         if (!c_compiler_1.BUNDLED_RUNTIME_PLATFORMS.includes(spec.platform))
             errors.push(`${where}.platform must be cpm | msx-bios | raw`);
         if (!c_compiler_1.BUNDLED_RUNTIME_PROFILES.includes(spec.profile))
@@ -135,7 +137,7 @@ function collect(value, previous) {
     return previous;
 }
 function resolveRuntimeOptions(opts) {
-    if (opts.runtimePlatform || opts.runtimeProfile || opts.runtimeExit) {
+    if (opts.runtimePlatform || opts.runtimeProfile || opts.runtimeExit || opts.runtimeFeature?.length) {
         if (opts.runtime)
             throw new Error("--runtime cannot be combined with --runtime-platform/profile/exit.");
         if (!opts.runtimePlatform || !opts.runtimeProfile)
@@ -147,7 +149,7 @@ function resolveRuntimeOptions(opts) {
         if (opts.runtimeExit && (!c_compiler_1.MSX_RUNTIME_EXIT_MODES.includes(opts.runtimeExit) || opts.runtimePlatform !== "msx-bios")) {
             throw new Error(`Runtime exit mode is valid only for msx-bios: ${opts.runtimeExit}`);
         }
-        return { platform: opts.runtimePlatform, profile: opts.runtimeProfile, ...(opts.runtimeExit ? { exit: opts.runtimeExit } : {}) };
+        return { platform: opts.runtimePlatform, profile: opts.runtimeProfile, ...(opts.runtimeFeature?.length ? { features: opts.runtimeFeature } : {}), ...(opts.runtimeExit ? { exit: opts.runtimeExit } : {}) };
     }
     if (opts.runtime && !c_compiler_1.SCC_RUNTIME_NAMES.includes(opts.runtime))
         throw new Error(`Unknown SCC runtime: ${opts.runtime}`);
@@ -213,6 +215,7 @@ program
     .option("--runtime <name>", `Bundled runtime to link (${c_compiler_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--runtime-platform <platform>", "Runtime platform: cpm | msx-bios | raw")
     .option("--runtime-profile <profile>", "Runtime profile: lite | full")
+    .option("--runtime-feature <name>", "Optional numeric module: fixed | bcd (repeatable)", collect, [])
     .option("--runtime-exit <mode>", "MSX exit mode: halt | return")
     .option("--library <path>", "Add a .lib/.a archive to the link", collect, [])
     .option("-I, --include <dir>", "Add include directory for dcpp", collect, [])

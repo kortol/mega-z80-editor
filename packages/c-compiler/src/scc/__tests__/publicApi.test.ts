@@ -31,4 +31,16 @@ describe("public C compiler API", () => {
     expect(result.inputFile).toBe(path.join(tempDir, "smoke.c"));
     expect(fs.existsSync(outputRelFile)).toBe(true);
   });
+
+  test("numeric feature selection reaches public source API and static-frame bridge", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mz80-public-numeric-"));
+    const result = compileCSource(createLogger("quiet"), {
+      source: "#include <mz80_fixed.h>\n#include <mz80_bcd.h>\nmz80_q16_16 wide;mz80_bcd decimal;int main(){return mz80_q16_from_int(&wide,7)+mz80_bcd_from_int(&decimal,-7);}",
+      tempDir, features: ["fixed", "bcd"], abi: "ts-static-frame",
+    });
+    expect(fs.existsSync(result.relFile)).toBe(true);
+    const preprocessed = fs.readFileSync(result.preprocessedFile, "utf8");
+    expect(preprocessed).toContain("mz80_q16_v1_from_int");
+    expect(preprocessed).toContain("mz80_bcd_v1_from_int");
+  });
 });

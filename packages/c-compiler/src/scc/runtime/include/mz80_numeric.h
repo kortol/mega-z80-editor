@@ -1,0 +1,9 @@
+#ifndef MZ80_NUMERIC_H
+#define MZ80_NUMERIC_H
+#define MZ80_NUM_OK 0
+#define MZ80_NUM_OVERFLOW 1
+#define MZ80_NUM_DIVZERO 2
+#define MZ80_NUM_INVALID 3
+#define MZ80_NUM_BUFFER 4
+#define MZ80_NUM_PRECISION 5
+#endif

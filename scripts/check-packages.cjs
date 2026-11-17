@@ -219,6 +219,10 @@ try {
     "",
   ].join("\n"));
   run(process.execPath, [apiSmoke, fixture], installRoot);
+  const numericProbe=path.join(installRoot,'numeric-probe.cjs');
+  fs.copyFileSync(path.join(root,'packages/c-compiler/tools/numeric-pack-probe.cjs'),numericProbe);
+  fs.copyFileSync(path.join(root,'packages/c-compiler/docs/examples/numeric-probe.c'),path.join(installRoot,'numeric-probe.c'));
+  run(process.execPath,[numericProbe,'fixed,bcd'],installRoot);
 
   const cli = path.join(installRoot, "node_modules", "@mz80", "cli", "dist", "index.js");
   const cliBin = path.join(installRoot, "node_modules", ".bin", process.platform === "win32" ? "mz80.cmd" : "mz80");

@@ -40,6 +40,72 @@ external Z80SCC の実行が必要な確認は local-required とする。この
 bundled include directory と `MZ80_PLATFORM_*` / `MZ80_RUNTIME_*` define の `dcpp` 引数伝播を
 固定する。external Z80SCC の一般 variadic ABI は対応しない。
 
+## Optional numeric modules (N1)
+
+TS compiler では fixed と bcd を個別に opt-in できる。lite/full の既定はどちらも無効。
+external Z80SCC と legacy runtime alias での利用には対応しない。
+
+```text
+mz80 cc numeric.c numeric.com --compiler ts --runtime-platform cpm --runtime-profile lite --runtime-feature fixed --runtime-feature bcd --com
+```
+
+project は cc.runtime.features: [fixed, bcd]、compileSccProgram は runtime.features、
+compileCFile / compileCSource は features を指定する。後者は REL だけを生成するため、
+link 時には getBundledRuntimeArtifacts の対応 archive を渡す。
+選択した header path と MZ80_FEATURE_FIXED / MZ80_FEATURE_BCD が自動注入される。
+未同梱・未知の module と未選択 provider の呼出しは診断する。
+
+| Feature / header | 型と格納 | 現在の API | 独立 archive |
+| --- | --- | --- | --- |
+| fixed / `<mz80_fixed.h>` | mz80_q8_8: 2 bytes、mz80_q16_16: 4 bytes、little endian | mz80_q8_* / mz80_q16_*: from_int、to_int、add/sub/mul/div、compare、parse、format | libmz80-fixed-v1.lib |
+| bcd / `<mz80_bcd.h>` | mz80_bcd: 符号 + packed BCD 8 bytes、小数4桁 | mz80_bcd_*: from_int、to_int、add/sub/mul/div、compare、parse、format | libmz80-bcd-v1.lib |
+
+各関数は int status を返し、出力先の pointer と入力を受け取る。
+Q8.8 constructor の整数範囲は -128～127。Q16.16 と BCD は16-bit signed int 全域に対応する。
+成功は MZ80_NUM_OK、Q8.8 範囲外は MZ80_NUM_OVERFLOW、NULL 出力は MZ80_NUM_INVALID。
+エラー時は出力を変更しない。共通 status 定数は `<mz80_numeric.h>` にある。
+API 名は header で version 付き export へ接続する。heap と共有 mutable storage は使わない。
+
+```c
+#include <mz80_fixed.h>
+mz80_q16_16 result;
+int main(void) {
+    return mz80_q16_from_int(&result, -7);
+}
+```
+
+上記は両 TS ABI から利用できる。static-frame caller は global/static object の pointer を渡す。
+automatic aggregate frame と aggregate 値渡しは A1.1 の対象外。
+fixed の全9 API family を実装済み。mul/div・to_int・parse は0方向切捨て、overflow / 除数0 / NULL /
+容量不足では出力を変更しない。out==left / out==right の完全一致を許可する。partial overlap は契約外。
+compare は int *order に -1/0/1 を書き、status と分離する。
+parse の文法は `[+-]?[0-9]+(\.[0-9]+)?`、空白・exponent・`.5`・`1.` は INVALID。
+format は正確な有限十進表現を NUL 終端で返し、不要な小数末尾0は付けない。
+Q8.8 は14 bytes、Q16.16 は24 bytes の buffer で全範囲を扱える。
+例えば raw の最小正値は Q8.8 が `0.00390625`、Q16.16 が `0.0000152587890625` となる。
+BCD の全9 API family も実装済み。mul/div・to_int は0方向切捨て、overflow と除数0を検出する。
+sign は0/1、全 nibble は0～9を要求し、それ以外は INVALID。入力の負のゼロは受理し、結果を plus zero に正規化する。
+BCD parse の文法は fixed と共通だが、小数5桁以上は末尾0でも PRECISION とする。
+format は常に小数4桁、最大19 bytes（NUL 込み）。to_int は signed 16-bit の範囲外なら OVERFLOW。
+エラー時の出力保持、完全一致 alias、NULL、buffer 契約も fixed と共通。
+
+[固定小数点による連立方程式](examples/fixed-equations.c) は両 ABI、lite/full、prebuilt/source-runtime で
+`2*x+y=6.5, x-y=1` を解き、`2.5` と `1.5` を出力する。
+生成コードは共有可変領域・heap を使わず、public entry 後の追加 stack 上限は fixed 87 / BCD 110 bytes。
+API ごとの内訳と再現コマンドは [numeric design](scc-numeric-design.md) を参照する。
+
+[numeric probe](examples/numeric-probe.c) は両 module の全 API family を CP/M / raw / MSX で実行する。
+test:msx-numeric は openMSX/C-BIOS_MSX1 で4選択 × lite/full × 両 ABI × halt/return を検証する。
+ROM の page 2 選択、初期 DATA の RAM copy、writable BSS は probe が供給する（汎用 CRT の自動初期化ではない）。
+return は caller へ戻り、halt はその場で停止する。expanded-slot cartridge はこの startup の検証範囲外。
+test:numeric-builds は4配布構成の clean-install 先で constructor・演算・format を実行し、
+未同梱 feature の拒否と物理的に縮小した source からの再buildを検証する。
+
+配布自体を縮小する場合は build/pack 時の環境変数 MZ80_NUMERIC_MODULES を
+none、fixed、bcd、fixed,bcd のいずれかにする。既定は両 module の asset を同梱するが、利用時は無効。
+copy は未選択 module の source/header を除外し、archive も生成しない。
+prepack も同じ環境変数を引き継ぐ。復元手順と検証範囲は [numeric design](scc-numeric-design.md) を参照する。
+
 ## Lite API and platform ABI
 
 lite は `exit`、`putchar`、`getchar`、NUL 終端文字列へ改行を付ける `puts` を提供する。
@@ -105,10 +171,11 @@ runtime evidence を同時に追加する。
 ## Prebuilt CRT and archive library
 
 構造化 runtime は build 時に source runtime を target output directory へ再生成しない。package に
-同梱された prebuilt CRT REL と archive を linker へ渡す。lite は platform CRT だけ、full は同じ
+同梱された prebuilt CRT REL と archive を linker へ渡す。features=[] の lite は platform CRT だけ、full は同じ
 platform CRT と `libmz80c-full.lib` を使用する。MSX CRT は exit mode ごとに分かれる。full archive は
 `mz80c-stdlib`、`mz80c-string`、`mz80c-ctype`、`mz80c-stdio`、`mz80c-heap` の5 REL member で構成し、linker は必要な
 export を持つ member だけを抽出する。
+fixed / bcd を選択すると、profile に関わらず対応する独立 numeric archive を追加する。
 
 | Selection | CRT artifact | library artifact |
 | --- | --- | --- |

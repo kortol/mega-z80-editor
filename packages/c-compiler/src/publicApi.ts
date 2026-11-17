@@ -3,9 +3,12 @@ import path from "node:path";
 import type { Logger } from "@mz80/core";
 import type { CompileSccSourceResult } from "./scc/compilerAdapter";
 import { TsSccCompilerAdapter } from "./scc/tsCompilerAdapter";
+import { NumericFeature } from "./scc/runtimeFeatures";
+import { getBundledRuntimeDefines, getBundledRuntimeIncludeDirs } from "./scc/runtime";
 
 /** Stable file-oriented entrypoint for the bundled TypeScript C subset compiler. */
 export type CompileCFileOptions = {
+  features?: NumericFeature[];
   abi?: "ts-internal" | "ts-static-frame";
   inputFile: string;
   tempDir: string;
@@ -25,7 +28,15 @@ export type CompileCSourceOptions = Omit<CompileCFileOptions, "inputFile"> & {
 };
 
 export function compileCFile(logger: Logger, options: CompileCFileOptions): CompileSccSourceResult {
-  return new TsSccCompilerAdapter({ abi: options.abi }).compileToRel(logger, options);
+  const runtime = { platform: "raw" as const, profile: "lite" as const, features: options.features };
+  return new TsSccCompilerAdapter({ abi: options.abi }).compileToRel(logger, {
+    ...options,
+    ...(options.features !== undefined ? {
+      runtimeFeatures: options.features,
+      bundledIncludeDirs: getBundledRuntimeIncludeDirs(runtime),
+      defines: Object.fromEntries(Object.entries(getBundledRuntimeDefines(runtime)).filter(([name]) => name.startsWith("MZ80_FEATURE_"))),
+    } : {}),
+  });
 }
 
 export function compileCSource(logger: Logger, options: CompileCSourceOptions): CompileSccSourceResult {

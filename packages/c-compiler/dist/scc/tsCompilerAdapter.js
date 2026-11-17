@@ -13,6 +13,7 @@ const tsFrontendParser_1 = require("./tsFrontendParser");
 const tsFrontendSemantic_1 = require("./tsFrontendSemantic");
 const tsPreprocessor_1 = require("./tsPreprocessor");
 const tsProgram_1 = require("./tsProgram");
+const runtimeFeatures_1 = require("./runtimeFeatures");
 const translateAsm_1 = require("./translateAsm");
 class TsSccCompilerAdapter {
     fixtureId;
@@ -84,7 +85,8 @@ function compileFromSource(logger, opts, abi) {
     const preprocessed = (0, tsPreprocessor_1.preprocessTsCSource)(sourceText, resolvedInput, opts);
     const parsed = (0, tsFrontendParser_1.parseProgram)(preprocessed.sourceText, resolvedInput);
     const bound = (0, tsFrontendSemantic_1.analyzeProgram)(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
-    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi);
+    (0, runtimeFeatures_1.validateNumericProviders)(bound, opts.runtimeFeatures);
+    const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi, opts.runtimeFeatures);
     node_fs_1.default.mkdirSync(stageDir, { recursive: true });
     node_fs_1.default.writeFileSync(preprocessedFile, preprocessed.sourceText, "utf8");
     node_fs_1.default.writeFileSync(sccAsmFile, (0, tsProgram_1.emitProgram)(spec), "utf8");

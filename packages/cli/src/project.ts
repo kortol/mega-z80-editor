@@ -3,8 +3,7 @@ import path from "path";
 import yaml from "yaml";
 import { Logger, link } from "@mz80/core";
 import { assemble } from "@mz80/assembler";
-import { validateTsAbiLinkInputs } from "@mz80/c-compiler";
-import { compileSccSourceToRel, ExternalSccCompilerAdapter, TsSccCompilerAdapter, getBundledRuntimeArtifacts, getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
+import { validateTsAbiLinkInputs, getBundledRuntimeIncludeDirs, compileSccSourceToRel, ExternalSccCompilerAdapter, TsSccCompilerAdapter, getBundledRuntimeArtifacts, getBundledRuntimeDefines, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
 
 export type Mz80AsOptions = {
   relVersion?: number | string;
@@ -214,6 +213,7 @@ export function buildProjectTarget(
     ? path.resolve(target.cc.tempDir)
     : path.join(path.dirname(target.output), `.mz80-scc-${target.name}`);
   if (target.cc?.compiler && !["sccz80", "ts"].includes(target.cc.compiler)) throw new Error("Unknown C compiler");
+  if (typeof target.runtime?.name === "object" && target.runtime.name.features?.length && target.cc?.compiler !== "ts") throw new Error("Numeric runtime features require compiler: ts");
   if (target.cc?.tsAbi && target.cc.compiler !== "ts") throw new Error("tsAbi requires compiler: ts");
   if (target.cc?.tsAbi && !["internal", "static-frame"].includes(target.cc.tsAbi)) throw new Error("Unknown TS ABI");
   if (target.cc?.tsAbi === "static-frame" && target.modules.filter((mod) => mod.kind === "c").length !== 1) {
@@ -258,7 +258,8 @@ export function buildProjectTarget(
           sym: !!target.link?.sym,
           smap: !!target.link?.smap,
           defines: target.runtime ? getBundledRuntimeDefines(target.runtime.name) : undefined,
-          bundledIncludeDirs: target.runtime ? [getBundledRuntimeIncludeDir()] : undefined,
+          bundledIncludeDirs: target.runtime ? getBundledRuntimeIncludeDirs(target.runtime.name) : undefined,
+          runtimeFeatures: typeof target.runtime?.name === "object" ? target.runtime.name.features : [],
         }, compilerAdapter);
         continue;
       }
