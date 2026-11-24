@@ -4,6 +4,8 @@
 
 ## Current references
 
+- [scc-target-startup-design.md](scc-target-startup-design.md): T2/T3 memory 配置、ROM DATA、stack/heap 予約、設定付き startup、検証と制限
+
 - [scc-numeric-design.md](scc-numeric-design.md): N1 fixed/BCD の独立 optional module、数値仕様案、Goal と delivery slice
 
 - [scc-heap-design.md](scc-heap-design.md): H1 heap の Goal、arena/API/ABI/debug contract と 3 delivery slice

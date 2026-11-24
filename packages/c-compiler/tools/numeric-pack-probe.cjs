@@ -36,3 +36,18 @@ for(const feature of requested){
   mutable.push({feature,dataBytes:0,bssBytes:0});
 }
 console.log('[numeric-consumer] '+JSON.stringify({modules:requested,measurements,mutable}));
+const examples=path.resolve(path.dirname(require.resolve('@mz80/c-compiler')),'../docs/examples');
+const target=JSON.parse(fs.readFileSync(path.join(examples,'cpm-target.json'),'utf8'));
+const startupSource=fs.readFileSync(path.join(examples,'startup-probe.c'),'utf8');
+for(const abi of ['ts-internal','ts-static-frame']){
+  const directory=path.join(__dirname,'startup-'+abi);fs.mkdirSync(directory);
+  const inputFile=path.join(directory,'probe.c'),outputFile=path.join(directory,'probe.com');fs.writeFileSync(inputFile,startupSource);
+  api.compileSccProgram(createLogger('quiet'),{inputFile,outputFile,tempDir:path.join(directory,'stage'),runtime:{platform:'cpm',profile:'full',features:requested},...target,com:true,map:true},{compilerAdapter:new api.TsSccCompilerAdapter({abi})});
+  const report=JSON.parse(fs.readFileSync(path.join(directory,'probe.memory.json'),'utf8'));
+  const core=new Z80DebugCore(false);core.setCpm22Enabled(true);core.setAllowOutOfImage(true);
+  core.writeMemory(report.ram.start,new Uint8Array(report.ram.size).fill(0xA5));core.loadImage(fs.readFileSync(outputFile),0x100);core.setEntry(0x100);
+  assert.equal(core.run(3000000).reason,'BDOS 0: terminate');
+  assert.equal(core.getOutput(),'AB\nCDE READY\n'+(requested.includes('fixed')?'1.25\n':'')+(requested.includes('bcd')?'1.2500\n':''));
+  assert.equal(report.heap.start,0xD000);assert.equal(report.stack.top,0xEF00);
+}
+console.log('[startup-consumer] poisoned BSS, initialized DATA/pointers, heap and configured entry passed both ABIs');

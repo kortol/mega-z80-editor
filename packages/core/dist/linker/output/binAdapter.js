@@ -18,7 +18,7 @@ class BinOutputAdapter extends baseTextAdapter_1.BaseTextAdapter {
             throw new Error("No segments");
         const loadable = this.result.segments
             .filter((seg) => !!seg.data)
-            .map((seg) => ({ range: seg.range, data: seg.data }));
+            .map((seg) => ({ range: seg.loadAddress === undefined ? seg.range : { min: seg.loadAddress, max: seg.loadAddress + seg.data.length - 1 }, data: seg.data }));
         if (loadable.length === 0)
             throw new Error("No loadable segments");
         return loadable;

@@ -5,10 +5,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.compileSccProgramFromCli = compileSccProgramFromCli;
 const node_path_1 = __importDefault(require("node:path"));
+const node_fs_1 = __importDefault(require("node:fs"));
 const c_compiler_1 = require("@mz80/c-compiler");
 const c_compiler_2 = require("@mz80/c-compiler");
 function compileSccProgramFromCli(logger, inputFile, outputFile, opts) {
     const resolvedOutput = node_path_1.default.resolve(outputFile);
+    const targetConfig = opts.targetConfig ? JSON.parse(node_fs_1.default.readFileSync(node_path_1.default.resolve(opts.targetConfig), "utf8")) : {};
+    if (!targetConfig || typeof targetConfig !== "object" || Array.isArray(targetConfig) || Object.keys(targetConfig).some(key => !["memory", "startup"].includes(key)))
+        throw new Error("target config must contain only memory and startup");
+    const memory = opts.memory ?? targetConfig.memory;
     const defaultCom = /\.com$/i.test(resolvedOutput);
     if (opts.tsAbi && opts.compiler !== "ts")
         throw new Error("tsAbi requires compiler: ts");
@@ -36,9 +41,11 @@ function compileSccProgramFromCli(logger, inputFile, outputFile, opts) {
         verbose: opts.verbose,
         toolMode: opts.wsl ? "wsl" : "host",
         runtime: opts.runtime,
+        memory,
+        startup: opts.startup ?? targetConfig.startup,
         libraries: opts.library ?? [],
         com: opts.com ?? defaultCom,
-        orgText: opts.orgText ?? (defaultCom ? "100H" : undefined),
+        orgText: opts.orgText ?? (defaultCom && !memory ? "100H" : undefined),
         orgData: opts.orgData,
         orgBss: opts.orgBss,
         orgCustom: opts.orgCustom,

@@ -10,6 +10,7 @@ const node_os_1 = __importDefault(require("node:os"));
 const node_path_1 = __importDefault(require("node:path"));
 const assembler_1 = require("@mz80/assembler");
 const core_1 = require("@mz80/core");
+const startup_1 = require("./startup");
 const compilerAdapter_1 = require("./compilerAdapter");
 const externalToolchain_1 = require("./externalToolchain");
 const runtime_1 = require("./runtime");
@@ -31,6 +32,11 @@ function compileSccProgram(logger, opts, deps = {}) {
     if (opts.runtime && (0, runtime_1.normalizeBundledRuntime)(opts.runtime).features?.length && !(compilerAdapter instanceof tsCompilerAdapter_1.TsSccCompilerAdapter)) {
         throw new Error("Numeric runtime features require the TS compiler");
     }
+    const configured = opts.memory && opts.startup !== false;
+    if (opts.startup !== undefined && opts.startup !== false && !opts.memory)
+        throw new Error("startup requires memory layout");
+    if (configured && (!(compilerAdapter instanceof tsCompilerAdapter_1.TsSccCompilerAdapter) || !opts.runtime || typeof opts.runtime === "string"))
+        throw new Error("configured startup requires TS compiler and structured runtime");
     const comMode = !!opts.com || /\.com$/i.test(opts.outputFile);
     const tempDir = opts.tempDir
         ? node_path_1.default.resolve(opts.tempDir)
@@ -51,6 +57,7 @@ function compileSccProgram(logger, opts, deps = {}) {
             defines: runtimeDefines,
             bundledIncludeDirs: opts.runtime ? (0, runtime_1.getBundledRuntimeIncludeDirs)(opts.runtime) : [],
             runtimeFeatures: opts.runtime ? (0, runtime_1.normalizeBundledRuntime)(opts.runtime).features : [],
+            startupEntry: configured ? (opts.startup && opts.startup.entry) || "main" : undefined,
         }, compilerAdapter);
         const linkInputs = [];
         let requiredSymbols;
@@ -62,7 +69,9 @@ function compileSccProgram(logger, opts, deps = {}) {
             else {
                 const artifacts = (0, runtimeArtifacts_1.getBundledRuntimeArtifacts)(opts.runtime);
                 runtimeRelFile = artifacts.crtRelPath;
-                linkInputs.push(artifacts.crtRelPath, ...artifacts.libraryPaths);
+                if (configured)
+                    runtimeRelFile = (0, startup_1.buildConfiguredStartup)(opts.runtime, opts.memory, opts.startup || {}, compilerAdapter.abiProfile, tempDir);
+                linkInputs.push(runtimeRelFile, ...artifacts.libraryPaths);
                 requiredSymbols = artifacts.requiredSymbols;
             }
         }
@@ -75,12 +84,13 @@ function compileSccProgram(logger, opts, deps = {}) {
             smap: opts.smap,
             log: opts.log,
             com: comMode,
-            orgText: opts.orgText ?? (comMode ? "100H" : undefined),
+            orgText: opts.orgText ?? (comMode && !opts.memory ? "100H" : undefined),
             orgData: opts.orgData,
             orgBss: opts.orgBss,
             orgCustom: opts.orgCustom,
             fullpath: opts.fullpath,
             requireSymbols: requiredSymbols,
+            memory: opts.memory,
         });
         logger.info(`Built SCC program: ${opts.inputFile} -> ${opts.outputFile}`);
         return {

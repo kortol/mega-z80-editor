@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import yaml from "yaml";
-import { Logger, link } from "@mz80/core";
+import { Logger, link, LinkMemoryLayout } from "@mz80/core";
+import { buildConfiguredStartup, RuntimeStartupOptions } from "@mz80/c-compiler";
 import { assemble } from "@mz80/assembler";
 import { validateTsAbiLinkInputs, getBundledRuntimeIncludeDirs, compileSccSourceToRel, ExternalSccCompilerAdapter, TsSccCompilerAdapter, getBundledRuntimeArtifacts, getBundledRuntimeDefines, getBundledSccRuntime, RuntimeSelection, runtimeId, safeRmDir, ToolMode, translateSccAsm } from "@mz80/c-compiler";
 
@@ -16,6 +17,7 @@ export type Mz80AsOptions = {
 };
 
 export type Mz80LinkOptions = {
+  memory?: LinkMemoryLayout;
   com?: boolean;
   map?: boolean;
   sym?: boolean;
@@ -35,6 +37,7 @@ export type Mz80CleanOptions = {
 };
 
 export type Mz80CcOptions = {
+  startup?: RuntimeStartupOptions | false;
   compiler?: "sccz80" | "ts";
   tsAbi?: "internal" | "static-frame";
   runtime?: RuntimeSelection;
@@ -227,6 +230,15 @@ export function buildProjectTarget(
     toolMode: target.cc?.toolMode ?? "host",
     tracePipeline: target.cc?.tracePipeline,
   });
+  const configured=!!target.link?.memory&&target.cc?.startup!==false&&!!target.runtime;
+  if(target.cc?.startup!==undefined&&target.cc.startup!==false&&!target.link?.memory)throw new Error("startup requires memory layout");
+  if(target.cc?.startup!==undefined&&target.cc.startup!==false&&!target.runtime)throw new Error("startup requires structured runtime");
+  if(configured){
+    if(!(compilerAdapter instanceof TsSccCompilerAdapter)||typeof target.runtime!.name==="string")throw new Error("configured startup requires TS compiler and structured runtime");
+    const artifacts=getBundledRuntimeArtifacts(target.runtime!.name);
+    if(path.resolve(target.runtime!.object)!==path.resolve(artifacts.crtRelPath))throw new Error("startup cannot be combined with runtimeObject override");
+    target.runtime!.object=buildConfiguredStartup(target.runtime!.name,target.link!.memory!,target.cc?.startup||{},compilerAdapter.abiProfile,tempDir);
+  }
   if (target.runtime?.source && target.runtime.asm) {
     fs.mkdirSync(path.dirname(target.runtime.source), { recursive: true });
     fs.writeFileSync(target.runtime.source, getBundledSccRuntime(target.runtime.name), "utf8");
@@ -260,6 +272,7 @@ export function buildProjectTarget(
           defines: target.runtime ? getBundledRuntimeDefines(target.runtime.name) : undefined,
           bundledIncludeDirs: target.runtime ? getBundledRuntimeIncludeDirs(target.runtime.name) : undefined,
           runtimeFeatures: typeof target.runtime?.name === "object" ? target.runtime.name.features : [],
+          startupEntry: configured?(target.cc?.startup&&target.cc.startup.entry)||"main":undefined,
         }, compilerAdapter);
         continue;
       }
@@ -381,6 +394,7 @@ function mergeCcOptions(base?: Mz80CcOptions, override?: Mz80CcOptions): Mz80CcO
     includeDirs: override?.includeDirs ?? base?.includeDirs,
     cppArgs: override?.cppArgs ?? base?.cppArgs,
     sccArgs: override?.sccArgs ?? base?.sccArgs,
+    startup: override?.startup===undefined?base?.startup:override.startup===false?false:{...(base?.startup||{}),...override.startup},
   };
 }
 

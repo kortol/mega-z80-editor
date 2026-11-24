@@ -1,5 +1,6 @@
 import { assemble } from "@mz80/assembler";
-import { link, Logger } from "@mz80/core";
+import { link, Logger, LinkMemoryLayout } from "@mz80/core";
+import { RuntimeStartupOptions } from "./startup";
 import { CompilerAdapter, ExternalSccCompilerAdapterOptions } from "./compilerAdapter";
 import { RuntimeSelection } from "./runtime";
 type AssembleFile = typeof assemble;
@@ -17,6 +18,8 @@ export type CompileSccProgramOptions = {
     verbose?: boolean;
     toolMode?: ExternalSccCompilerAdapterOptions["toolMode"];
     runtime?: RuntimeSelection;
+    memory?: LinkMemoryLayout;
+    startup?: RuntimeStartupOptions | false;
     libraries?: string[];
     com?: boolean;
     orgText?: string | number;

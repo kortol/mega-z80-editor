@@ -11,6 +11,11 @@ Language、CLI、DAP、VS Code に依存しない MZ80 の基盤 package です�
 
 CLI の process exit code や language-specific AST/diagnostics は core API に含めません。
 
+`link(..., {memory})` は opt-in の16-bit flat配置を検査します。公開型は `LinkMemoryLayout`、
+`MemoryLayoutReport`。code/RAM領域、stack/heap予約、ROM DATA の load/runtime address 分離に対応し、
+配置結果を `.memory.json` に出力します。CUSTOM/ASEG と banked memory はこの配置モードの対象外です。
+C startup の生成は [c-compilerの責務](../c-compiler/docs/scc-target-startup-design.md) です。
+
 ## Development
 
 ```bash

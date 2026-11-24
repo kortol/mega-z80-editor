@@ -32,6 +32,7 @@ class TsSccCompilerAdapter {
         }
         return compileFromSource(logger, opts, this.abi);
     }
+    get abiProfile() { return this.abi; }
 }
 exports.TsSccCompilerAdapter = TsSccCompilerAdapter;
 function describeFixture(fixtureId) {
@@ -85,6 +86,11 @@ function compileFromSource(logger, opts, abi) {
     const preprocessed = (0, tsPreprocessor_1.preprocessTsCSource)(sourceText, resolvedInput, opts);
     const parsed = (0, tsFrontendParser_1.parseProgram)(preprocessed.sourceText, resolvedInput);
     const bound = (0, tsFrontendSemantic_1.analyzeProgram)(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
+    const startupEntry = opts.startupEntry ? bound.functions.find(fn => fn.name === opts.startupEntry) : undefined;
+    if (opts.startupEntry && bound.globals.some(global => global.name === opts.startupEntry))
+        throw new Error("startup entry must be an exported int function(void)");
+    if (startupEntry && (startupEntry.isStatic || startupEntry.isVariadic || startupEntry.params.length || startupEntry.returnType.kind !== "scalar" || startupEntry.returnType.name !== "int"))
+        throw new Error("startup entry must be an exported int function(void)");
     (0, runtimeFeatures_1.validateNumericProviders)(bound, opts.runtimeFeatures);
     const spec = (0, tsFrontendLowering_1.lowerSourceProgram)(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi, opts.runtimeFeatures);
     node_fs_1.default.mkdirSync(stageDir, { recursive: true });

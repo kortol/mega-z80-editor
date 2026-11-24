@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { assemble } from "@mz80/assembler";
-import { link, Logger } from "@mz80/core";
+import { link, Logger, LinkMemoryLayout } from "@mz80/core";
+import { buildConfiguredStartup, RuntimeStartupOptions } from "./startup";
 import {
   compileSccSourceToRel,
   CompilerAdapter,
@@ -32,6 +33,8 @@ export type CompileSccProgramOptions = {
   verbose?: boolean;
   toolMode?: ExternalSccCompilerAdapterOptions["toolMode"];
   runtime?: RuntimeSelection;
+  memory?: LinkMemoryLayout;
+  startup?: RuntimeStartupOptions | false;
   libraries?: string[];
   com?: boolean;
   orgText?: string | number;
@@ -75,6 +78,9 @@ export function compileSccProgram(
   if (opts.runtime && normalizeBundledRuntime(opts.runtime).features?.length && !(compilerAdapter instanceof TsSccCompilerAdapter)) {
     throw new Error("Numeric runtime features require the TS compiler");
   }
+  const configured=opts.memory && opts.startup!==false;
+  if(opts.startup!==undefined&&opts.startup!==false&&!opts.memory)throw new Error("startup requires memory layout");
+  if(configured&&(!(compilerAdapter instanceof TsSccCompilerAdapter)||!opts.runtime||typeof opts.runtime==="string"))throw new Error("configured startup requires TS compiler and structured runtime");
   const comMode = !!opts.com || /\.com$/i.test(opts.outputFile);
   const tempDir = opts.tempDir
     ? path.resolve(opts.tempDir)
@@ -96,6 +102,7 @@ export function compileSccProgram(
       defines: runtimeDefines,
       bundledIncludeDirs: opts.runtime ? getBundledRuntimeIncludeDirs(opts.runtime) : [],
       runtimeFeatures: opts.runtime ? normalizeBundledRuntime(opts.runtime).features : [],
+      startupEntry: configured?(opts.startup&&opts.startup.entry)||"main":undefined,
     }, compilerAdapter);
 
     const linkInputs: string[] = [];
@@ -107,7 +114,8 @@ export function compileSccProgram(
       } else {
         const artifacts = getBundledRuntimeArtifacts(opts.runtime);
         runtimeRelFile = artifacts.crtRelPath;
-        linkInputs.push(artifacts.crtRelPath, ...artifacts.libraryPaths);
+        if(configured)runtimeRelFile=buildConfiguredStartup(opts.runtime,opts.memory!,opts.startup||{},(compilerAdapter as TsSccCompilerAdapter).abiProfile,tempDir);
+        linkInputs.push(runtimeRelFile, ...artifacts.libraryPaths);
         requiredSymbols = artifacts.requiredSymbols;
       }
     }
@@ -121,12 +129,13 @@ export function compileSccProgram(
       smap: opts.smap,
       log: opts.log,
       com: comMode,
-      orgText: opts.orgText ?? (comMode ? "100H" : undefined),
+      orgText: opts.orgText ?? (comMode&&!opts.memory ? "100H" : undefined),
       orgData: opts.orgData,
       orgBss: opts.orgBss,
       orgCustom: opts.orgCustom,
       fullpath: opts.fullpath,
       requireSymbols: requiredSymbols,
+      memory: opts.memory,
     });
 
     logger.info(`Built SCC program: ${opts.inputFile} -> ${opts.outputFile}`);

@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.link = link;
 const parser_1 = require("./linker/core/parser");
@@ -43,6 +46,8 @@ const logAdapter_1 = require("./linker/output/logAdapter");
 const archive_1 = require("./linker/archive");
 const path = __importStar(require("path"));
 const model_1 = require("./sourcemap/model");
+const node_fs_1 = __importDefault(require("node:fs"));
+const memoryLayout_1 = require("./linker/memoryLayout");
 function link(inputFiles, outputFile, opts) {
     const verbose = !!opts.verbose;
     const { mods, sourceMaps } = loadLinkInputs(inputFiles, verbose);
@@ -55,8 +60,17 @@ function link(inputFiles, outputFile, opts) {
     const orgData = parseAddr(opts.orgData);
     const orgBss = parseAddr(opts.orgBss);
     const orgCustom = parseAddr(opts.orgCustom);
+    if (opts.memory && !hasV2)
+        throw new Error("memory: configured layouts require REL v2");
+    if (opts.memory)
+        for (const [label, value] of Object.entries({ orgText: opts.orgText, orgData: opts.orgData, orgBss: opts.orgBss, orgCustom: opts.orgCustom, binFrom: opts.binFrom, binTo: opts.binTo }))
+            if (value !== undefined)
+                (0, memoryLayout_1.memoryAddress)(value, label);
+    const memory = opts.memory !== undefined ? (0, memoryLayout_1.normalizeMemoryLayout)(opts.memory) : undefined;
+    if (memory && opts.com && (memory.code.start !== 0x100 || memory.code.kind !== "ram"))
+        throw new Error("memory: COM requires RAM code starting at 100H");
     const result = hasV2
-        ? (0, linker_1.linkModulesV2)(mods, { orgText, orgData, orgBss, orgCustom })
+        ? (0, linker_1.linkModulesV2)(mods, { orgText, orgData, orgBss, orgCustom, memory: opts.memory })
         : (0, linker_1.linkModules)(mods);
     const providedSymbolNames = new Set(mods.flatMap((module) => module.symbols
         .filter((symbol) => symbol.storage !== "EXT")
@@ -70,9 +84,19 @@ function link(inputFiles, outputFile, opts) {
         console.log(`[PASS2] Linked ${result.segments.length} segment(s)`);
     }
     // .bin
-    const binFrom = parseAddr(opts.binFrom);
-    const binTo = parseAddr(opts.binTo);
+    const binFrom = parseAddr(opts.binFrom) ?? (memory?.code.kind === "rom" ? memory.code.start : undefined);
+    const binTo = parseAddr(opts.binTo) ?? (memory?.code.kind === "rom" ? memory.code.start + memory.code.size - 1 : undefined);
+    if (memory?.code.kind === "rom" && ((binFrom !== undefined && binFrom < memory.code.start) || (binTo !== undefined && binTo >= memory.code.start + memory.code.size)))
+        throw new Error("memory: binary range exceeds ROM region");
+    if (memory)
+        for (const segment of result.segments.filter(segment => segment.data && segment.data.length)) {
+            const start = segment.loadAddress ?? segment.range.min, end = start + segment.data.length - 1;
+            if ((binFrom !== undefined && binFrom > start) || (binTo !== undefined && binTo < end))
+                throw new Error("memory: binary range truncates a loadable section");
+        }
     new binAdapter_1.BinOutputAdapter(result, { com: !!opts.com, binFrom, binTo }).write(outputFile, verbose);
+    if (result.memoryLayout)
+        node_fs_1.default.writeFileSync(path.join(path.dirname(outputFile), path.basename(outputFile, path.extname(outputFile)) + ".memory.json"), JSON.stringify(result.memoryLayout, null, 2) + "\n");
     // .map
     if (opts.map) {
         const fullpath = normalizeFullpathMode(opts.fullpath);

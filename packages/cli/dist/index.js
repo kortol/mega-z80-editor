@@ -29,6 +29,16 @@ function validateConfig(cfg) {
     const errors = [];
     const as = cfg.as;
     const link = cfg.link;
+    for (const [where, item] of [["link", cfg.link], ...Object.entries(cfg.targets ?? {}).map(([name, target]) => [`targets.${name}.link`, target.link])]) {
+        const memory = item?.memory;
+        if (memory !== undefined)
+            try {
+                (0, core_1.normalizeMemoryLayout)(memory);
+            }
+            catch (error) {
+                errors.push(`${where}: ${error.message}`);
+            }
+    }
     const validateRuntime = (where, runtime) => {
         if (runtime === undefined)
             return;
@@ -55,6 +65,14 @@ function validateConfig(cfg) {
     for (const [name, target] of Object.entries(cfg.targets ?? {})) {
         validateRuntime(`targets.${name}.runtime`, target.runtime);
         validateRuntime(`targets.${name}.cc.runtime`, target.cc?.runtime);
+        const memory = target.link?.memory ?? cfg.link?.memory;
+        const startup = target.cc?.startup ?? cfg.cc?.startup;
+        if (startup !== undefined && startup !== false) {
+            if (!memory)
+                errors.push(`targets.${name}.cc.startup requires link.memory`);
+            if (!startup || typeof startup !== "object" || Array.isArray(startup))
+                errors.push(`targets.${name}.cc.startup must be an object or false`);
+        }
     }
     if (as) {
         if (as.relVersion !== undefined) {
@@ -211,6 +229,7 @@ program
     .command("cc <input> <output>")
     .description("Compile Small-C source into mz80 output")
     .option("--compiler <kind>", "Compiler backend: sccz80 | ts", "sccz80")
+    .option("--target-config <path>", "JSON file containing memory layout and startup options")
     .option("--ts-abi <profile>", "TS ABI: internal | static-frame (requires --compiler ts)")
     .option("--runtime <name>", `Bundled runtime to link (${c_compiler_1.SCC_RUNTIME_NAMES.join(", ")})`)
     .option("--runtime-platform <platform>", "Runtime platform: cpm | msx-bios | raw")
@@ -253,6 +272,7 @@ program
         const runtime = resolveRuntimeOptions(opts);
         (0, mz80_cc_1.compileSccProgramFromCli)(logger, input, output, {
             compiler: opts.compiler,
+            targetConfig: opts.targetConfig,
             tsAbi: opts.tsAbi,
             runtime,
             library: opts.library,
@@ -594,6 +614,8 @@ program
             if (shouldUseConfig(command.getOptionValueSource("fullpath")))
                 opts.fullpath = cfg.link.fullpath ?? opts.fullpath;
         }
+        if (cfg.link?.memory)
+            opts.memory = cfg.link.memory;
         (0, core_2.link)(inputs, output, opts);
     }
     catch (err) {

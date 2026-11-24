@@ -60,3 +60,12 @@ module ごとに header/archive を分離し、build/pack 時の
 [docs/scc-runtime-guide.md](docs/scc-runtime-guide.md) を参照してください。
 
 その他の仕様は [docs/README.md](docs/README.md) を参照してください。
+
+## Target memory / startup
+
+TS + structured runtime の `compileSccProgram` では `memory` と `startup` を指定し、
+code/RAM 配置、stack/heap 予約、DATA copy、BSS clear、entry 選択、optional heap 初期化を利用できる。
+CLI は `--target-config file.json`、project は `link.memory` / `cc.startup` を使う。
+配置違反を link error とし、`.memory.json` を生成する。設定を省略した既存動作は維持する。
+MSX primary-slot 16/32 KiB cartridge の header と初期化・caller context 復元も生成できる。
+例と制限は [target/startup design](docs/scc-target-startup-design.md) を参照してください。

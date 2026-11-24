@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.linkModules = linkModules;
 exports.linkModulesV2 = linkModulesV2;
 const evalLinkExpr_1 = require("../expr/evalLinkExpr"); // ★ 追加
+const memoryLayout_1 = require("../memoryLayout");
 function linkModules(mods) {
     const symbols = new Map();
     const warnings = [];
@@ -212,6 +213,12 @@ function sectionSize(mod, secName, info) {
     return max;
 }
 function linkModulesV2(mods, opts = {}) {
+    const memory = opts.memory !== undefined ? (0, memoryLayout_1.normalizeMemoryLayout)(opts.memory) : undefined;
+    if (memory) {
+        opts = { ...opts, orgText: opts.orgText ?? memory.code.start };
+        if (memory.code.kind === "rom")
+            opts.orgData = opts.orgData ?? memory.ram.start;
+    }
     const symbols = new Map();
     const warnings = [];
     const texts = [];
@@ -307,6 +314,26 @@ function linkModulesV2(mods, opts = {}) {
     for (const item of asegSections) {
         sectionBase.set(sectionKey(item.modIndex, item.sec.name), 0);
     }
+    let layoutSymbols = {};
+    let layoutReport;
+    if (memory) {
+        (0, memoryLayout_1.validatePlacedMemory)(memory, [...textSections, ...dataSections, ...bssSections, ...customSections, ...asegSections].map(item => ({ kind: item.sec.kind, start: sectionBase.get(sectionKey(item.modIndex, item.sec.name)) ?? 0, size: item.size })));
+        const span = (items, fallback) => {
+            const active = items.filter(item => item.size > 0);
+            const start = active.length ? Math.min(...active.map(item => sectionBase.get(sectionKey(item.modIndex, item.sec.name)))) : fallback;
+            const end = active.length ? Math.max(...active.map(item => sectionBase.get(sectionKey(item.modIndex, item.sec.name)) + item.size)) : start;
+            return { start, size: end - start };
+        };
+        const text = span(textSections, memory.code.start), data = span(dataSections, opts.orgData ?? cursorText), bss = span(bssSections, opts.orgBss ?? cursorData);
+        (0, memoryLayout_1.validatePlacedMemory)(memory, [{ kind: "TEXT", ...text }, { kind: "DATA", ...data }, { kind: "BSS", ...bss }]);
+        const loadAddress = memory.code.kind === "rom" ? text.start + text.size : data.start;
+        if (loadAddress + data.size > memory.code.start + memory.code.size && memory.code.kind === "rom")
+            throw new Error("memory: ROM DATA load image exceeds code region");
+        layoutReport = { ...memory, text, data: { ...data, loadAddress }, bss };
+        layoutSymbols = { __MZ80_TEXT_START: text.start, __MZ80_TEXT_SIZE: text.size, __MZ80_DATA_START: data.start, __MZ80_DATA_SIZE: data.size, __MZ80_DATA_LOAD: loadAddress,
+            __MZ80_BSS_START: bss.start, __MZ80_BSS_SIZE: bss.size, __MZ80_STACK_START: memory.stack.start, __MZ80_STACK_TOP: memory.stack.top & 65535, __MZ80_STACK_SIZE: memory.stack.size,
+            __MZ80_HEAP_START: memory.heap?.start ?? 0, __MZ80_HEAP_SIZE: memory.heap?.size ?? 0 };
+    }
     // --- Pass 2: symbols / texts / refs ---
     const sectionMeta = new Map();
     for (const item of [...textSections, ...dataSections, ...bssSections, ...customSections, ...asegSections]) {
@@ -372,6 +399,17 @@ function linkModulesV2(mods, opts = {}) {
             }
         }
     });
+    for (const [name, addr] of Object.entries(layoutSymbols)) {
+        if (mods.some(mod => mod.symbols.some(symbol => symbol.storage !== "EXT" && symbol.name.toUpperCase() === name)))
+            throw new Error(`memory: reserved linker symbol ${name} was redefined`);
+        symbols.set(name, { bank: 0, addr, module: "__linker__" });
+    }
+    if (memory) {
+        const defined = new Set([...mods.flatMap(mod => mod.symbols.filter(symbol => symbol.storage !== "EXT").map(symbol => symbol.name)), ...Object.keys(layoutSymbols)]);
+        for (const name of mods.flatMap(mod => mod.externs))
+            if (!defined.has(name))
+                throw new Error(`memory: unresolved symbol ${name}`);
+    }
     const ctx = {
         symbols,
         externs: new Set(mods.flatMap(m => m.externs)),
@@ -407,6 +445,8 @@ function linkModulesV2(mods, opts = {}) {
             mem[r.addr + 1] = (v >> 8) & 0xFF;
         }
         else {
+            if (memory)
+                throw new Error(`memory: unresolved relocation ${r.sym}`);
             mem[r.addr] = 0;
             mem[r.addr + 1] = 0;
             if (res.unresolved) {
@@ -455,6 +495,7 @@ function linkModulesV2(mods, opts = {}) {
             kind: kindLower,
             range: { min, max },
             data: kind === "BSS" ? undefined : mem.slice(min, max + 1),
+            ...(layoutReport && kind === "DATA" ? { loadAddress: layoutReport.data.loadAddress } : {}),
         });
     }
     const segmentDetails = segments.map((seg) => {
@@ -472,6 +513,7 @@ function linkModulesV2(mods, opts = {}) {
         warnings,
         moduleSectionBases,
         segmentDetails,
+        ...(layoutReport ? { memoryLayout: layoutReport } : {}),
     };
 }
 function formatDefinedAt(defFile, defLine) {

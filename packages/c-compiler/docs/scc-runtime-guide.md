@@ -232,5 +232,27 @@ debug off の invalid pointer / double-free には回復保証がない。
 CP/M/raw の両 caller ABI、openMSX/C-BIOS の両 ABI × halt/return、tarball clean install で heap の 4 API を検証済み。
 MSX ROM では allocator DATA と arena を RAM に置き、startup で DATA を初期化する必要がある。
 heap smoke は DATA=C000H、BSS=C100H を使い、専用 test startup で zero DATA を初期化する。
-汎用 ROM DATA-copy startup の自動生成は別 feature である。
+この従来 smoke は互換検証用として維持する。通常の TS C build では下記の設定付き startup も使える。
+
+## Configured memory and startup (T2/T3)
+
+`compileSccProgram` の memory、project の link.memory で code/RAM と stack/heap の予約を指定する。
+memory 指定時の TS + structured runtime は、entry 前に SP 設定・DATA copy・BSS clear を行う CRT を生成する。
+`cc.startup.initHeap: true` は full runtime の予約 heap を初期化し、application 側の mz80_heap_init 呼出しを省略できる。
+設定を省略した build は従来の CRT / memory 配置を維持する。
+
+```text
+mz80 cc startup-probe.c demo.com --compiler ts --runtime-platform cpm --runtime-profile full --target-config cpm-target.json --com --map
+mz80 cc startup-probe.c demo.rom --compiler ts --ts-abi static-frame --runtime-platform msx-bios --runtime-profile full --runtime-exit return --target-config msx-target.json --map
+```
+
+[CP/M config](examples/cpm-target.json)、[MSX config](examples/msx-target.json)、[C probe](examples/startup-probe.c) を同梱する。
+MSX の設定付き cartridge は専用 test harness で ROM を加工する必要がなく、16/32 KiB の AB header と
+primary slot の page 2 設定を生成する。DATA は RAM に配置し、初期値は ROM に格納する。
+return は caller の SP/IX/IY と page 2 を復元する。expanded-slot cartridge は本 profile の対象外。
+
+link 時に領域範囲、TEXT/DATA/BSS の重複、予約 stack/heap への侵入、ROM load image の超過、
+未解決参照を診断し、`.memory.json` に配置を出力する。予約 stack は動的 overflow guard ではない。
+startup:false や copyData/clearBss/setStack:false は caller/loader が初期化を供給する場合の明示指定。
+詳細な schema、entry/heap/ABI contract、再現手順は [T2/T3 design](scc-target-startup-design.md) を参照する。
 詳細は [heap design](scc-heap-design.md) を参照する。

@@ -1,6 +1,6 @@
 # SCC Feature Plan
 
-更新日: 2026-11-18
+更新日: 2026-11-24
 
 ## 基準状態
 
@@ -103,8 +103,8 @@ binary ABI、runtime guide、実行証跡までを同時に更新する。状態
 | --- | --- | --- | --- |
 | T0 | CP/M、MSX BIOS、raw runtime | 完了 | lite / full profile と MSX exit mode |
 | T1 | openMSX smoke の CI 化 | 候補 | emulator / C-BIOS の利用可能な CI runner が必要 |
-| T2 | target memory / stack / heap size configuration | 候補 | H1、A1、linker memory model と接続する |
-| T3 | target startup customization（entry、BSS、data copy、stack reservation） | 候補 | platform CRT contract を拡張する |
+| T2 | target memory / stack / heap size configuration | 完了: 100% | T2/T3 共通3/3 slice。16-bit flat配置、予約・重複/範囲検査、ROM DATA、memory report |
+| T3 | target startup customization（entry、BSS、data copy、stack reservation） | 完了: 100% | TS両ABI、entry/heap、MSX16/32KiB cartridge/caller復元、配布consumer実行済み |
 | T4 | C compiler diagnostics の warning level / `-Werror` | 候補 | diagnostic category と CLI option を定義する |
 | T5 | C source map と debugger C-level view | 保留 | A8 と debug file format が必要 |
 | T6 | example program / compatibility corpus | 候補 | CP/M 実行可能な小規模 program を仕様例として固定する |
@@ -118,9 +118,12 @@ binary ABI、runtime guide、実行証跡までを同時に更新する。状態
 3. **検証可能性**: source-path CP/M runtime test と artifact test を同じ change に追加できる。
 4. **段階性**: 既定 `ts-internal` と current runtime を壊さず opt-in で導入できる。
 
-現時点の有力な選択肢は、A1（非リエントラント ABI）、H1（heap）、N1（fixed point）、A4/A6
-（external ABI の明文化）の四つである。選択後は対象 item を `候補` から実装 milestone へ分割し、
-完了率の母数と受入条件をこの文書で固定する。
+R0、A1.1 限定 MVP、H1、N1 の完了後、T2/T3 を一つの milestone として採用した。
+詳細は [target/startup design](scc-target-startup-design.md)。3 slice は配置検査、startup/設定接続、
+platform/配布総合検証で、3/3 slice（100%）を完了した。core 85 / C compiler 1072 / CLI 14 tests、
+openMSX 8構成、縮小配布4構成、通常配布 check:pack が成功。
+対象は16-bit flat配置とprimary-slot cartridgeで、expanded-slotや動的stack guard等は別scope。
+次の候補は F1 の profile/ABI 選択、A4/A6、L1 である。
 
 ## R0 — Runtime のリポジトリ再編成
 

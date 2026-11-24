@@ -36,3 +36,7 @@ C compiler docs: [../c-compiler/docs/README.md](../c-compiler/docs/README.md)
 
 Runtime platform/profile と bundled header の詳細は
 [C runtime guide](../c-compiler/docs/scc-runtime-guide.md) を参照してください。
+
+`mz80 cc --target-config file.json` は `{memory, startup}` の JSON を読み込みます。
+YAML project は `link.memory` / `cc.startup` を指定し、plain `mz80 link` も `link.memory` を利用します。
+メモリ配置・初期化と設定例は [T2/T3 design](../c-compiler/docs/scc-target-startup-design.md) を参照してください。

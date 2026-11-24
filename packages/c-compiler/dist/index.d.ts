@@ -1,4 +1,6 @@
 export { compileSccProgram, compileSccSourceToRel } from "./scc/compileProgram";
+export { configuredStartupSource, buildConfiguredStartup } from "./scc/startup";
+export type { RuntimeStartupOptions } from "./scc/startup";
 export type { CompileSccProgramOptions, CompileSccSourceResult } from "./scc/compileProgram";
 export { getBundledRuntimeDefines, getBundledRuntimeIncludeDir, getBundledSccRuntime, isBundledRuntimeSpec, isSccRuntimeName, runtimeId, writeBundledSccRuntime } from "./scc/runtime";
 export { getBundledRuntimeArtifacts } from "./scc/runtimeArtifacts";

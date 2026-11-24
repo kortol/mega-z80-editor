@@ -31,6 +31,8 @@ export interface ToolchainDrivers {
 export { createLogger } from "./logger";
 export type { Logger } from "./logger";
 export { link } from "./link";
+export { normalizeMemoryLayout, memoryAddress } from "./linker/memoryLayout";
+export type { LinkMemoryLayout, MemoryLayoutReport, NormalizedMemoryLayout } from "./linker/memoryLayout";
 export { parseRelFile } from "./linker/core/parser";
 export { createArchive } from "./linker/archive";
 export { loadArchiveFile } from "./linker/archive";

@@ -8,6 +8,8 @@ import { isArchivePath, loadArchiveFile } from "./linker/archive";
 import * as path from "path";
 import { readSourceMap, SourceMapEntry, SourceMapFile, writeSourceMap } from "./sourcemap/model";
 import { RelModule } from "./linker/core/types";
+import fs from "node:fs";
+import { LinkMemoryLayout, memoryAddress, normalizeMemoryLayout } from "./linker/memoryLayout";
 
 export function link(
   inputFiles: string[],
@@ -27,6 +29,7 @@ export function link(
     orgCustom?: string | number;
     fullpath?: "off" | "rel" | "on" | boolean | string;
     requireSymbols?: string[];
+    memory?: LinkMemoryLayout;
   }
 ) {
   const verbose = !!opts.verbose; 
@@ -42,8 +45,12 @@ export function link(
   const orgData = parseAddr(opts.orgData);
   const orgBss = parseAddr(opts.orgBss);
   const orgCustom = parseAddr(opts.orgCustom);
+  if(opts.memory && !hasV2)throw new Error("memory: configured layouts require REL v2");
+  if(opts.memory)for(const [label,value] of Object.entries({orgText:opts.orgText,orgData:opts.orgData,orgBss:opts.orgBss,orgCustom:opts.orgCustom,binFrom:opts.binFrom,binTo:opts.binTo}))if(value!==undefined)memoryAddress(value,label);
+  const memory=opts.memory!==undefined?normalizeMemoryLayout(opts.memory):undefined;
+  if(memory&&opts.com&&(memory.code.start!==0x100||memory.code.kind!=="ram"))throw new Error("memory: COM requires RAM code starting at 100H");
   const result = hasV2
-    ? linkModulesV2(mods, { orgText, orgData, orgBss, orgCustom })
+    ? linkModulesV2(mods, { orgText, orgData, orgBss, orgCustom, memory:opts.memory })
     : linkModules(mods);
   const providedSymbolNames = new Set(
     mods.flatMap((module) => module.symbols
@@ -60,9 +67,15 @@ export function link(
   }
 
   // .bin
-  const binFrom = parseAddr(opts.binFrom);
-  const binTo = parseAddr(opts.binTo);
+  const binFrom = parseAddr(opts.binFrom)??(memory?.code.kind==="rom"?memory.code.start:undefined);
+  const binTo = parseAddr(opts.binTo)??(memory?.code.kind==="rom"?memory.code.start+memory.code.size-1:undefined);
+  if(memory?.code.kind==="rom"&&((binFrom!==undefined&&binFrom<memory.code.start)||(binTo!==undefined&&binTo>=memory.code.start+memory.code.size)))throw new Error("memory: binary range exceeds ROM region");
+  if(memory)for(const segment of result.segments.filter(segment=>segment.data&&segment.data.length)){
+    const start=segment.loadAddress??segment.range.min,end=start+segment.data!.length-1;
+    if((binFrom!==undefined&&binFrom>start)||(binTo!==undefined&&binTo<end))throw new Error("memory: binary range truncates a loadable section");
+  }
   new BinOutputAdapter(result, { com: !!opts.com, binFrom, binTo }).write(outputFile, verbose);
+  if(result.memoryLayout)fs.writeFileSync(path.join(path.dirname(outputFile),path.basename(outputFile,path.extname(outputFile))+".memory.json"),JSON.stringify(result.memoryLayout,null,2)+"\n");
 
   // .map
   if (opts.map) {

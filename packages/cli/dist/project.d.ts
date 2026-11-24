@@ -1,4 +1,5 @@
-import { Logger } from "@mz80/core";
+import { Logger, LinkMemoryLayout } from "@mz80/core";
+import { RuntimeStartupOptions } from "@mz80/c-compiler";
 import { RuntimeSelection, ToolMode } from "@mz80/c-compiler";
 export type Mz80AsOptions = {
     relVersion?: number | string;
@@ -10,6 +11,7 @@ export type Mz80AsOptions = {
     sjasmCompat?: boolean;
 };
 export type Mz80LinkOptions = {
+    memory?: LinkMemoryLayout;
     com?: boolean;
     map?: boolean;
     sym?: boolean;
@@ -27,6 +29,7 @@ export type Mz80CleanOptions = {
     files?: string[];
 };
 export type Mz80CcOptions = {
+    startup?: RuntimeStartupOptions | false;
     compiler?: "sccz80" | "ts";
     tsAbi?: "internal" | "static-frame";
     runtime?: RuntimeSelection;

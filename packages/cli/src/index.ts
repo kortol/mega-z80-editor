@@ -3,7 +3,7 @@ import { Command } from "commander";
 import fs from "fs";
 import path from "path";
 import yaml from "yaml";
-import { createLogger } from "@mz80/core";
+import { createLogger, normalizeMemoryLayout } from "@mz80/core";
 import { buildProjectTarget, cleanProject, listProjectTargets, loadProjectConfig, Mz80Config } from "./project";
 
 function loadConfigFile(configPath: string, logger?: ReturnType<typeof createLogger>): Mz80Config {
@@ -27,6 +27,10 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   const as = cfg.as;
   const link = cfg.link;
+  for(const [where,item] of [["link",cfg.link],...Object.entries(cfg.targets??{}).map(([name,target])=>[`targets.${name}.link`,target.link])] as const){
+    const memory=(item as typeof cfg.link)?.memory;
+    if(memory!==undefined)try{normalizeMemoryLayout(memory);}catch(error:any){errors.push(`${where}: ${error.message}`);}
+  }
   const validateRuntime = (where: string, runtime: unknown) => {
     if (runtime === undefined) return;
     if (typeof runtime === "string") {
@@ -44,6 +48,12 @@ function validateConfig(cfg: Mz80Config): { valid: boolean; errors: string[] } {
   for (const [name, target] of Object.entries(cfg.targets ?? {})) {
     validateRuntime(`targets.${name}.runtime`, target.runtime);
     validateRuntime(`targets.${name}.cc.runtime`, target.cc?.runtime);
+    const memory=target.link?.memory??cfg.link?.memory;
+    const startup=target.cc?.startup??cfg.cc?.startup;
+    if(startup!==undefined&&startup!==false){
+      if(!memory)errors.push(`targets.${name}.cc.startup requires link.memory`);
+      if(!startup||typeof startup!=="object"||Array.isArray(startup))errors.push(`targets.${name}.cc.startup must be an object or false`);
+    }
   }
 
   if (as) {
@@ -201,6 +211,7 @@ program
   .command("cc <input> <output>")
   .description("Compile Small-C source into mz80 output")
   .option("--compiler <kind>", "Compiler backend: sccz80 | ts", "sccz80")
+  .option("--target-config <path>", "JSON file containing memory layout and startup options")
   .option("--ts-abi <profile>", "TS ABI: internal | static-frame (requires --compiler ts)")
   .option("--runtime <name>", `Bundled runtime to link (${SCC_RUNTIME_NAMES.join(", ")})`)
   .option("--runtime-platform <platform>", "Runtime platform: cpm | msx-bios | raw")
@@ -243,6 +254,7 @@ program
       const runtime = resolveRuntimeOptions(opts);
       compileSccProgramFromCli(logger, input, output, {
         compiler: opts.compiler,
+        targetConfig: opts.targetConfig,
         tsAbi: opts.tsAbi,
         runtime,
         library: opts.library,
@@ -588,6 +600,7 @@ program
           opts.fullpath = (cfg.link.fullpath as any) ?? opts.fullpath;
       }
 
+      if(cfg.link?.memory)opts.memory=cfg.link.memory;
       link(inputs, output, opts);
     } catch (err: any) {
       console.error(`❌ Link failed: ${err.message}`);

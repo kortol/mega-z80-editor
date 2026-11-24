@@ -1,0 +1,9 @@
+{
+  "memory": {
+    "code": { "start": "100H", "size": "8000H", "kind": "ram" },
+    "ram": { "start": "100H", "size": "EF00H" },
+    "stack": { "top": "EF00H", "size": "400H" },
+    "heap": { "start": "D000H", "size": "800H" }
+  },
+  "startup": { "entry": "program_entry", "initHeap": true }
+}

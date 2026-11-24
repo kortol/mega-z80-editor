@@ -1,7 +1,12 @@
 import { Logger } from "@mz80/core";
 import { RuntimeSelection } from "@mz80/c-compiler";
+import type { LinkMemoryLayout } from "@mz80/core";
+import type { RuntimeStartupOptions } from "@mz80/c-compiler";
 export type Mz80CcCompilerKind = "sccz80" | "ts";
 export type Mz80CcCliOptions = {
+    targetConfig?: string;
+    memory?: LinkMemoryLayout;
+    startup?: RuntimeStartupOptions | false;
     compiler?: Mz80CcCompilerKind;
     tsAbi?: "internal" | "static-frame";
     runtime?: RuntimeSelection;

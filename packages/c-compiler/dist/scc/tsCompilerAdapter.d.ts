@@ -10,4 +10,5 @@ export declare class TsSccCompilerAdapter implements CompilerAdapter {
     private readonly abi;
     constructor(opts?: TsSccCompilerAdapterOptions);
     compileToRel(logger: Logger, opts: CompilerAdapterCompileOptions): CompileSccSourceResult;
+    get abiProfile(): TsAbiProfile;
 }

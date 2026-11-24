@@ -227,6 +227,20 @@ try {
   const cli = path.join(installRoot, "node_modules", "@mz80", "cli", "dist", "index.js");
   const cliBin = path.join(installRoot, "node_modules", ".bin", process.platform === "win32" ? "mz80.cmd" : "mz80");
   run(cliBin, ["--help"], installRoot);
+  const startupExamples=path.join(installRoot,"node_modules","@mz80","c-compiler","docs","examples");
+  const startupCliSmoke=path.join(installRoot,"startup-cli-smoke.cjs");
+  fs.writeFileSync(startupCliSmoke,[
+    "const fs=require('node:fs'),assert=require('node:assert/strict'),{Z80DebugCore}=require('@mz80/core');",
+    "const file=process.argv[2],core=new Z80DebugCore(false);core.setCpm22Enabled(true);core.setAllowOutOfImage(true);",
+    "core.writeMemory(0x100,new Uint8Array(0xEF00).fill(0xA5));core.loadImage(fs.readFileSync(file),0x100);core.setEntry(0x100);",
+    "assert.equal(core.run(3000000).reason,'BDOS 0: terminate');assert.equal(core.getOutput(),'AB\\nCDE READY\\n1.25\\n1.2500\\n');",
+    "assert.equal(JSON.parse(fs.readFileSync(file.replace(/\\.com$/,'.memory.json'),'utf8')).heap.start,0xD000);",
+  ].join("\n"));
+  for(const abi of ["internal","static-frame"]){
+    const startupOutput=path.join(fixture,`startup-cli-${abi}.com`);
+    run(cliBin,["cc",path.join(startupExamples,"startup-probe.c"),startupOutput,"--compiler","ts","--ts-abi",abi,"--runtime-platform","cpm","--runtime-profile","full","--runtime-feature","fixed","--runtime-feature","bcd","--target-config",path.join(startupExamples,"cpm-target.json"),"--com","--quiet"],installRoot);
+    run(process.execPath,[startupCliSmoke,startupOutput],installRoot);
+  }
   const cliRel = path.join(fixture, "cli.rel");
   const linked = path.join(fixture, "cli.bin");
   run(cliBin, ["as", asmFile, cliRel, "--quiet"], installRoot);

@@ -1,3 +1,4 @@
+import { LinkMemoryLayout } from "./linker/memoryLayout";
 export declare function link(inputFiles: string[], outputFile: string, opts: {
     verbose?: boolean;
     map?: boolean;
@@ -13,4 +14,5 @@ export declare function link(inputFiles: string[], outputFile: string, opts: {
     orgCustom?: string | number;
     fullpath?: "off" | "rel" | "on" | boolean | string;
     requireSymbols?: string[];
+    memory?: LinkMemoryLayout;
 }): void;

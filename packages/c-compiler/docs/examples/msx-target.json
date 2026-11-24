@@ -1,0 +1,9 @@
+{
+  "memory": {
+    "code": { "start": "4000H", "size": "8000H", "kind": "rom" },
+    "ram": { "start": "C000H", "size": "3000H" },
+    "stack": { "top": "EF00H", "size": "400H" },
+    "heap": { "start": "D000H", "size": "800H" }
+  },
+  "startup": { "entry": "program_entry", "initHeap": true, "msxCartridge": true }
+}

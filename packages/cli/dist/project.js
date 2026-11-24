@@ -12,8 +12,9 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const yaml_1 = __importDefault(require("yaml"));
 const core_1 = require("@mz80/core");
-const assembler_1 = require("@mz80/assembler");
 const c_compiler_1 = require("@mz80/c-compiler");
+const assembler_1 = require("@mz80/assembler");
+const c_compiler_2 = require("@mz80/c-compiler");
 function loadProjectConfig(configPath, logger) {
     try {
         if (!fs_1.default.existsSync(configPath))
@@ -102,17 +103,30 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
         throw new Error("ts-static-frame requires exactly one C translation unit");
     }
     const compilerAdapter = target.cc?.compiler === "ts"
-        ? new c_compiler_1.TsSccCompilerAdapter({ abi: target.cc.tsAbi === "static-frame" ? "ts-static-frame" : "ts-internal" })
-        : new c_compiler_1.ExternalSccCompilerAdapter({
+        ? new c_compiler_2.TsSccCompilerAdapter({ abi: target.cc.tsAbi === "static-frame" ? "ts-static-frame" : "ts-internal" })
+        : new c_compiler_2.ExternalSccCompilerAdapter({
             dcppPath: target.cc?.dcpp,
             sccz80Path: target.cc?.sccz80,
             toolMode: target.cc?.toolMode ?? "host",
             tracePipeline: target.cc?.tracePipeline,
         });
+    const configured = !!target.link?.memory && target.cc?.startup !== false && !!target.runtime;
+    if (target.cc?.startup !== undefined && target.cc.startup !== false && !target.link?.memory)
+        throw new Error("startup requires memory layout");
+    if (target.cc?.startup !== undefined && target.cc.startup !== false && !target.runtime)
+        throw new Error("startup requires structured runtime");
+    if (configured) {
+        if (!(compilerAdapter instanceof c_compiler_2.TsSccCompilerAdapter) || typeof target.runtime.name === "string")
+            throw new Error("configured startup requires TS compiler and structured runtime");
+        const artifacts = (0, c_compiler_2.getBundledRuntimeArtifacts)(target.runtime.name);
+        if (path_1.default.resolve(target.runtime.object) !== path_1.default.resolve(artifacts.crtRelPath))
+            throw new Error("startup cannot be combined with runtimeObject override");
+        target.runtime.object = (0, c_compiler_1.buildConfiguredStartup)(target.runtime.name, target.link.memory, target.cc?.startup || {}, compilerAdapter.abiProfile, tempDir);
+    }
     if (target.runtime?.source && target.runtime.asm) {
         fs_1.default.mkdirSync(path_1.default.dirname(target.runtime.source), { recursive: true });
-        fs_1.default.writeFileSync(target.runtime.source, (0, c_compiler_1.getBundledSccRuntime)(target.runtime.name), "utf8");
-        fs_1.default.writeFileSync(target.runtime.asm, (0, c_compiler_1.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: (0, c_compiler_1.runtimeId)(target.runtime.name) }), "utf8");
+        fs_1.default.writeFileSync(target.runtime.source, (0, c_compiler_2.getBundledSccRuntime)(target.runtime.name), "utf8");
+        fs_1.default.writeFileSync(target.runtime.asm, (0, c_compiler_2.translateSccAsm)(fs_1.default.readFileSync(target.runtime.source, "utf8"), { moduleName: (0, c_compiler_2.runtimeId)(target.runtime.name) }), "utf8");
         (0, assembler_1.assemble)(logger, target.runtime.asm, target.runtime.object, {
             ...(target.as ?? {}),
             relVersion: normalizeRelVersion(target.as?.relVersion),
@@ -125,7 +139,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
         for (const mod of target.modules) {
             fs_1.default.mkdirSync(path_1.default.dirname(mod.object), { recursive: true });
             if (mod.kind === "c") {
-                (0, c_compiler_1.compileSccSourceToRel)(logger, {
+                (0, c_compiler_2.compileSccSourceToRel)(logger, {
                     inputFile: mod.source,
                     outputRelFile: mod.object,
                     includeDirs: target.cc?.includeDirs ?? [],
@@ -135,9 +149,10 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
                     verbose: false,
                     sym: !!target.link?.sym,
                     smap: !!target.link?.smap,
-                    defines: target.runtime ? (0, c_compiler_1.getBundledRuntimeDefines)(target.runtime.name) : undefined,
-                    bundledIncludeDirs: target.runtime ? (0, c_compiler_1.getBundledRuntimeIncludeDirs)(target.runtime.name) : undefined,
+                    defines: target.runtime ? (0, c_compiler_2.getBundledRuntimeDefines)(target.runtime.name) : undefined,
+                    bundledIncludeDirs: target.runtime ? (0, c_compiler_2.getBundledRuntimeIncludeDirs)(target.runtime.name) : undefined,
                     runtimeFeatures: typeof target.runtime?.name === "object" ? target.runtime.name.features : [],
+                    startupEntry: configured ? (target.cc?.startup && target.cc.startup.entry) || "main" : undefined,
                 }, compilerAdapter);
                 continue;
             }
@@ -156,7 +171,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
             ...target.modules.map((mod) => mod.object),
             ...target.libraries,
         ];
-        (0, c_compiler_1.validateTsAbiLinkInputs)(linkInputs);
+        (0, c_compiler_2.validateTsAbiLinkInputs)(linkInputs);
         (0, core_1.link)(linkInputs, target.output, {
             ...(target.link ?? {}),
             requireSymbols: target.runtime?.requiredSymbols,
@@ -165,7 +180,7 @@ function buildProjectTarget(configPath, cfg, requestedTarget, logger, overrides)
     }
     finally {
         if (!target.cc?.keepTemps && !target.cc?.tempDir) {
-            (0, c_compiler_1.safeRmDir)(tempDir);
+            (0, c_compiler_2.safeRmDir)(tempDir);
         }
     }
 }
@@ -199,7 +214,7 @@ function deriveObjectPath(targetOutput, sourcePath) {
 }
 function resolveRuntimePaths(configDir, targetOutput, runtimeName, runtimeObject) {
     if (typeof runtimeName !== "string") {
-        const artifacts = (0, c_compiler_1.getBundledRuntimeArtifacts)(runtimeName);
+        const artifacts = (0, c_compiler_2.getBundledRuntimeArtifacts)(runtimeName);
         return {
             name: runtimeName,
             object: path_1.default.resolve(configDir, runtimeObject && runtimeObject.trim().length > 0 ? runtimeObject : artifacts.crtRelPath),
@@ -209,7 +224,7 @@ function resolveRuntimePaths(configDir, targetOutput, runtimeName, runtimeObject
     }
     const objectPath = path_1.default.resolve(configDir, runtimeObject && runtimeObject.trim().length > 0
         ? runtimeObject
-        : path_1.default.join(path_1.default.dirname(targetOutput), `${(0, c_compiler_1.runtimeId)(runtimeName)}.rel`));
+        : path_1.default.join(path_1.default.dirname(targetOutput), `${(0, c_compiler_2.runtimeId)(runtimeName)}.rel`));
     const basePath = objectPath.replace(/\.rel$/i, "");
     return {
         name: runtimeName,
@@ -246,6 +261,7 @@ function mergeCcOptions(base, override) {
         includeDirs: override?.includeDirs ?? base?.includeDirs,
         cppArgs: override?.cppArgs ?? base?.cppArgs,
         sccArgs: override?.sccArgs ?? base?.sccArgs,
+        startup: override?.startup === undefined ? base?.startup : override.startup === false ? false : { ...(base?.startup || {}), ...override.startup },
     };
 }
 function applyBuildOverrides(target, configPath, overrides) {

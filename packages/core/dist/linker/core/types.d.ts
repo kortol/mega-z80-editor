@@ -29,6 +29,8 @@ export interface RelModule {
 }
 export type SegmentKind = "text" | "data" | "bss" | "custom";
 export interface MemorySegment {
+    /** Optional load address; range continues to describe runtime addresses. */
+    loadAddress?: number;
     bank: number;
     kind: SegmentKind;
     range: {
@@ -38,6 +40,7 @@ export interface MemorySegment {
     data?: Uint8Array;
 }
 export interface LinkResult {
+    memoryLayout?: import("../memoryLayout").MemoryLayoutReport;
     segments: MemorySegment[];
     entry?: number;
     symbols: Map<string, LinkedSymbol>;

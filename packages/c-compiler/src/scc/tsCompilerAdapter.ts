@@ -190,6 +190,7 @@ export class TsSccCompilerAdapter implements CompilerAdapter {
     }
     return compileFromSource(logger, opts, this.abi);
   }
+  get abiProfile(): TsAbiProfile { return this.abi; }
 }
 
 function describeFixture(fixtureId: string): string {
@@ -261,6 +262,9 @@ function compileFromSource(
   const preprocessed = preprocessTsCSource(sourceText, resolvedInput, opts);
   const parsed = parseProgram(preprocessed.sourceText, resolvedInput);
   const bound = analyzeProgram(parsed, preprocessed.sourceText, resolvedInput, { runtimeVariadicNames: preprocessed.runtimeVariadicNames });
+  const startupEntry=opts.startupEntry?bound.functions.find(fn=>fn.name===opts.startupEntry):undefined;
+  if(opts.startupEntry&&bound.globals.some(global=>global.name===opts.startupEntry))throw new Error("startup entry must be an exported int function(void)");
+  if(startupEntry&&(startupEntry.isStatic||startupEntry.isVariadic||startupEntry.params.length||startupEntry.returnType.kind!=="scalar"||startupEntry.returnType.name!=="int"))throw new Error("startup entry must be an exported int function(void)");
   validateNumericProviders(bound, opts.runtimeFeatures);
   const spec = lowerBoundProgram(bound, `${stem}.i`, preprocessed.sourceText, resolvedInput, abi, opts.runtimeFeatures);
 

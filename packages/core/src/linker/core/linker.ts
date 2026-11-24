@@ -3,6 +3,7 @@ import { parseRelFile } from "./parser";
 import { RelModule, LinkResult, RelSectionInfo, LinkedSymbol } from "./types";
 import { evalLinkExpr } from "../expr/evalLinkExpr";      // ★ 追加
 import { LinkResolveContext, ResolveFn } from "../expr/types"; // ★ 追加
+import { LinkMemoryLayout, normalizeMemoryLayout, validatePlacedMemory } from "../memoryLayout";
 
 export function linkModules(mods: RelModule[]): LinkResult {
   const symbols = new Map<string, LinkedSymbol>();
@@ -218,8 +219,13 @@ function sectionSize(mod: RelModule, secName: string, info?: RelSectionInfo): nu
 
 export function linkModulesV2(
   mods: RelModule[],
-  opts: { orgText?: number; orgData?: number; orgBss?: number; orgCustom?: number } = {}
+  opts: { orgText?: number; orgData?: number; orgBss?: number; orgCustom?: number; memory?: LinkMemoryLayout } = {}
 ): LinkResult {
+  const memory=opts.memory!==undefined?normalizeMemoryLayout(opts.memory):undefined;
+  if(memory){
+    opts={...opts,orgText:opts.orgText??memory.code.start};
+    if(memory.code.kind==="rom")opts.orgData=opts.orgData??memory.ram.start;
+  }
   const symbols = new Map<string, LinkedSymbol>();
   const warnings: string[] = [];
   const texts: { addr: number; bytes: number[] }[] = [];
@@ -325,6 +331,26 @@ export function linkModulesV2(
     sectionBase.set(sectionKey(item.modIndex, item.sec.name), 0);
   }
 
+  let layoutSymbols:Record<string,number>={};
+  let layoutReport:LinkResult["memoryLayout"];
+  if(memory){
+    validatePlacedMemory(memory,[...textSections,...dataSections,...bssSections,...customSections,...asegSections].map(item=>({kind:item.sec.kind!,start:sectionBase.get(sectionKey(item.modIndex,item.sec.name))??0,size:item.size})));
+    const span=(items:typeof textSections,fallback:number)=>{
+      const active=items.filter(item=>item.size>0);
+      const start=active.length?Math.min(...active.map(item=>sectionBase.get(sectionKey(item.modIndex,item.sec.name))!)):fallback;
+      const end=active.length?Math.max(...active.map(item=>sectionBase.get(sectionKey(item.modIndex,item.sec.name))!+item.size)):start;
+      return {start,size:end-start};
+    };
+    const text=span(textSections,memory.code.start),data=span(dataSections,opts.orgData??cursorText),bss=span(bssSections,opts.orgBss??cursorData);
+    validatePlacedMemory(memory,[{kind:"TEXT",...text},{kind:"DATA",...data},{kind:"BSS",...bss}]);
+    const loadAddress=memory.code.kind==="rom"?text.start+text.size:data.start;
+    if(loadAddress+data.size>memory.code.start+memory.code.size && memory.code.kind==="rom")throw new Error("memory: ROM DATA load image exceeds code region");
+    layoutReport={...memory,text,data:{...data,loadAddress},bss};
+    layoutSymbols={__MZ80_TEXT_START:text.start,__MZ80_TEXT_SIZE:text.size,__MZ80_DATA_START:data.start,__MZ80_DATA_SIZE:data.size,__MZ80_DATA_LOAD:loadAddress,
+      __MZ80_BSS_START:bss.start,__MZ80_BSS_SIZE:bss.size,__MZ80_STACK_START:memory.stack.start,__MZ80_STACK_TOP:memory.stack.top&65535,__MZ80_STACK_SIZE:memory.stack.size,
+      __MZ80_HEAP_START:memory.heap?.start??0,__MZ80_HEAP_SIZE:memory.heap?.size??0};
+  }
+
   // --- Pass 2: symbols / texts / refs ---
   const sectionMeta = new Map<string, { kind: RelSectionInfo["kind"]; base: number; size: number }>();
   for (const item of [...textSections, ...dataSections, ...bssSections, ...customSections, ...asegSections]) {
@@ -396,6 +422,14 @@ export function linkModulesV2(
     }
   });
 
+  for(const [name,addr] of Object.entries(layoutSymbols)){
+    if(mods.some(mod=>mod.symbols.some(symbol=>symbol.storage!=="EXT"&&symbol.name.toUpperCase()===name)))throw new Error(`memory: reserved linker symbol ${name} was redefined`);
+    symbols.set(name,{bank:0,addr,module:"__linker__"});
+  }
+  if(memory){
+    const defined=new Set([...mods.flatMap(mod=>mod.symbols.filter(symbol=>symbol.storage!=="EXT").map(symbol=>symbol.name)),...Object.keys(layoutSymbols)]);
+    for(const name of mods.flatMap(mod=>mod.externs))if(!defined.has(name))throw new Error(`memory: unresolved symbol ${name}`);
+  }
   const ctx: LinkResolveContext = {
     symbols,
     externs: new Set(mods.flatMap(m => m.externs)),
@@ -432,6 +466,7 @@ export function linkModulesV2(
       mem[r.addr] = v & 0xFF;
       mem[r.addr + 1] = (v >> 8) & 0xFF;
     } else {
+      if(memory)throw new Error(`memory: unresolved relocation ${r.sym}`);
       mem[r.addr] = 0;
       mem[r.addr + 1] = 0;
       if (res.unresolved) {
@@ -482,6 +517,7 @@ export function linkModulesV2(
       kind: kindLower,
       range: { min, max },
       data: kind === "BSS" ? undefined : mem.slice(min, max + 1),
+      ...(layoutReport&&kind==="DATA"?{loadAddress:layoutReport.data.loadAddress}:{}),
     });
   }
 
@@ -501,6 +537,7 @@ export function linkModulesV2(
     warnings,
     moduleSectionBases,
     segmentDetails,
+    ...(layoutReport?{memoryLayout:layoutReport}:{}),
   };
 }
 
